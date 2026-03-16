@@ -1,5 +1,5 @@
 /**
- * API layer – auth connected to new backend; rest stubbed for UI compatibility.
+ * API layer - auth connected to new backend; rest stubbed for UI compatibility.
  */
 
 import apiClient from "./axios.js";
@@ -47,7 +47,7 @@ export const api = {
   delete: (_url, _config) => emptyDataStub(),
 };
 
-/** Auth API – user OTP + admin login via new backend */
+/** Auth API - user OTP + admin login via new backend */
 export const authAPI = {
   sendOTP: (phone, _purpose = "login", _email = null) => {
     if (!phone) return Promise.reject(new Error("Phone is required"));
@@ -67,7 +67,7 @@ export const authAPI = {
   },
 };
 
-/** Admin API – login via new backend */
+/** Admin API - login via new backend */
 export const adminAPI = {
   login: (email, password) => authService.adminLogin(email, password),
   getCurrentAdmin: () => authService.getMe("admin"),
@@ -80,20 +80,17 @@ export const adminAPI = {
   // Restaurant approvals and join requests
   getPendingRestaurants: () =>
     apiClient.get("/food/admin/restaurants/pending", { contextModule: "admin" }),
-    apiClient.get("/food/admin/restaurants/pending", { contextModule: "admin" }),
   approveRestaurant: (id) =>
-    apiClient.patch(`/food/admin/restaurants/${id}/approve`, null, {
     apiClient.patch(`/food/admin/restaurants/${id}/approve`, null, {
       contextModule: "admin",
     }),
   rejectRestaurant: (id, reason) =>
     apiClient.patch(
       `/food/admin/restaurants/${id}/reject`,
-      `/food/admin/restaurants/${id}/reject`,
       { reason },
       { contextModule: "admin" },
     ),
-  /** Delivery partner join requests – uses /food/admin/delivery/* (new backend API) */
+  /** Delivery partner join requests - uses /food/admin/delivery/* (new backend API) */
   getDeliveryPartnerJoinRequests: (params) =>
     apiClient.get("/food/admin/delivery/join-requests", {
       params,
@@ -105,10 +102,9 @@ export const adminAPI = {
       params,
       contextModule: "admin",
     }),
-  /** Delivery boy wallets (stub until backend implements – returns empty so list still loads) */
+  /** Delivery boy wallets (stub until backend implements - returns empty so list still loads) */
   getDeliveryBoyWallets: (params) =>
     apiClient.get("/food/admin/delivery/wallets", {
-    apiClient.get("/food/delivery/admin/join-requests", {
       params,
       contextModule: "admin",
     }),
@@ -122,24 +118,25 @@ export const adminAPI = {
     apiClient.patch(`/food/admin/delivery/${String(id)}/reject`, { reason: String(reason || "").trim() }, {
       contextModule: "admin",
     }),
-  /** GET /food/admin/delivery/support-tickets – list all delivery support tickets (query: status, priority, search, page, limit). */
+  /** GET /food/admin/delivery/support-tickets - list all delivery support tickets (query: status, priority, search, page, limit). */
   getDeliverySupportTickets: (params) =>
     apiClient.get("/food/admin/delivery/support-tickets", { params, contextModule: "admin" }),
-  /** GET /food/admin/delivery/support-tickets/stats – counts by status. */
+  /** GET /food/admin/delivery/support-tickets/stats - counts by status. */
   getDeliverySupportTicketStats: () =>
     apiClient.get("/food/admin/delivery/support-tickets/stats", { contextModule: "admin" }),
-  /** PATCH /food/admin/delivery/support-tickets/:id – update adminResponse, status. */
+  /** PATCH /food/admin/delivery/support-tickets/:id - update adminResponse, status. */
   updateDeliverySupportTicket: (id, body) =>
     apiClient.patch(`/food/admin/delivery/support-tickets/${id}`, body ?? {}, { contextModule: "admin" }),
   /** List restaurants for admin (Explore More dropdowns, reports, etc.). Requires admin auth. */
-  getRestaurants: (params = {}) =>
+  getRestaurants: (params = {}, config = {}) =>
     apiClient.get("/food/admin/restaurants", {
       params: { limit: 1000, ...params },
       contextModule: "admin",
+      ...config,
     }),
 };
 
-/** Restaurant API – OTP login via new backend; no email/password. */
+/** Restaurant API - OTP login via new backend; no email/password. */
 export const restaurantAPI = {
   sendOTP: (phone, _purpose = "login") => {
     if (!phone) return Promise.reject(new Error("Phone is required"));
@@ -161,7 +158,6 @@ export const restaurantAPI = {
     Promise.reject(new Error("Please use phone number and OTP to sign in.")),
   /**
    * Register a restaurant (multipart FormData).
-   * Backend: POST /api/v1/food/restaurant/register
    * Backend: POST /v1/food/restaurant/register (path relative to baseURL /api/v1)
    */
   register: (formData) => {
@@ -169,11 +165,10 @@ export const restaurantAPI = {
       return Promise.reject(new Error("FormData is required"));
     }
     return apiClient.post("/food/restaurant/register", formData);
-    return apiClient.post("/food/restaurant/register", formData);
   },
 };
 
-/** Single in-flight + short cache for delivery /auth/me – one call per page load / refresh. */
+/** Single in-flight + short cache for delivery /auth/me - one call per page load / refresh. */
 let deliveryMeInFlight = null;
 let deliveryMeCached = null;
 let deliveryMeCacheTime = 0;
@@ -199,7 +194,7 @@ const getDeliveryMeOnce = () => {
   return deliveryMeInFlight;
 };
 
-/** Delivery API – OTP login + registration via new backend. */
+/** Delivery API - OTP login + registration via new backend. */
 export const deliveryAPI = {
   sendOTP: (phone, _purpose = "login") => {
     if (!phone) return Promise.reject(new Error("Phone is required"));
@@ -227,48 +222,48 @@ export const deliveryAPI = {
       (typeof localStorage !== "undefined" ? localStorage.getItem("delivery_refreshToken") : null);
     return authService.logout(token);
   },
-  /** POST /food/delivery/register – multipart FormData (new partner, no token). */
+  /** POST /food/delivery/register - multipart FormData (new partner, no token). */
   register: (formData) => {
     if (!formData || !(formData instanceof FormData)) {
       return Promise.reject(new Error("FormData with details and document files is required"));
     }
     return apiClient.post("/food/delivery/register", formData);
   },
-  /** PATCH /food/delivery/profile – complete profile after OTP (Bearer token required). */
+  /** PATCH /food/delivery/profile - complete profile after OTP (Bearer token required). */
   completeProfile: (formData) => {
     if (!formData || !(formData instanceof FormData)) {
       return Promise.reject(new Error("FormData with details and document files is required"));
     }
     return apiClient.patch("/food/delivery/profile", formData, { contextModule: "delivery" });
   },
-  /** PATCH /food/delivery/profile/details – JSON updates (vehicle number, etc). */
+  /** PATCH /food/delivery/profile/details - JSON updates (vehicle number, etc). */
   updateProfileDetails: (payload) =>
     apiClient.patch("/food/delivery/profile/details", payload ?? {}, { contextModule: "delivery" }),
-  /** PATCH /food/delivery/profile – multipart updates for photos/documents (uses same endpoint). */
+  /** PATCH /food/delivery/profile - multipart updates for photos/documents (uses same endpoint). */
   updateProfileMultipart: (formData) => {
     if (!formData || !(formData instanceof FormData)) {
       return Promise.reject(new Error("FormData is required"));
     }
     return apiClient.patch("/food/delivery/profile", formData, { contextModule: "delivery" });
   },
-  /** POST /food/delivery/profile/photo-base64 – Flutter in-app camera base64 upload. */
+  /** POST /food/delivery/profile/photo-base64 - Flutter in-app camera base64 upload. */
   updateProfilePhotoBase64: (payload) =>
     apiClient.post("/food/delivery/profile/photo-base64", payload ?? {}, { contextModule: "delivery" }),
-  /** PATCH /food/delivery/profile/bank-details – update bank details + PAN (JSON, Bearer required). */
+  /** PATCH /food/delivery/profile/bank-details - update bank details + PAN (JSON, Bearer required). */
   updateProfile: (payload) =>
     apiClient.patch("/food/delivery/profile/bank-details", payload ?? {}, {
       contextModule: "delivery",
     }),
-  /** GET /food/delivery/support-tickets – list tickets for logged-in delivery partner. */
+  /** GET /food/delivery/support-tickets - list tickets for logged-in delivery partner. */
   getSupportTickets: () =>
     apiClient.get("/food/delivery/support-tickets", { contextModule: "delivery" }),
-  /** POST /food/delivery/support-tickets – create ticket (body: subject, description, category?, priority?). */
+  /** POST /food/delivery/support-tickets - create ticket (body: subject, description, category?, priority?). */
   createSupportTicket: (body) =>
     apiClient.post("/food/delivery/support-tickets", body ?? {}, { contextModule: "delivery" }),
-  /** GET /food/delivery/support-tickets/:id – get one ticket (own only). */
+  /** GET /food/delivery/support-tickets/:id - get one ticket (own only). */
   getSupportTicketById: (id) =>
     apiClient.get(`/food/delivery/support-tickets/${id}`, { contextModule: "delivery" }),
-  /** PATCH /food/delivery/availability – set online/offline (and optional lat/lng). */
+  /** PATCH /food/delivery/availability - set online/offline (and optional lat/lng). */
   updateOnlineStatus: (isOnline) =>
     apiClient.patch("/food/delivery/availability", { status: isOnline ? "online" : "offline" }, { contextModule: "delivery" }),
   updateLocation: (latitude, longitude, isOnline) =>

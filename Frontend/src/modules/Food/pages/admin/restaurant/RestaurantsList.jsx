@@ -15,6 +15,10 @@ const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
 
+// Inline placeholder (no external request, avoids referrer policy / 500 from via.placeholder)
+const PLACEHOLDER_40 = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40'%3E%3Crect fill='%23e2e8f0' width='40' height='40'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' fill='%2394a3b8' font-size='12' font-family='sans-serif'%3E?%3C/text%3E%3C/svg%3E"
+const PLACEHOLDER_128 = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='128' height='128'%3E%3Crect fill='%23e2e8f0' width='128' height='128'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' fill='%2394a3b8' font-size='32' font-family='sans-serif'%3E?%3C/text%3E%3C/svg%3E"
+
 
 export default function RestaurantsList() {
   const navigate = useNavigate()
@@ -111,8 +115,9 @@ export default function RestaurantsList() {
     return `REST${lastDigits}`
   }
 
-  // Fetch restaurants from backend API
+  // Fetch restaurants from backend API (AbortController prevents duplicate call in React Strict Mode)
   useEffect(() => {
+    const ac = new AbortController()
     const fetchRestaurants = async () => {
       try {
         setLoading(true)
@@ -120,49 +125,52 @@ export default function RestaurantsList() {
 
         let response
         try {
-          // Try admin API first
-          response = await adminAPI.getRestaurants()
+          response = await adminAPI.getRestaurants({}, { signal: ac.signal })
         } catch (adminErr) {
-          // Fallback to regular restaurant API if admin endpoint doesn't exist
-          debugLog("Admin restaurants endpoint not available, using fallback")
-          response = await restaurantAPI.getRestaurants()
+          if (adminErr?.name === "AbortError") return
+          try {
+            debugLog("Admin restaurants endpoint not available, using fallback")
+            response = await restaurantAPI.getRestaurants()
+          } catch (fallbackErr) {
+            if (fallbackErr?.name === "AbortError") return
+            throw fallbackErr
+          }
         }
 
+        if (ac.signal.aborted) return
         if (response.data && response.data.success && response.data.data) {
-          // Map backend data to frontend format
           const restaurantsData = response.data.data.restaurants || response.data.data || []
-
           const mappedRestaurants = restaurantsData.map((restaurant, index) => ({
             id: restaurant._id || restaurant.id || index + 1,
-            _id: restaurant._id, // Preserve original _id for API calls
-            name: restaurant.name || "N/A",
+            _id: restaurant._id,
+            name: restaurant.name || restaurant.restaurantName || "N/A",
             ownerName: restaurant.ownerName || "N/A",
             ownerPhone: restaurant.ownerPhone || restaurant.phone || "N/A",
-            zone: restaurant.location?.area || restaurant.location?.city || restaurant.zone || "N/A",
+            zone: restaurant.area || restaurant.city || restaurant.location?.area || restaurant.location?.city || restaurant.zone || "N/A",
             cuisine: Array.isArray(restaurant.cuisines) && restaurant.cuisines.length > 0
               ? restaurant.cuisines[0]
               : (restaurant.cuisine || "N/A"),
-            status: restaurant.isActive !== false, // Default to true if not set
+            status: restaurant.status === "approved" || restaurant.isActive !== false,
             rating: restaurant.ratings?.average || restaurant.rating || 0,
-            logo: restaurant.profileImage?.url || restaurant.logo || "https://via.placeholder.com/40",
-            // Preserve original restaurant data for details modal
+            logo: typeof restaurant.profileImage === "string" ? restaurant.profileImage : (restaurant.profileImage?.url || restaurant.logo || PLACEHOLDER_40),
             originalData: restaurant,
           }))
-
           setRestaurants(mappedRestaurants)
         } else {
           setRestaurants([])
         }
       } catch (err) {
+        if (err?.name === "AbortError") return
         debugError("Error fetching restaurants:", err)
         setError(err.message || "Failed to fetch restaurants")
         setRestaurants([])
       } finally {
-        setLoading(false)
+        if (!ac.signal.aborted) setLoading(false)
       }
     }
 
     fetchRestaurants()
+    return () => ac.abort()
   }, [])
 
   useEffect(() => {
@@ -1122,7 +1130,7 @@ export default function RestaurantsList() {
                                 alt={restaurant.name}
                                 className="w-full h-full object-cover"
                                 onError={(e) => {
-                                  e.target.src = "https://via.placeholder.com/40"
+                                  e.target.src = PLACEHOLDER_40
                                 }}
                               />
                             </div>
@@ -1375,11 +1383,11 @@ export default function RestaurantsList() {
                   <div className="flex flex-col md:flex-row items-center md:items-start gap-8">
                     <div className="w-32 h-32 rounded-3xl overflow-hidden bg-slate-50 shrink-0 shadow-inner group">
                       <img
-                        src={profileImgUrl || "https://via.placeholder.com/128"}
+                        src={profileImgUrl || PLACEHOLDER_128}
                         alt={r?.restaurantName || r?.name || "Restaurant"}
                         className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
                         onError={(e) => {
-                          e.target.src = "https://via.placeholder.com/128"
+                          e.target.src = PLACEHOLDER_128
                         }}
                       />
                     </div>
@@ -1933,7 +1941,7 @@ export default function RestaurantsList() {
                                 alt="Profile"
                                 className="w-32 h-32 rounded-lg object-cover border border-slate-200 hover:border-blue-500 transition-colors"
                                 onError={(e) => {
-                                  e.target.src = "https://via.placeholder.com/128"
+                                  e.target.src = PLACEHOLDER_128
                                 }}
                               />
                             </a>
