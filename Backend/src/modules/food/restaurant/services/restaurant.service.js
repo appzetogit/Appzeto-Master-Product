@@ -32,6 +32,10 @@ export const registerRestaurant = async (payload, files) => {
         accountType
     } = payload;
 
+    if (!ownerPhone) {
+        throw new ValidationError('Owner phone is required to register a restaurant');
+    }
+
     const existing = await FoodRestaurant.findOne({ restaurantName, ownerPhone }).lean();
     if (existing) {
         throw new ValidationError('Restaurant with this name and owner phone already exists');

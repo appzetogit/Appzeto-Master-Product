@@ -77,6 +77,25 @@ export const adminAPI = {
       (typeof localStorage !== "undefined" ? localStorage.getItem("admin_refreshToken") : null);
     return authService.logout(token);
   },
+  // Restaurant approvals and join requests
+  getPendingRestaurants: () =>
+    apiClient.get("/v1/food/admin/restaurants/pending", { contextModule: "admin" }),
+  approveRestaurant: (id) =>
+    apiClient.patch(`/v1/food/admin/restaurants/${id}/approve`, null, {
+      contextModule: "admin",
+    }),
+  rejectRestaurant: (id, reason) =>
+    apiClient.patch(
+      `/v1/food/admin/restaurants/${id}/reject`,
+      { reason },
+      { contextModule: "admin" },
+    ),
+  /** Delivery partner join requests for admin panel */
+  getDeliveryPartnerJoinRequests: (params) =>
+    apiClient.get("/v1/food/delivery/admin/join-requests", {
+      params,
+      contextModule: "admin",
+    }),
 };
 
 /** Restaurant API – OTP login via new backend; no email/password. */
@@ -99,6 +118,16 @@ export const restaurantAPI = {
   /** Backend has no email/password login; use phone OTP only. */
   login: (_email, _password) =>
     Promise.reject(new Error("Please use phone number and OTP to sign in.")),
+  /**
+   * Register a restaurant (multipart FormData).
+   * Backend: POST /v1/food/restaurant/register
+   */
+  register: (formData) => {
+    if (!formData || !(formData instanceof FormData)) {
+      return Promise.reject(new Error("FormData is required"));
+    }
+    return apiClient.post("/v1/food/restaurant/register", formData);
+  },
 };
 
 /** Delivery API – OTP login + registration via new backend. */
@@ -118,26 +147,47 @@ export const deliveryAPI = {
       (typeof localStorage !== "undefined" ? localStorage.getItem("delivery_refreshToken") : null);
     return authService.logout(token);
   },
-  /** POST /food/delivery/register – multipart FormData (new partner, no token). */
+  /** POST /v1/food/delivery/register – multipart FormData (new partner, no token). */
   register: (formData) => {
     if (!formData || !(formData instanceof FormData)) {
       return Promise.reject(new Error("FormData with details and document files is required"));
     }
-    return apiClient.post("/food/delivery/register", formData);
+    return apiClient.post("/v1/food/delivery/register", formData);
   },
-  /** PATCH /food/delivery/profile – complete profile after OTP (Bearer token required). */
+  /** PATCH /v1/food/delivery/profile – complete profile after OTP (Bearer token required). */
   completeProfile: (formData) => {
     if (!formData || !(formData instanceof FormData)) {
       return Promise.reject(new Error("FormData with details and document files is required"));
     }
-    return apiClient.patch("/food/delivery/profile", formData, { contextModule: "delivery" });
+    return apiClient.patch("/v1/food/delivery/profile", formData, { contextModule: "delivery" });
   },
 };
 
 export const userAPI = createStubAPI();
 export const locationAPI = createStubAPI();
 export const zoneAPI = createStubAPI();
-export const uploadAPI = createStubAPI();
+export const uploadAPI = {
+  /**
+   * Upload a single image file to the backend (Cloudinary-backed).
+   * @param {File|Blob} file
+   * @param {{ folder?: string }} options
+   */
+  uploadMedia: (file, options = {}) => {
+    if (!file) {
+      return Promise.reject(new Error("File is required for upload"));
+    }
+
+    const formData = new FormData();
+    formData.append("file", file);
+    if (options.folder) {
+      formData.append("folder", options.folder);
+    }
+
+    return apiClient.post("/v1/uploads/image", formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+  },
+};
 export const orderAPI = createStubAPI();
 export const diningAPI = createStubAPI();
 export const heroBannerAPI = createStubAPI();

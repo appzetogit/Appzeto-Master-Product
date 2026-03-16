@@ -105,7 +105,21 @@ export const verifyRestaurantOtpAndLogin = async (phone, otp) => {
 
     const restaurant = await FoodRestaurant.findOne({ ownerPhone: phone }).lean();
     if (!restaurant) {
-        throw new AuthError('No restaurant found with this phone. Please complete onboarding first.');
+        // Phone has been successfully verified, but no restaurant exists yet.
+        // Frontend will use this to redirect into registration/onboarding.
+        return {
+            needsRegistration: true,
+            phone
+        };
+    }
+
+    // If restaurant approval status is used, only allow login for approved restaurants.
+    if (restaurant.status && restaurant.status !== 'approved') {
+        throw new AuthError(
+            restaurant.status === 'pending'
+                ? 'Your restaurant registration is pending approval.'
+                : 'Your restaurant registration has been rejected. Please contact support.'
+        );
     }
 
     const payload = { userId: restaurant._id.toString(), role: ROLES.RESTAURANT };
@@ -120,7 +134,7 @@ export const verifyRestaurantOtpAndLogin = async (phone, otp) => {
         expiresAt
     });
 
-    return { accessToken, refreshToken, user: restaurant };
+    return { accessToken, refreshToken, user: restaurant, needsRegistration: false };
 };
 
 export const requestDeliveryOtp = async (phone) => {
@@ -137,17 +151,15 @@ export const verifyDeliveryOtpAndLogin = async (phone, otp) => {
         throw new AuthError(result.reason || 'OTP verification failed');
     }
 
-    let deliveryPartner = await FoodDeliveryPartner.findOne({ phone }).lean();
-    let needsRegistration = false;
-
+    const deliveryPartner = await FoodDeliveryPartner.findOne({ phone }).lean();
     if (!deliveryPartner) {
-        const created = await FoodDeliveryPartner.create({
-            phone,
-            name: 'Pending',
-            status: 'pending'
-        });
-        deliveryPartner = created.toObject();
-        needsRegistration = true;
+        // No partner yet – OTP is valid but registration must be completed first.
+        // Do NOT create any document here; frontend will redirect to registration form.
+        return { needsRegistration: true, phone };
+    }
+
+    if (deliveryPartner.status && deliveryPartner.status !== 'approved') {
+        throw new AuthError('Your delivery account is pending admin approval.');
     }
 
     const payload = { userId: deliveryPartner._id.toString(), role: ROLES.DELIVERY_PARTNER };
@@ -162,7 +174,7 @@ export const verifyDeliveryOtpAndLogin = async (phone, otp) => {
         expiresAt
     });
 
-    return { accessToken, refreshToken, user: deliveryPartner, needsRegistration };
+    return { accessToken, refreshToken, user: deliveryPartner, needsRegistration: false };
 };
 
 export const logout = async (refreshToken) => {
