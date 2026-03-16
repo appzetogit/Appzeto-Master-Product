@@ -97,9 +97,9 @@ export default function OTP() {
       inputRefs.current[index + 1]?.focus()
     }
 
-    // Auto-submit when all 6 digits are entered and we are in OTP step
-    if (!showNameInput && newOtp.every((digit) => digit !== "") && newOtp.length === 6) {
-      handleVerify(newOtp.join(""))
+    // Auto-submit when first 4 digits are entered (dev OTP mode = 1234)
+    if (!showNameInput && newOtp.slice(0, 4).every((digit) => digit !== "")) {
+      handleVerify(newOtp.slice(0, 4).join(""))
     }
   }
 
@@ -123,7 +123,7 @@ export default function OTP() {
     if (e.key === "v" && (e.ctrlKey || e.metaKey)) {
       e.preventDefault()
       navigator.clipboard.readText().then((text) => {
-        const digits = text.replace(/\D/g, "").slice(0, 6).split("")
+        const digits = text.replace(/\D/g, "").slice(0, 4).split("")
         const newOtp = [...otp]
         digits.forEach((digit, i) => {
           if (i < 6) {
@@ -131,8 +131,8 @@ export default function OTP() {
           }
         })
         setOtp(newOtp)
-        if (!showNameInput && digits.length === 6) {
-          handleVerify(newOtp.join(""))
+        if (!showNameInput && digits.length === 4) {
+          handleVerify(newOtp.slice(0, 4).join(""))
         } else {
           inputRefs.current[digits.length]?.focus()
         }
@@ -143,7 +143,7 @@ export default function OTP() {
   const handlePaste = (e) => {
     e.preventDefault()
     const pastedData = e.clipboardData.getData("text")
-    const digits = pastedData.replace(/\D/g, "").slice(0, 6).split("")
+    const digits = pastedData.replace(/\D/g, "").slice(0, 4).split("")
     const newOtp = [...otp]
     digits.forEach((digit, i) => {
       if (i < 6) {
@@ -151,8 +151,8 @@ export default function OTP() {
       }
     })
     setOtp(newOtp)
-    if (!showNameInput && digits.length === 6) {
-      handleVerify(newOtp.join(""))
+    if (!showNameInput && digits.length === 4) {
+      handleVerify(newOtp.slice(0, 4).join(""))
     } else {
       inputRefs.current[digits.length]?.focus()
     }
@@ -164,9 +164,9 @@ export default function OTP() {
       return
     }
 
-    const code = otpValue || otp.join("")
-
-    if (code.length !== 6) {
+    const code = (otpValue || otp.join("")).replace(/\D/g, "")
+    const code4 = code.slice(0, 4)
+    if (code4.length !== 4) {
       return
     }
 
@@ -183,7 +183,7 @@ export default function OTP() {
       // First attempt: verify OTP for login/register with user role
       const response = await authAPI.verifyOTP(
         phone,
-        code,
+        code4,
         purpose,
         providedName,
         email,
@@ -191,20 +191,11 @@ export default function OTP() {
         null,
         referralCode,
       )
-      const data = response?.data?.data || {}
+      const data = response?.data?.data || response?.data || {}
 
-      // If backend tells us this is a new user, ask for name
-      if (data.needsName) {
-        setShowNameInput(true)
-        setVerifiedOtp(code)
-        setOtp(["", "", "", "", "", ""])
-        setSuccess(false)
-        setIsLoading(false)
-        return
-      }
-
-      // Otherwise, OTP verified and user logged in/registered
+      // OTP verified – backend returns { accessToken, refreshToken, user }
       const accessToken = data.accessToken
+      const refreshToken = data.refreshToken || null
       const user = data.user
 
       if (!accessToken || !user) {
@@ -214,8 +205,7 @@ export default function OTP() {
       // Clear auth data from sessionStorage
       sessionStorage.removeItem("userAuthData")
 
-      // Replace old token with new one (handles cross-module login)
-      setUserAuthData("user", accessToken, user)
+      setUserAuthData("user", accessToken, user, refreshToken)
 
       // Dispatch custom event for same-tab updates
       window.dispatchEvent(new Event("userAuthChanged"))
@@ -276,27 +266,24 @@ export default function OTP() {
         null,
         referralCode,
       )
-      const data = response?.data?.data || {}
+      const data = response?.data?.data || response?.data || {}
 
       const accessToken = data.accessToken
+      const refreshToken = data.refreshToken || null
       const user = data.user
 
       if (!accessToken || !user) {
         throw new Error("Invalid response from server")
       }
 
-      // Clear auth data from sessionStorage
       sessionStorage.removeItem("userAuthData")
 
-      // Replace old token with new one (handles cross-module login)
-      setUserAuthData("user", accessToken, user)
+      setUserAuthData("user", accessToken, user, refreshToken)
 
-      // Dispatch custom event for same-tab updates
       window.dispatchEvent(new Event("userAuthChanged"))
 
       setSuccess(true)
 
-      // Redirect to user home after short delay
       setTimeout(() => {
         navigate("/food/user")
       }, 500)

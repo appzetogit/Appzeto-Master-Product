@@ -28,12 +28,16 @@ export const verifyUserOtpAndLogin = async (phone, otp) => {
         throw new AuthError(result.reason || 'OTP verification failed');
     }
 
-    let user = await ZomatoUser.findOne({ phone }).lean();
-    if (!user) {
-        const created = await ZomatoUser.create({ phone });
-        user = created.toObject();
+    // Ensure user exists and mark as verified on successful OTP.
+    let userDoc = await ZomatoUser.findOne({ phone });
+    if (!userDoc) {
+        userDoc = await ZomatoUser.create({ phone, isVerified: true });
+    } else if (!userDoc.isVerified) {
+        userDoc.isVerified = true;
+        await userDoc.save();
     }
 
+    const user = userDoc.toObject();
     const payload = { userId: user._id.toString(), role: user.role || 'USER' };
 
     const accessToken = signAccessToken(payload);

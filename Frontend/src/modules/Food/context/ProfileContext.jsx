@@ -36,16 +36,6 @@ export function ProfileProvider({ children }) {
     return Array.from(addressMap.values())
   }
   const [userProfile, setUserProfile] = useState(() => {
-    // ALWAYS provide a mock user by default for direct access
-    const defaultUser = {
-      id: "mock-user-123",
-      name: "Guest User",
-      email: "guest@appzeto.com",
-      phone: "1234567890",
-      role: "user"
-    }
-
-    // First, try to get from localStorage (user_user from auth)
     const userStr = localStorage.getItem("user_user")
     if (userStr) {
       try {
@@ -54,8 +44,6 @@ export function ProfileProvider({ children }) {
         debugError("Error parsing user_user from localStorage:", e)
       }
     }
-    
-    // Fallback to userProfile from localStorage
     const saved = localStorage.getItem("userProfile")
     if (saved) {
       try {
@@ -64,9 +52,7 @@ export function ProfileProvider({ children }) {
         debugError("Error parsing userProfile from localStorage:", e)
       }
     }
-    
-    // Default to mock user instead of null
-    return defaultUser
+    return null
   })
   
   const [loading, setLoading] = useState(true)
