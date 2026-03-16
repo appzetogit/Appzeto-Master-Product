@@ -32,3 +32,4 @@ zomatoGourmetRestaurantSchema.index({ restaurantId: 1 });
 zomatoGourmetRestaurantSchema.index({ isActive: 1, priority: 1 });
 
 export const ZomatoGourmetRestaurant = mongoose.model('ZomatoGourmetRestaurant', zomatoGourmetRestaurantSchema);
+

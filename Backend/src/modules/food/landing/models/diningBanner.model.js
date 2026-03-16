@@ -1,6 +1,6 @@
 import mongoose from 'mongoose';
 
-const zomatoUnder250BannerSchema = new mongoose.Schema(
+const zomatoDiningBannerSchema = new mongoose.Schema(
     {
         imageUrl: {
             type: String,
@@ -19,7 +19,7 @@ const zomatoUnder250BannerSchema = new mongoose.Schema(
         ctaLink: {
             type: String
         },
-        zoneId: {
+        diningType: {
             type: String
         },
         sortOrder: {
@@ -34,11 +34,12 @@ const zomatoUnder250BannerSchema = new mongoose.Schema(
         }
     },
     {
-        collection: 'food_under250_banners',
+        collection: 'food_dining_banners',
         timestamps: true
     }
 );
 
-zomatoUnder250BannerSchema.index({ isActive: 1, sortOrder: 1 });
+zomatoDiningBannerSchema.index({ isActive: 1, sortOrder: 1 });
 
-export const ZomatoUnder250Banner = mongoose.model('ZomatoUnder250Banner', zomatoUnder250BannerSchema);
+export const ZomatoDiningBanner = mongoose.model('ZomatoDiningBanner', zomatoDiningBannerSchema);
+

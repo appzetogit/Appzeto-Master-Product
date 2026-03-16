@@ -38,3 +38,4 @@ zomatoTop10RestaurantSchema.index({ rank: 1 }, { unique: true });
 zomatoTop10RestaurantSchema.index({ restaurantId: 1 });
 
 export const ZomatoTop10Restaurant = mongoose.model('ZomatoTop10Restaurant', zomatoTop10RestaurantSchema);
+

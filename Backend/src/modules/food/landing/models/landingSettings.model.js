@@ -43,3 +43,4 @@ const zomatoLandingSettingsSchema = new mongoose.Schema(
 );
 
 export const ZomatoLandingSettings = mongoose.model('ZomatoLandingSettings', zomatoLandingSettingsSchema);
+

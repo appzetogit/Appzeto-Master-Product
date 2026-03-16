@@ -42,3 +42,4 @@ const zomatoExploreIconSchema = new mongoose.Schema(
 zomatoExploreIconSchema.index({ isActive: 1, sortOrder: 1 });
 
 export const ZomatoExploreIcon = mongoose.model('ZomatoExploreIcon', zomatoExploreIconSchema);
+
