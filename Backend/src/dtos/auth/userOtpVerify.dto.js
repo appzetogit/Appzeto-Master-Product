@@ -8,7 +8,7 @@ const schema = z.object({
         .max(15, 'Phone must be at most 15 digits'),
     otp: z
         .string()
-        .length(6, 'OTP must be 6 digits')
+        .length(4, 'OTP must be 4 digits')
 });
 
 export const validateUserOtpVerifyDto = (body) => {

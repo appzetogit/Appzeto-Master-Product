@@ -141,27 +141,11 @@ export default function Under250() {
     return filtered
   }, [under250Restaurants, selectedSort, under30MinsFilter])
 
-  // Fetch under 250 banners from API
+  // Old backend endpoint removed: keep UI stable with no banner.
   useEffect(() => {
-    const fetchBanners = async () => {
-      try {
-        setLoadingBanner(true)
-        const response = await api.get('/hero-banners/under-250/public')
-        if (response.data.success && response.data.data.banners && response.data.data.banners.length > 0) {
-          // Use the first banner
-          setBannerImage(response.data.data.banners[0])
-        } else {
-          setBannerImage(null)
-        }
-      } catch (error) {
-        debugError('Error fetching under 250 banners:', error)
-        setBannerImage(null)
-      } finally {
-        setLoadingBanner(false)
-      }
-    }
-
-    fetchBanners()
+    setLoadingBanner(true)
+    setBannerImage(null)
+    setLoadingBanner(false)
   }, [])
 
   // Fetch restaurants with dishes under ?250 from backend
@@ -187,45 +171,16 @@ export default function Under250() {
     fetchRestaurantsUnder250()
   }, [zoneId, isOutOfService])
 
-  // Fetch categories from admin API
+  // Old backend endpoint removed: keep UI stable with default categories list.
   useEffect(() => {
-    const fetchCategories = async () => {
-      try {
-        setLoadingCategories(true)
-        const response = await api.get('/categories/public')
-        if (response.data.success && response.data.data.categories) {
-          const adminCategories = response.data.data.categories.map(cat => ({
-            id: cat.id,
-            name: cat.name,
-            image: cat.image || foodImages[0], // Fallback to default image if not provided
-            slug: cat.slug || cat.name.toLowerCase().replace(/\s+/g, '-')
-          }))
-          setCategories(adminCategories)
-        } else {
-          // Fallback to default categories if API fails
-          const defaultCategories = [
-            { id: 1, name: "Biryani", image: foodImages[0] },
-            { id: 2, name: "Cake", image: foodImages[1] },
-            { id: 3, name: "Chhole Bhature", image: foodImages[2] },
-            { id: 4, name: "Chicken Tanduri", image: foodImages[3] },
-          ]
-          setCategories(defaultCategories)
-        }
-      } catch (error) {
-        debugError('Error fetching categories:', error)
-        // Fallback to default categories on error
-        const defaultCategories = [
-          { id: 1, name: "Biryani", image: foodImages[0] },
-          { id: 2, name: "Cake", image: foodImages[1] },
-          { id: 3, name: "Chhole Bhature", image: foodImages[2] },
-        ]
-        setCategories(defaultCategories)
-      } finally {
-        setLoadingCategories(false)
-      }
-    }
-
-    fetchCategories()
+    setLoadingCategories(true)
+    setCategories([
+      { id: 1, name: "Biryani", image: foodImages[0] },
+      { id: 2, name: "Cake", image: foodImages[1] },
+      { id: 3, name: "Chhole Bhature", image: foodImages[2] },
+      { id: 4, name: "Chicken Tanduri", image: foodImages[3] },
+    ])
+    setLoadingCategories(false)
   }, [])
 
   // Sync quantities from cart on mount

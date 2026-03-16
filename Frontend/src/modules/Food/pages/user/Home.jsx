@@ -627,123 +627,31 @@ export default function Home() {
     }
   }, [showVegModePopup])
 
-  // Fetch hero banners from API
+  // Old backend endpoint removed: keep UI stable with empty banners.
   useEffect(() => {
-    const fetchHeroBanners = async () => {
-      try {
-        setLoadingBanners(true)
-        const response = await api.get('/hero-banners/public')
-        if (response.data.success && response.data.data.banners) {
-          const banners = response.data.data.banners
+    setLoadingBanners(true)
+    setHeroBannerImages([])
+    setHeroBannersData([])
+    setCurrentBannerIndex(0)
+    setLoadingBanners(false)
+  }, [])
 
-          // Normalize and filter invalid banner records to prevent blank slides.
-          const normalizedBanners = banners
-            .map((banner) => {
-              if (typeof banner === 'string') {
-                return { imageUrl: normalizeImageUrl(banner), linkedRestaurants: [] }
-              }
-              return {
-                ...banner,
-                imageUrl: normalizeImageUrl(banner?.imageUrl),
-                linkedRestaurants: Array.isArray(banner?.linkedRestaurants) ? banner.linkedRestaurants : []
-              }
-            })
-            .filter((banner) => typeof banner?.imageUrl === 'string' && banner.imageUrl.trim().length > 0)
-
-          setHeroBannersData(normalizedBanners)
-          setHeroBannerImages(normalizedBanners.map((banner) => banner.imageUrl))
-          setCurrentBannerIndex(0)
-        } else {
-          setHeroBannersData([])
-          setHeroBannerImages([])
-          setCurrentBannerIndex(0)
-        }
-      } catch (error) {
-        debugError('Error fetching hero banners:', error)
-        // Fallback to empty array if API fails
-        setHeroBannerImages([])
-        setHeroBannersData([])
-        setCurrentBannerIndex(0)
-      } finally {
-        setLoadingBanners(false)
-      }
-    }
-
-    fetchHeroBanners()
-  }, [normalizeImageUrl])
-
-  // Fetch real categories from backend API
+  // Old backend endpoint removed: keep UI stable with empty categories.
   useEffect(() => {
-    const fetchRealCategories = async () => {
-      try {
-        setLoadingRealCategories(true)
-        const response = await api.get('/categories/public')
-        if (response.data.success && response.data.data.categories) {
-          const adminCategories = response.data.data.categories.map(cat => ({
-            id: cat.id,
-            name: cat.name,
-            image: normalizeImageUrl(cat.image) || foodImages[0], // Fallback to default image if not provided
-            slug: cat.slug || cat.name.toLowerCase().replace(/\s+/g, '-'),
-            label: cat.name // For compatibility with existing code
-          }))
-          setRealCategories(adminCategories)
-        } else {
-          setRealCategories([])
-        }
-      } catch (error) {
-        debugError('Error fetching real categories:', error)
-        setRealCategories([])
-      } finally {
-        setLoadingRealCategories(false)
-      }
-    }
+    setLoadingRealCategories(true)
+    setRealCategories([])
+    setLoadingRealCategories(false)
+  }, [])
 
-    fetchRealCategories()
-  }, [normalizeImageUrl])
-
-  // Fetch landing page config (categories, explore more, settings)
+  // Old backend endpoint removed: keep UI stable with empty landing config.
   useEffect(() => {
-    const fetchLandingConfig = async () => {
-      try {
-        setLoadingLandingConfig(true)
-        const response = await api.get('/hero-banners/landing/public')
-        if (response.data.success && response.data.data) {
-          const apiCategories = response.data.data.categories || []
-          const apiExploreMore = response.data.data.exploreMore || []
-
-          // Extra safety: only keep active items and ensure order ascending
-          setLandingCategories(
-            apiCategories
-              .filter((c) => c.isActive !== false)
-                .sort((a, b) => (a.order || 0) - (b.order || 0))
-          )
-          setLandingExploreMore(
-            apiExploreMore
-              .filter((e) => e.isActive !== false)
-                .sort((a, b) => (a.order || 0) - (b.order || 0))
-          )
-          setExploreMoreHeading(response.data.data.settings?.exploreMoreHeading || "Explore More")
-          setRecommendedRestaurantIds(Array.isArray(response.data.data.settings?.recommendedRestaurantIds)
-            ? response.data.data.settings.recommendedRestaurantIds
-            : [])
-          setRecommendedRestaurantsFromSettings(Array.isArray(response.data.data.settings?.recommendedRestaurants)
-            ? response.data.data.settings.recommendedRestaurants
-            : [])
-        }
-      } catch (error) {
-        debugError('Error fetching landing config:', error)
-        // Fallback to empty arrays and default heading
-        setLandingCategories([])
-        setLandingExploreMore([])
-        setExploreMoreHeading("Explore More")
-        setRecommendedRestaurantIds([])
-        setRecommendedRestaurantsFromSettings([])
-      } finally {
-        setLoadingLandingConfig(false)
-      }
-    }
-
-    fetchLandingConfig()
+    setLoadingLandingConfig(true)
+    setLandingCategories([])
+    setLandingExploreMore([])
+    setExploreMoreHeading("Explore More")
+    setRecommendedRestaurantIds([])
+    setRecommendedRestaurantsFromSettings([])
+    setLoadingLandingConfig(false)
   }, [])
 
   // Keep index within current banner bounds after admin updates/reloads.

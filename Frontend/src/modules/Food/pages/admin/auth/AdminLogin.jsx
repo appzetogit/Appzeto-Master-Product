@@ -67,15 +67,15 @@ export default function AdminLogin() {
     }
 
     try {
-      // Use admin-specific login endpoint
       const response = await adminAPI.login(email, password)
-      const data = response?.data?.data || response?.data
+      const data = response?.data?.data || response?.data || {}
 
-      if (data.accessToken && data.admin) {
-        // Store admin token and data
-        setAuthData("admin", data.accessToken, data.admin)
+      const accessToken = data.accessToken
+      const adminUser = data.user || data.admin
+      const refreshToken = data.refreshToken || null
 
-        // Navigate to admin dashboard after successful login
+      if (accessToken && adminUser) {
+        setAuthData("admin", accessToken, adminUser, refreshToken)
         navigate("/admin/food", { replace: true })
       } else {
         throw new Error("Login failed. Please try again.")

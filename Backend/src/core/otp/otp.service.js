@@ -69,7 +69,7 @@ export const createOrUpdateOtp = async (phone) => {
 
     let otp;
     if (config.useDefaultOtp) {
-        otp = '123456';
+        otp = '1234';
         logger.info(`Default OTP mode enabled – OTP is ${otp} for phone ${phone}`);
     } else {
         otp = generateOtpCode();
