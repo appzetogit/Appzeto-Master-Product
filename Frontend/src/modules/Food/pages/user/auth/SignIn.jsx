@@ -86,7 +86,7 @@ export default function SignIn() {
       }
 
       sessionStorage.setItem("userAuthData", JSON.stringify(authData))
-      navigate("/user/auth/otp")
+      navigate("/food/user/auth/otp")
     } catch (apiError) {
       const message =
         apiError?.response?.data?.message ||

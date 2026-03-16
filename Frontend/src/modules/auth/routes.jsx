@@ -9,7 +9,7 @@ export default function AuthRoutes() {
     <Suspense fallback={<Loader />}>
       <Routes>
         <Route path="login" element={<Login />} />
-        <Route path="*" element={<Navigate to="login" replace />} />
+        <Route path="*" element={<Navigate to="/user/auth/login" replace />} />
       </Routes>
     </Suspense>
   )
