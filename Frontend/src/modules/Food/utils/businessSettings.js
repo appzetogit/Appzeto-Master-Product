@@ -18,10 +18,14 @@ export const loadBusinessSettings = async () => {
       return cachedSettings;
     }
 
+    // Skip request when endpoint is not configured (avoids GET /api/v1 → 404)
+    const endpoint = API_ENDPOINTS.ADMIN.BUSINESS_SETTINGS_PUBLIC;
+    if (!endpoint || (typeof endpoint === "string" && !endpoint.trim())) {
+      return null;
+    }
+
     // Use public endpoint that doesn't require authentication
-    const response = await apiClient.get(
-      API_ENDPOINTS.ADMIN.BUSINESS_SETTINGS_PUBLIC,
-    );
+    const response = await apiClient.get(endpoint);
     const settings = response?.data?.data || response?.data;
 
     if (settings) {

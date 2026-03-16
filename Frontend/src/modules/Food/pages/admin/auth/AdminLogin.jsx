@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
 import { adminAPI } from "@food/api"
-import { setAuthData, isModuleAuthenticated } from "@food/utils/auth"
+import { setAuthData } from "@food/utils/auth"
 import { loadBusinessSettings } from "@food/utils/businessSettings"
 import { Button } from "@food/components/ui/button"
 import {
@@ -30,26 +30,6 @@ export default function AdminLogin() {
   const [error, setError] = useState("")
   const [logoUrl, setLogoUrl] = useState(quickSpicyLogo)
 
-  // Bypass admin login: auto-authenticate with mock admin session
-  useEffect(() => {
-    if (!isModuleAuthenticated("admin")) {
-      const mockToken = "mock-admin-token"
-      const mockAdmin = {
-        id: "admin_dev_1",
-        name: "Developer Admin",
-        email: "admin@example.com",
-        role: "admin",
-      }
-      try {
-        setAuthData("admin", mockToken, mockAdmin)
-      } catch {
-        // ignore storage errors in dev bypass
-      }
-    }
-    navigate("/admin/food", { replace: true })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
   // Fetch business settings logo on mount
   useEffect(() => {
     const fetchLogo = async () => {
@@ -68,8 +48,40 @@ export default function AdminLogin() {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
-    // Form is no longer used because login is bypassed
-    navigate("/admin/food", { replace: true })
+    setError("")
+    setIsLoading(true)
+
+    // Simple validation
+    if (!email.trim() || !password) {
+      setError("Email and password are required")
+      setIsLoading(false)
+      return
+    }
+
+    try {
+      const response = await adminAPI.login(email, password)
+      const data = response?.data?.data || response?.data || {}
+
+      const accessToken = data.accessToken
+      const adminUser = data.user || data.admin
+      const refreshToken = data.refreshToken || null
+
+      if (accessToken && adminUser) {
+        setAuthData("admin", accessToken, adminUser, refreshToken)
+        navigate("/admin/food", { replace: true })
+      } else {
+        throw new Error("Login failed. Please try again.")
+      }
+    } catch (err) {
+      const message =
+        err?.response?.data?.message ||
+        err?.response?.data?.error ||
+        err?.message ||
+        "Login failed. Please check your credentials."
+      setError(message)
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   return (

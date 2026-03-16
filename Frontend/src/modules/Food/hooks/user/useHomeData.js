@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
-import api, { restaurantAPI } from "@food/api";
+import { restaurantAPI } from "@food/api";
 import { normalizeImageUrl, extractImages, calculateDistance, slugify } from "@food/utils/common";
 
 export const useHomeData = (location, zoneId) => {
@@ -20,38 +20,22 @@ export const useHomeData = (location, zoneId) => {
   const [loadingMenuCategories, setLoadingMenuCategories] = useState(false);
   const [restaurantDietMeta, setRestaurantDietMeta] = useState({});
 
-  const fetchLandingConfig = useCallback(async () => {
-    try {
-      setLoadingConfig(true);
-      const res = await api.get('/landing-settings/public');
-      if (res.data.success) {
-        const { categories, exploreMore, exploreMoreHeading, recommendedRestaurants: recs } = res.data.data;
-        setLandingCategories(categories || []);
-        setExploreMoreItems(exploreMore || []);
-        setExploreMoreHeading(exploreMoreHeading || "Explore More");
-        setRecommendedRestaurants(recs || []);
-      }
-    } catch (err) {
-      console.error("Failed to fetch landing config", err);
-    } finally {
-      setLoadingConfig(false);
-    }
+  // Old backend endpoints (hero banners / landing config) are not used anymore.
+  // Keep UI stable by setting safe defaults once.
+  const initLandingConfig = useCallback(() => {
+    setLoadingConfig(true);
+    setLandingCategories([]);
+    setExploreMoreItems([]);
+    setExploreMoreHeading("Explore More");
+    setRecommendedRestaurants([]);
+    setLoadingConfig(false);
   }, []);
 
-  const fetchBanners = useCallback(async () => {
-    try {
-      setLoadingBanners(true);
-      const res = await api.get('/hero-banners/public');
-      if (res.data.success) {
-        const banners = res.data.data.banners || [];
-        setHeroBannersData(banners);
-        setHeroBannerImages(banners.map(b => normalizeImageUrl(b.imageUrl)).filter(Boolean));
-      }
-    } catch (err) {
-      console.error("Failed to fetch banners", err);
-    } finally {
-      setLoadingBanners(false);
-    }
+  const initBanners = useCallback(() => {
+    setLoadingBanners(true);
+    setHeroBannersData([]);
+    setHeroBannerImages([]);
+    setLoadingBanners(false);
   }, []);
 
   const fetchRestaurants = useCallback(async (filters = {}) => {
@@ -146,9 +130,9 @@ export const useHomeData = (location, zoneId) => {
   }, [restaurantsData]);
 
   useEffect(() => {
-    fetchLandingConfig();
-    fetchBanners();
-  }, [fetchLandingConfig, fetchBanners]);
+    initLandingConfig();
+    initBanners();
+  }, [initLandingConfig, initBanners]);
 
   useEffect(() => {
     fetchRestaurants();

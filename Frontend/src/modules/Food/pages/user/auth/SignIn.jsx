@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useNavigate, Link } from "react-router-dom"
 import { AlertCircle, Loader2 } from "lucide-react"
 import AnimatedPage from "@food/components/user/AnimatedPage"
@@ -21,6 +21,7 @@ export default function SignIn() {
 
   const [error, setError] = useState("")
   const [isLoading, setIsLoading] = useState(false)
+  const submittingRef = useRef(false)
 
   useEffect(() => {
     const stored = sessionStorage.getItem("userAuthData")
@@ -61,15 +62,12 @@ export default function SignIn() {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
-    setIsLoading(true)
-
     const phoneError = validatePhone(formData.phone)
     setError(phoneError)
-
-    if (phoneError) {
-      setIsLoading(false)
-      return
-    }
+    if (phoneError) return
+    if (submittingRef.current) return
+    submittingRef.current = true
+    setIsLoading(true)
 
     try {
       const fullPhone = `${formData.countryCode} ${formData.phone}`.trim()
@@ -95,6 +93,7 @@ export default function SignIn() {
       setError(message)
     } finally {
       setIsLoading(false)
+      submittingRef.current = false
     }
   }
 

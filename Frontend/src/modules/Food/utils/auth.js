@@ -125,7 +125,6 @@ export function isModuleAuthenticated(module) {
   const authFlag = localStorage.getItem(`${module}_authenticated`) === "true";
   const token = getModuleToken(module);
   
-  // Either flag or token counts for now (for mock/dev flexibility)
   return authFlag || (token && !isTokenExpired(token));
 }
 
