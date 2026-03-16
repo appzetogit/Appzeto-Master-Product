@@ -104,8 +104,23 @@ export const verifyRestaurantOtpAndLogin = async (phone, otp) => {
     }
 
     const restaurant = await ZomatoRestaurant.findOne({ ownerPhone: phone }).lean();
+
     if (!restaurant) {
-        throw new AuthError('No restaurant found with this phone. Please complete onboarding first.');
+        // Phone has been successfully verified, but no restaurant exists yet.
+        // Frontend will use this to redirect into registration/onboarding.
+        return {
+            needsRegistration: true,
+            phone
+        };
+    }
+
+    // If restaurant approval status is used, only allow login for approved restaurants.
+    if (restaurant.status && restaurant.status !== 'approved') {
+        throw new AuthError(
+            restaurant.status === 'pending'
+                ? 'Your restaurant registration is pending approval.'
+                : 'Your restaurant registration has been rejected. Please contact support.'
+        );
     }
 
     const payload = { userId: restaurant._id.toString(), role: ROLES.RESTAURANT };
@@ -120,7 +135,7 @@ export const verifyRestaurantOtpAndLogin = async (phone, otp) => {
         expiresAt
     });
 
-    return { accessToken, refreshToken, user: restaurant };
+    return { accessToken, refreshToken, user: restaurant, needsRegistration: false };
 };
 
 export const requestDeliveryOtp = async (phone) => {

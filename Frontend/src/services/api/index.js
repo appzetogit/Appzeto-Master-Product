@@ -77,6 +77,19 @@ export const adminAPI = {
       (typeof localStorage !== "undefined" ? localStorage.getItem("admin_refreshToken") : null);
     return authService.logout(token);
   },
+  // Restaurant approvals and join requests
+  getPendingRestaurants: () =>
+    apiClient.get("/v1/zomato/admin/restaurants/pending", { contextModule: "admin" }),
+  approveRestaurant: (id) =>
+    apiClient.patch(`/v1/zomato/admin/restaurants/${id}/approve`, null, {
+      contextModule: "admin",
+    }),
+  rejectRestaurant: (id, reason) =>
+    apiClient.patch(
+      `/v1/zomato/admin/restaurants/${id}/reject`,
+      { reason },
+      { contextModule: "admin" },
+    ),
 };
 
 /** Restaurant API – OTP login via new backend; no email/password. */
@@ -99,6 +112,16 @@ export const restaurantAPI = {
   /** Backend has no email/password login; use phone OTP only. */
   login: (_email, _password) =>
     Promise.reject(new Error("Please use phone number and OTP to sign in.")),
+  /**
+   * Register a restaurant (multipart FormData).
+   * Backend: POST /v1/zomato/restaurant/register
+   */
+  register: (formData) => {
+    if (!formData || !(formData instanceof FormData)) {
+      return Promise.reject(new Error("FormData is required"));
+    }
+    return apiClient.post("/zomato/restaurant/register", formData);
+  },
 };
 
 /** Delivery API – OTP login + registration via new backend. */
@@ -137,7 +160,28 @@ export const deliveryAPI = {
 export const userAPI = createStubAPI();
 export const locationAPI = createStubAPI();
 export const zoneAPI = createStubAPI();
-export const uploadAPI = createStubAPI();
+export const uploadAPI = {
+  /**
+   * Upload a single image file to the backend (Cloudinary-backed).
+   * @param {File|Blob} file
+   * @param {{ folder?: string }} options
+   */
+  uploadMedia: (file, options = {}) => {
+    if (!file) {
+      return Promise.reject(new Error("File is required for upload"));
+    }
+
+    const formData = new FormData();
+    formData.append("file", file);
+    if (options.folder) {
+      formData.append("folder", options.folder);
+    }
+
+    return apiClient.post("/uploads/image", formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+  },
+};
 export const orderAPI = createStubAPI();
 export const diningAPI = createStubAPI();
 export const heroBannerAPI = createStubAPI();
