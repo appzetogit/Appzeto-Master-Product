@@ -27,7 +27,7 @@ export default function OTP() {
     // Redirect to home if already authenticated
     const isAuthenticated = localStorage.getItem("user_authenticated") === "true"
     if (isAuthenticated) {
-      navigate("/user", { replace: true })
+      navigate("/food/user", { replace: true })
       return
     }
 
@@ -35,7 +35,7 @@ export default function OTP() {
     const stored = sessionStorage.getItem("userAuthData")
     if (!stored) {
       // No auth data, redirect to sign in
-      navigate("/user/auth/sign-in", { replace: true })
+      navigate("/food/user/auth/login", { replace: true })
       return
     }
     const data = JSON.parse(stored)
@@ -224,7 +224,7 @@ export default function OTP() {
 
       // Redirect to user home after short delay
       setTimeout(() => {
-        navigate("/user")
+        navigate("/food/user")
       }, 500)
     } catch (err) {
       const message =
@@ -298,7 +298,7 @@ export default function OTP() {
 
       // Redirect to user home after short delay
       setTimeout(() => {
-        navigate("/user")
+        navigate("/food/user")
       }, 500)
     } catch (err) {
       const message =
@@ -365,7 +365,7 @@ export default function OTP() {
       {/* Header */}
       <div className="relative flex items-center justify-center py-4 px-4 md:py-6 md:px-6 lg:px-8 border-b border-gray-200 dark:border-gray-800">
         <button
-          onClick={() => navigate("/user/auth/sign-in")}
+          onClick={() => navigate("/food/user/auth/login")}
           className="absolute left-4 md:left-6 lg:left-8 top-1/2 -translate-y-1/2 hover:opacity-70 transition-opacity"
           aria-label="Go back"
         >
@@ -493,7 +493,7 @@ export default function OTP() {
       <div className="pt-4 md:pt-6 mt-auto px-6 md:px-8 lg:px-12 text-center pb-8 md:pb-12">
         <button
           type="button"
-          onClick={() => navigate("/user/auth/sign-in")}
+          onClick={() => navigate("/food/user/auth/login")}
           className="text-sm md:text-base text-[#EB590E] hover:text-[#D94F0C] hover:underline transition-colors font-medium"
         >
           Go back to login methods

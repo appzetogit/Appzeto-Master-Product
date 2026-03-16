@@ -301,8 +301,9 @@ export default function UserRouter() {
           <Route path="profile/shipping" element={<Shipping />} />
           <Route path="profile/cancellation" element={<Cancellation />} />
 
-          {/* Auth - Redirecting to Unified Login */}
-          <Route path="auth/sign-in" element={<Navigate to="/user/auth/login" replace />} />
+          {/* Auth - Login lives in Food module at /food/user/auth/login */}
+          <Route path="auth/login" element={<SignIn />} />
+          <Route path="auth/sign-in" element={<Navigate to="/food/user/auth/login" replace />} />
           <Route path="auth/otp" element={<OTP />} />
           <Route path="auth/callback" element={<AuthCallback />} />
 

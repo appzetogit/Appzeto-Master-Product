@@ -1,10 +1,25 @@
 import apiClient from "./axios.js";
 import { API_ENDPOINTS } from "./config.js";
+import { API_BASE_URL } from "./config.js";
 
 // Export auth helper functions
 export const authAPI = {
   // Send OTP (supports both phone and email)
   sendOTP: (phone = null, purpose = "login", email = null) => {
+    // Backend disconnected - simulate OTP send locally
+    if (!API_BASE_URL) {
+      return Promise.resolve({
+        data: {
+          success: true,
+          data: {
+            sent: true,
+            purpose,
+            contact: phone || email,
+          },
+        },
+        status: 200,
+      });
+    }
     const payload = { purpose };
     if (phone) payload.phone = phone;
     if (email) payload.email = email;
@@ -23,6 +38,38 @@ export const authAPI = {
     password = null,
     referralCode = null,
   ) => {
+    // Backend disconnected - simulate OTP verify + login locally
+    if (!API_BASE_URL) {
+      const normalizedPhone = phone ? String(phone).trim() : null;
+      const normalizedEmail = email ? String(email).trim().toLowerCase() : null;
+      const displayName =
+        name != null && String(name).trim()
+          ? String(name).trim()
+          : purpose === "register"
+            ? null
+            : "Guest";
+
+      const needsName = purpose === "register" && !displayName;
+
+      return Promise.resolve({
+        data: {
+          success: true,
+          data: needsName
+            ? { needsName: true }
+            : {
+                accessToken: "mock-user-access-token",
+                user: {
+                  _id: "mock-user",
+                  name: displayName,
+                  phone: normalizedPhone,
+                  email: normalizedEmail,
+                  role,
+                },
+              },
+        },
+        status: 200,
+      });
+    }
     const payload = {
       otp,
       purpose,
