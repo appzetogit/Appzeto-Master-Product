@@ -393,6 +393,11 @@ export default function OrdersPage({ statusKey = "all" }) {
     if (statusKey !== "all") return undefined
 
     const backendUrl = API_BASE_URL.replace(/\/api\/?$/, "")
+    // Backend disconnected - do not open Socket.IO (new backend in progress)
+    if (!API_BASE_URL || !backendUrl || !backendUrl.startsWith("http")) {
+      return undefined
+    }
+
     const socket = io(backendUrl, {
       transports: ["websocket", "polling"],
       reconnection: true,

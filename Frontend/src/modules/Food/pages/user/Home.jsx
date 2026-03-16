@@ -510,10 +510,10 @@ export default function Home() {
   // Merge API explore items with fallback to ensure all 4 cards are shown
   const finalExploreItems = useMemo(() => {
     const fallback = [
-      { id: 'offers', label: 'Offers', image: exploreOffers, href: '/food/offers' },
-      { id: 'gourmet', label: 'Gourmet', image: exploreGourmet, href: '/food/gourmet' },
-      { id: 'top10', label: 'Top 10', image: exploreTop10, href: '/food/top-10' },
-      { id: 'collection', label: 'Collections', image: exploreCollection, href: '/food/profile/favorites' },
+      { id: 'offers', label: 'Offers', image: exploreOffers, href: '/food/user/offers' },
+      { id: 'gourmet', label: 'Gourmet', image: exploreGourmet, href: '/food/user/gourmet' },
+      { id: 'top10', label: 'Top 10', image: exploreTop10, href: '/food/user/top-10' },
+      { id: 'collection', label: 'Collections', image: exploreCollection, href: '/food/user/profile/favorites' },
     ];
 
     if (!landingExploreMore || landingExploreMore.length === 0) return fallback;

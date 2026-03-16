@@ -118,9 +118,9 @@ export default function App() {
             element={<DeliveryRouter />}
           />
 
-          {/* Legacy Redirects & Fallbacks */}
-          <Route path="/" element={<Navigate to="user" replace />} />
-          <Route path="*" element={<Navigate to="user" replace />} />
+          {/* Legacy Redirects & Fallbacks - use absolute path to avoid /user appended in a loop */}
+          <Route path="/" element={<Navigate to="/food/user" replace />} />
+          <Route path="*" element={<Navigate to="/food/user" replace />} />
         </Routes>
       </Suspense>
     </>
