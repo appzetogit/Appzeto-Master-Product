@@ -256,6 +256,15 @@ export const deliveryAPI = {
   /** GET /food/delivery/support-tickets/:id – get one ticket (own only). */
   getSupportTicketById: (id) =>
     apiClient.get(`/food/delivery/support-tickets/${id}`, { contextModule: "delivery" }),
+  /** PATCH /food/delivery/availability – set online/offline (and optional lat/lng). */
+  updateOnlineStatus: (isOnline) =>
+    apiClient.patch("/food/delivery/availability", { status: isOnline ? "online" : "offline" }, { contextModule: "delivery" }),
+  updateLocation: (latitude, longitude, isOnline) =>
+    apiClient.patch(
+      "/food/delivery/availability",
+      { status: isOnline ? "online" : "offline", latitude, longitude },
+      { contextModule: "delivery" }
+    ),
 };
 
 export const userAPI = createStubAPI();

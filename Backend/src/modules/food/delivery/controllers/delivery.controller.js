@@ -1,4 +1,4 @@
-import { registerDeliveryPartner, updateDeliveryPartnerProfile, updateDeliveryPartnerBankDetails, listSupportTicketsByPartner, createSupportTicket, getSupportTicketByIdAndPartner, updateDeliveryPartnerDetails, updateDeliveryPartnerProfilePhotoBase64 } from '../services/delivery.service.js';
+import { registerDeliveryPartner, updateDeliveryPartnerProfile, updateDeliveryPartnerBankDetails, listSupportTicketsByPartner, createSupportTicket, getSupportTicketByIdAndPartner, updateDeliveryPartnerDetails, updateDeliveryPartnerProfilePhotoBase64, updateDeliveryAvailability } from '../services/delivery.service.js';
 import { validateDeliveryRegisterDto, validateDeliveryProfileUpdateDto, validateDeliveryBankDetailsDto } from '../validators/delivery.validator.js';
 import { sendResponse } from '../../../../utils/response.js';
 
@@ -91,6 +91,16 @@ export const getSupportTicketByIdController = async (req, res, next) => {
             return res.status(404).json({ success: false, message: 'Ticket not found' });
         }
         return sendResponse(res, 200, 'Ticket fetched successfully', ticket);
+    } catch (error) {
+        next(error);
+    }
+};
+
+export const updateAvailabilityController = async (req, res, next) => {
+    try {
+        const userId = req.user?.userId;
+        const data = await updateDeliveryAvailability(userId, req.body || {});
+        return sendResponse(res, 200, 'Availability updated successfully', data);
     } catch (error) {
         next(error);
     }

@@ -67,7 +67,14 @@ const deliveryPartnerSchema = new mongoose.Schema(
         bankAccountHolderName: { type: String },
         bankAccountNumber: { type: String },
         bankIfscCode: { type: String },
-        bankName: { type: String }
+        bankName: { type: String },
+        availabilityStatus: {
+            type: String,
+            enum: ['online', 'offline'],
+            default: 'offline'
+        },
+        lastLat: { type: Number },
+        lastLng: { type: Number }
     },
     {
         collection: 'food_delivery_partners',

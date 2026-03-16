@@ -213,3 +213,21 @@ export const getSupportTicketByIdAndPartner = async (ticketId, deliveryPartnerId
     return ticket;
 };
 
+export const updateDeliveryAvailability = async (userId, payload) => {
+    const partner = await FoodDeliveryPartner.findById(userId);
+    if (!partner) {
+        throw new ValidationError('Delivery partner not found');
+    }
+    const { status, latitude, longitude } = payload || {};
+    const validStatus = status === 'online' || status === 'offline' ? status : 'offline';
+    partner.availabilityStatus = validStatus;
+    if (typeof latitude === 'number' && latitude >= -90 && latitude <= 90) {
+        partner.lastLat = latitude;
+    }
+    if (typeof longitude === 'number' && longitude >= -180 && longitude <= 180) {
+        partner.lastLng = longitude;
+    }
+    await partner.save();
+    return { availabilityStatus: partner.availabilityStatus };
+};
+
