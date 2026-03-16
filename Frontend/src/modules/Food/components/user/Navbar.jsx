@@ -179,22 +179,22 @@ export default function Navbar() {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-48">
-                <Link to="/food/cart">
+                <Link to="/food/user/cart">
                   <DropdownMenuItem>YOUR CART</DropdownMenuItem>
                 </Link>
-                <Link to="/food/profile">
+                <Link to="/food/user/profile">
                   <DropdownMenuItem>Profile</DropdownMenuItem>
                 </Link>
-                <Link to="/food/orders">
+                <Link to="/food/user/orders">
                   <DropdownMenuItem>My Orders</DropdownMenuItem>
                 </Link>
                 <Link to="/food/user/offers">
                   <DropdownMenuItem>Offers</DropdownMenuItem>
                 </Link>
-                <Link to="/food/help">
+                <Link to="/food/user/help">
                   <DropdownMenuItem>Help</DropdownMenuItem>
                 </Link>
-                <Link to="/food/auth/sign-in">
+                <Link to="/user/auth/login">
                   <DropdownMenuItem>Sign Out</DropdownMenuItem>
                 </Link>
               </DropdownMenuContent>
