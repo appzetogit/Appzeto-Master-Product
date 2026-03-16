@@ -90,6 +90,12 @@ export const adminAPI = {
       { reason },
       { contextModule: "admin" },
     ),
+  /** Delivery partner join requests for admin panel */
+  getDeliveryPartnerJoinRequests: (params) =>
+    apiClient.get("/v1/food/delivery/admin/join-requests", {
+      params,
+      contextModule: "admin",
+    }),
 };
 
 /** Restaurant API – OTP login via new backend; no email/password. */
