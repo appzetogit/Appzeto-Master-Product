@@ -220,7 +220,8 @@ export default function LandingPageManagement() {
       // Use batch upload endpoint for multiple files
       const formData = new FormData()
       files.forEach((file) => {
-        formData.append('images', file) // Field name must be 'images' for multiple upload
+        // Backend expects field name "files" (upload.array('files'))
+        formData.append('files', file)
       })
 
       // Use getAuthConfig to ensure proper Authorization header
