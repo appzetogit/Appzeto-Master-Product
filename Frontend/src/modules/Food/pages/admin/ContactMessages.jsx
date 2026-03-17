@@ -1,8 +1,7 @@
 import { useState, useEffect, useMemo } from "react"
 import { Search, ArrowUpDown, Settings, Folder, ChevronDown, Eye, Loader2, Star } from "lucide-react"
 import { toast } from "sonner"
-import apiClient from "@food/api/axios"
-import { API_ENDPOINTS } from "@food/api/config"
+import { adminAPI } from "@food/api"
 import {
   Dialog,
   DialogContent,
@@ -33,7 +32,10 @@ export default function ContactMessages() {
   const [totalPages, setTotalPages] = useState(1)
 
   useEffect(() => {
-    fetchFeedbacks()
+    const t = setTimeout(() => {
+      fetchFeedbacks()
+    }, 250)
+    return () => clearTimeout(t)
   }, [ratingFilter, currentPage, searchQuery])
 
   const fetchFeedbacks = async () => {
@@ -43,14 +45,12 @@ export default function ContactMessages() {
         page: currentPage,
         limit: 10,
         rating: ratingFilter !== 'all' ? ratingFilter : undefined,
-        sortBy: 'submittedAt',
-        sortOrder: 'desc'
       }
       
       // Remove undefined params
       Object.keys(params).forEach(key => params[key] === undefined && delete params[key])
       
-      const response = await apiClient.get(API_ENDPOINTS.ADMIN.REVIEWS, { params })
+      const response = await adminAPI.getUserFeedback(params)
       
       if (response.data && response.data.success) {
         setFeedbacks(response.data.data?.reviews || [])
@@ -278,7 +278,7 @@ export default function ContactMessages() {
                   <td colSpan={10} className="px-6 py-20">
                     <div className="flex flex-col items-center justify-center">
                       <div className="relative mb-6">
-                        <div className="w-32 h-32 bg-gradient-to-br from-slate-100 to-slate-200 rounded-2xl flex items-center justify-center shadow-inner">
+                        <div className="w-32 h-32 bg-linear-to-br from-slate-100 to-slate-200 rounded-2xl flex items-center justify-center shadow-inner">
                           <div className="w-20 h-20 bg-white rounded-xl flex items-center justify-center shadow-md relative overflow-visible">
                             <Folder className="w-12 h-12 text-slate-400" />
                             <div className="absolute -top-2 left-1/2 -translate-x-1/2 w-10 h-3 bg-orange-500 rounded-t-md z-10"></div>
@@ -421,9 +421,9 @@ export default function ContactMessages() {
           {selectedFeedback && (
             <div className="px-6 py-6 space-y-6">
               {/* User Information Section */}
-              <div className="bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-800 dark:to-slate-900 rounded-xl p-5 border border-slate-200 dark:border-slate-700">
+              <div className="bg-linear-to-br from-slate-50 to-slate-100 dark:from-slate-800 dark:to-slate-900 rounded-xl p-5 border border-slate-200 dark:border-slate-700">
                 <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-5 flex items-center gap-3">
-                  <div className="w-1 h-6 bg-gradient-to-b from-blue-500 to-blue-600 rounded-full"></div>
+                  <div className="w-1 h-6 bg-linear-to-b from-blue-500 to-blue-600 rounded-full"></div>
                   Customer Information
                 </h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
@@ -462,7 +462,7 @@ export default function ContactMessages() {
                    {selectedFeedback.deliveryPartner?.id && (
                      <div className="space-y-1">
                        <label className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Delivery Boy ID</label>
-                       <p className="text-base font-semibold text-slate-900 dark:text-white font-mono text-sm">
+                      <p className="text-sm font-semibold text-slate-900 dark:text-white font-mono">
                          {selectedFeedback.deliveryPartner.id.toString()}
                        </p>
                      </div>
@@ -478,9 +478,9 @@ export default function ContactMessages() {
 
                {/* Food Items Section */}
                {selectedFeedback.items && selectedFeedback.items.length > 0 && (
-                 <div className="bg-gradient-to-br from-purple-50 to-pink-50 dark:from-purple-900/20 dark:to-pink-900/20 rounded-xl p-5 border border-purple-200 dark:border-purple-800">
+                 <div className="bg-linear-to-br from-purple-50 to-pink-50 dark:from-purple-900/20 dark:to-pink-900/20 rounded-xl p-5 border border-purple-200 dark:border-purple-800">
                    <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-5 flex items-center gap-3">
-                     <div className="w-1 h-6 bg-gradient-to-b from-purple-500 to-pink-600 rounded-full"></div>
+                     <div className="w-1 h-6 bg-linear-to-b from-purple-500 to-pink-600 rounded-full"></div>
                      Food Items Ordered
                    </h3>
                    <div className="bg-white dark:bg-slate-800 rounded-lg p-5 border border-slate-200 dark:border-slate-700 shadow-sm">
@@ -510,9 +510,9 @@ export default function ContactMessages() {
                )}
 
                {/* Rating Section */}
-               <div className="bg-gradient-to-br from-yellow-50 to-orange-50 dark:from-yellow-900/20 dark:to-orange-900/20 rounded-xl p-5 border border-yellow-200 dark:border-yellow-800">
+               <div className="bg-linear-to-br from-yellow-50 to-orange-50 dark:from-yellow-900/20 dark:to-orange-900/20 rounded-xl p-5 border border-yellow-200 dark:border-yellow-800">
                 <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-5 flex items-center gap-3">
-                  <div className="w-1 h-6 bg-gradient-to-b from-yellow-500 to-orange-600 rounded-full"></div>
+                  <div className="w-1 h-6 bg-linear-to-b from-yellow-500 to-orange-600 rounded-full"></div>
                   Rating
                 </h3>
                 <div className="bg-white dark:bg-slate-800 rounded-lg p-5 border border-slate-200 dark:border-slate-700 shadow-sm">
@@ -529,9 +529,9 @@ export default function ContactMessages() {
 
               {/* Feedback Message Section */}
               {selectedFeedback.comment && (
-                <div className="bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-xl p-5 border border-blue-200 dark:border-blue-800">
+                <div className="bg-linear-to-br from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-xl p-5 border border-blue-200 dark:border-blue-800">
                   <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-5 flex items-center gap-3">
-                    <div className="w-1 h-6 bg-gradient-to-b from-blue-500 to-indigo-600 rounded-full"></div>
+                    <div className="w-1 h-6 bg-linear-to-b from-blue-500 to-indigo-600 rounded-full"></div>
                     Feedback Comment
                   </h3>
                   <div className="bg-white dark:bg-slate-800 rounded-lg p-5 border border-slate-200 dark:border-slate-700 shadow-sm">

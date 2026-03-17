@@ -1,8 +1,7 @@
 import { useState, useEffect, useMemo } from "react"
 import { Search, ArrowUpDown, Settings, Folder, ChevronDown, Eye, Trash2, AlertTriangle, Loader2 } from "lucide-react"
 import { toast } from "sonner"
-import apiClient from "@food/api/axios"
-import { API_ENDPOINTS } from "@food/api/config"
+import { adminAPI } from "@food/api"
 import {
   Dialog,
   DialogContent,
@@ -34,7 +33,10 @@ export default function SafetyEmergencyReports() {
   const [totalPages, setTotalPages] = useState(1)
 
   useEffect(() => {
-    fetchReports()
+    const t = setTimeout(() => {
+      fetchReports()
+    }, 250)
+    return () => clearTimeout(t)
   }, [statusFilter, priorityFilter, currentPage, searchQuery])
 
   const fetchReports = async () => {
@@ -51,7 +53,7 @@ export default function SafetyEmergencyReports() {
       // Remove undefined params
       Object.keys(params).forEach(key => params[key] === undefined && delete params[key])
       
-      const response = await apiClient.get(API_ENDPOINTS.ADMIN.SAFETY_EMERGENCY, { params })
+      const response = await adminAPI.getSafetyEmergencies(params)
       
       if (response.data && response.data.success) {
         setReports(response.data.data?.safetyEmergencies || [])
@@ -81,9 +83,7 @@ export default function SafetyEmergencyReports() {
 
   const handleUpdateStatus = async (id, newStatus) => {
     try {
-      const response = await apiClient.put(`${API_ENDPOINTS.ADMIN.SAFETY_EMERGENCY}/${id}/status`, {
-        status: newStatus
-      })
+      const response = await adminAPI.updateSafetyEmergencyStatus(id, newStatus)
       
       if (response.data.success) {
         toast.success('Status updated successfully')
@@ -97,9 +97,7 @@ export default function SafetyEmergencyReports() {
 
   const handleUpdatePriority = async (id, newPriority) => {
     try {
-      const response = await apiClient.put(`${API_ENDPOINTS.ADMIN.SAFETY_EMERGENCY}/${id}/priority`, {
-        priority: newPriority
-      })
+      const response = await adminAPI.updateSafetyEmergencyPriority(id, newPriority)
       
       if (response.data.success) {
         toast.success('Priority updated successfully')
@@ -117,7 +115,7 @@ export default function SafetyEmergencyReports() {
     }
 
     try {
-      const response = await apiClient.delete(`${API_ENDPOINTS.ADMIN.SAFETY_EMERGENCY}/${id}`)
+      const response = await adminAPI.deleteSafetyEmergency(id)
       
       if (response.data.success) {
         toast.success('Safety emergency report deleted successfully')
@@ -305,7 +303,7 @@ export default function SafetyEmergencyReports() {
                   <td colSpan={7} className="px-6 py-20">
                     <div className="flex flex-col items-center justify-center">
                       <div className="relative mb-6">
-                        <div className="w-32 h-32 bg-gradient-to-br from-slate-100 to-slate-200 rounded-2xl flex items-center justify-center shadow-inner">
+                        <div className="w-32 h-32 bg-linear-to-br from-slate-100 to-slate-200 rounded-2xl flex items-center justify-center shadow-inner">
                           <div className="w-20 h-20 bg-white rounded-xl flex items-center justify-center shadow-md relative overflow-visible">
                             <Folder className="w-12 h-12 text-slate-400" />
                             <div className="absolute -top-2 left-1/2 -translate-x-1/2 w-10 h-3 bg-orange-500 rounded-t-md z-10"></div>
@@ -431,9 +429,9 @@ export default function SafetyEmergencyReports() {
           {selectedReport && (
             <div className="px-6 py-6 space-y-6">
               {/* User Information Section */}
-              <div className="bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-800 dark:to-slate-900 rounded-xl p-5 border border-slate-200 dark:border-slate-700">
+              <div className="bg-linear-to-br from-slate-50 to-slate-100 dark:from-slate-800 dark:to-slate-900 rounded-xl p-5 border border-slate-200 dark:border-slate-700">
                 <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-5 flex items-center gap-3">
-                  <div className="w-1 h-6 bg-gradient-to-b from-blue-500 to-blue-600 rounded-full"></div>
+                  <div className="w-1 h-6 bg-linear-to-b from-blue-500 to-blue-600 rounded-full"></div>
                   User Information
                 </h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
@@ -455,9 +453,9 @@ export default function SafetyEmergencyReports() {
               </div>
 
               {/* Emergency Report Section */}
-              <div className="bg-gradient-to-br from-red-50 to-orange-50 dark:from-red-900/20 dark:to-orange-900/20 rounded-xl p-5 border border-red-200 dark:border-red-800">
+              <div className="bg-linear-to-br from-red-50 to-orange-50 dark:from-red-900/20 dark:to-orange-900/20 rounded-xl p-5 border border-red-200 dark:border-red-800">
                 <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-5 flex items-center gap-3">
-                  <div className="w-1 h-6 bg-gradient-to-b from-red-500 to-orange-600 rounded-full"></div>
+                  <div className="w-1 h-6 bg-linear-to-b from-red-500 to-orange-600 rounded-full"></div>
                   Safety Emergency Report
                 </h3>
                 <div className="bg-white dark:bg-slate-800 rounded-lg p-5 border border-slate-200 dark:border-slate-700 shadow-sm">
@@ -495,9 +493,9 @@ export default function SafetyEmergencyReports() {
 
               {/* Admin Response Section */}
               {selectedReport.adminResponse && (
-                <div className="bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 rounded-xl p-5 border border-green-200 dark:border-green-800">
+                <div className="bg-linear-to-br from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 rounded-xl p-5 border border-green-200 dark:border-green-800">
                   <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-5 flex items-center gap-3">
-                    <div className="w-1 h-6 bg-gradient-to-b from-green-500 to-emerald-600 rounded-full"></div>
+                    <div className="w-1 h-6 bg-linear-to-b from-green-500 to-emerald-600 rounded-full"></div>
                     Admin Response
                   </h3>
                   <div className="bg-white dark:bg-slate-800 rounded-lg p-5 border border-slate-200 dark:border-slate-700 shadow-sm">

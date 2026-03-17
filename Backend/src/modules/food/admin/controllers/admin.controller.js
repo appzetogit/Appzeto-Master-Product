@@ -7,6 +7,7 @@ import { validateCheckCompletionsDto, validateEarningAddonHistoryActionDto, vali
 import { validateDeliveryCommissionRuleDto, validateOptionalStatusDto, validateRestaurantCommissionUpsertDto } from '../validators/commission.validator.js';
 import { validateFeeSettingsUpsertDto } from '../validators/feeSettings.validator.js';
 import { validateDeliveryEmergencyHelpUpsertDto } from '../validators/deliveryEmergencyHelp.validator.js';
+import { validateHelpSupportListQuery, validateSafetyPriorityDto, validateSafetyStatusDto } from '../validators/helpSupport.validator.js';
 
 // ----- Customers / Users -----
 export async function getCustomers(req, res, next) {
@@ -696,6 +697,86 @@ export async function createOrUpdateEmergencyHelp(req, res, next) {
         const body = validateDeliveryEmergencyHelpUpsertDto(req.body || {});
         const data = await adminService.upsertDeliveryEmergencyHelp(body);
         res.status(200).json({ success: true, message: 'Emergency help saved successfully', data });
+    } catch (error) {
+        next(error);
+    }
+}
+
+// ----- Help & Support: User Feedback (admin) -----
+export async function getUserFeedbacks(req, res, next) {
+    try {
+        const query = validateHelpSupportListQuery(req.query || {});
+        const data = await adminService.getUserFeedbacks(query);
+        res.status(200).json({ success: true, message: 'User feedback fetched successfully', data });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function deleteUserFeedback(req, res, next) {
+    try {
+        const { id } = req.params;
+        if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+            return res.status(400).json({ success: false, message: 'Invalid feedback id' });
+        }
+        const result = await adminService.deleteUserFeedback(id);
+        if (!result) return res.status(404).json({ success: false, message: 'Feedback not found' });
+        res.status(200).json({ success: true, message: 'Feedback deleted successfully', data: result });
+    } catch (error) {
+        next(error);
+    }
+}
+
+// ----- Help & Support: Safety Emergency Reports (admin) -----
+export async function getSafetyEmergencies(req, res, next) {
+    try {
+        const query = validateHelpSupportListQuery(req.query || {});
+        const data = await adminService.getSafetyEmergencies(query);
+        res.status(200).json({ success: true, message: 'Safety emergency reports fetched successfully', data });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function updateSafetyEmergencyStatus(req, res, next) {
+    try {
+        const { id } = req.params;
+        if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+            return res.status(400).json({ success: false, message: 'Invalid safety emergency id' });
+        }
+        const { status } = validateSafetyStatusDto(req.body || {});
+        const updated = await adminService.updateSafetyEmergencyStatus(id, status);
+        if (!updated) return res.status(404).json({ success: false, message: 'Safety emergency report not found' });
+        res.status(200).json({ success: true, message: 'Status updated successfully', data: { safetyEmergency: updated } });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function updateSafetyEmergencyPriority(req, res, next) {
+    try {
+        const { id } = req.params;
+        if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+            return res.status(400).json({ success: false, message: 'Invalid safety emergency id' });
+        }
+        const { priority } = validateSafetyPriorityDto(req.body || {});
+        const updated = await adminService.updateSafetyEmergencyPriority(id, priority);
+        if (!updated) return res.status(404).json({ success: false, message: 'Safety emergency report not found' });
+        res.status(200).json({ success: true, message: 'Priority updated successfully', data: { safetyEmergency: updated } });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function deleteSafetyEmergency(req, res, next) {
+    try {
+        const { id } = req.params;
+        if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+            return res.status(400).json({ success: false, message: 'Invalid safety emergency id' });
+        }
+        const result = await adminService.deleteSafetyEmergency(id);
+        if (!result) return res.status(404).json({ success: false, message: 'Safety emergency report not found' });
+        res.status(200).json({ success: true, message: 'Safety emergency report deleted successfully', data: result });
     } catch (error) {
         next(error);
     }

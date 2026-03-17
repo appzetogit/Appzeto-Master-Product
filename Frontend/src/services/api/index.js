@@ -343,6 +343,28 @@ export const adminAPI = {
     apiClient.get("/food/admin/delivery-emergency-help", { contextModule: "admin" }),
   createOrUpdateEmergencyHelp: (body) =>
     apiClient.put("/food/admin/delivery-emergency-help", body ?? {}, { contextModule: "admin" }),
+
+  /** Help & Support (admin) */
+  getUserFeedback: (params = {}) =>
+    apiClient.get("/food/admin/help-support/user-feedback", { params, contextModule: "admin" }),
+  deleteUserFeedback: (id) =>
+    apiClient.delete(`/food/admin/help-support/user-feedback/${String(id)}`, { contextModule: "admin" }),
+  getSafetyEmergencies: (params = {}) =>
+    apiClient.get("/food/admin/help-support/safety-emergencies", { params, contextModule: "admin" }),
+  updateSafetyEmergencyStatus: (id, status) =>
+    apiClient.put(
+      `/food/admin/help-support/safety-emergencies/${String(id)}/status`,
+      { status },
+      { contextModule: "admin" }
+    ),
+  updateSafetyEmergencyPriority: (id, priority) =>
+    apiClient.put(
+      `/food/admin/help-support/safety-emergencies/${String(id)}/priority`,
+      { priority },
+      { contextModule: "admin" }
+    ),
+  deleteSafetyEmergency: (id) =>
+    apiClient.delete(`/food/admin/help-support/safety-emergencies/${String(id)}`, { contextModule: "admin" }),
 };
 
 /** Restaurant API - OTP login via new backend; no email/password. */

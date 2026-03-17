@@ -16,6 +16,8 @@ import { FoodFeeSettings } from '../models/feeSettings.model.js';
 import { FoodUser } from '../../../../core/users/user.model.js';
 import { FoodDeliveryCashLimit } from '../models/deliveryCashLimit.model.js';
 import { FoodDeliveryEmergencyHelp } from '../models/deliveryEmergencyHelp.model.js';
+import { FoodUserFeedback } from '../models/userFeedback.model.js';
+import { FoodSafetyEmergency } from '../models/safetyEmergency.model.js';
 
 // ----- Restaurants -----
 export async function getRestaurants(query) {
@@ -439,6 +441,128 @@ export async function upsertDeliveryEmergencyHelp(body = {}) {
         contactPolice: created.contactPolice || '',
         insurance: created.insurance || ''
     };
+}
+
+// ----- Help & Support: User Feedback (admin) -----
+export async function getUserFeedbacks(query = {}) {
+    const limit = Math.min(Math.max(parseInt(query.limit, 10) || 10, 1), 200);
+    const page = Math.max(parseInt(query.page, 10) || 1, 1);
+    const skip = (page - 1) * limit;
+
+    const filter = {};
+    if (query.rating && String(query.rating).trim() && String(query.rating) !== 'all') {
+        const rating = Number(query.rating);
+        if (Number.isFinite(rating) && rating >= 1 && rating <= 5) filter.rating = rating;
+    }
+    if (query.search && String(query.search).trim()) {
+        const raw = String(query.search).trim().slice(0, 80);
+        const term = raw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        filter.$or = [
+            { 'customer.name': { $regex: term, $options: 'i' } },
+            { 'customer.email': { $regex: term, $options: 'i' } },
+            { comment: { $regex: term, $options: 'i' } },
+            { orderId: { $regex: term, $options: 'i' } },
+            { restaurantName: { $regex: term, $options: 'i' } },
+            { 'deliveryPartner.name': { $regex: term, $options: 'i' } },
+            { 'deliveryPartner.id': { $regex: term, $options: 'i' } },
+            { 'items.name': { $regex: term, $options: 'i' } }
+        ];
+    }
+
+    const [docs, total] = await Promise.all([
+        FoodUserFeedback.find(filter).sort({ submittedAt: -1, createdAt: -1 }).skip(skip).limit(limit).lean(),
+        FoodUserFeedback.countDocuments(filter)
+    ]);
+
+    const reviews = docs.map((d) => ({
+        _id: d._id,
+        customer: d.customer || { name: '', email: '' },
+        phone: d.phone || '',
+        orderId: d.orderId || '',
+        restaurantName: d.restaurantName || '',
+        deliveryPartner: d.deliveryPartner || null,
+        items: Array.isArray(d.items) ? d.items : [],
+        rating: d.rating,
+        comment: d.comment || '',
+        submittedAt: d.submittedAt || d.createdAt,
+        createdAt: d.createdAt
+    }));
+
+    return {
+        reviews,
+        pagination: { page, limit, total, totalPages: Math.ceil(total / limit) || 1 }
+    };
+}
+
+export async function deleteUserFeedback(id) {
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
+    const deleted = await FoodUserFeedback.findByIdAndDelete(id).lean();
+    return deleted ? { id } : null;
+}
+
+// ----- Help & Support: Safety Emergency Reports (admin) -----
+export async function getSafetyEmergencies(query = {}) {
+    const limit = Math.min(Math.max(parseInt(query.limit, 10) || 10, 1), 200);
+    const page = Math.max(parseInt(query.page, 10) || 1, 1);
+    const skip = (page - 1) * limit;
+
+    const filter = {};
+    if (query.status && String(query.status).trim() && String(query.status) !== 'all') {
+        filter.status = String(query.status).trim();
+    }
+    if (query.priority && String(query.priority).trim() && String(query.priority) !== 'all') {
+        filter.priority = String(query.priority).trim();
+    }
+    if (query.search && String(query.search).trim()) {
+        const raw = String(query.search).trim().slice(0, 80);
+        const term = raw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        filter.$or = [
+            { userName: { $regex: term, $options: 'i' } },
+            { userEmail: { $regex: term, $options: 'i' } },
+            { userPhone: { $regex: term, $options: 'i' } },
+            { message: { $regex: term, $options: 'i' } }
+        ];
+    }
+
+    const [docs, total] = await Promise.all([
+        FoodSafetyEmergency.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+        FoodSafetyEmergency.countDocuments(filter)
+    ]);
+
+    const safetyEmergencies = docs.map((d) => ({
+        _id: d._id,
+        userName: d.userName || '',
+        userEmail: d.userEmail || '',
+        userPhone: d.userPhone || '',
+        message: d.message || '',
+        location: d.location || null,
+        status: d.status || 'unread',
+        priority: d.priority || 'medium',
+        createdAt: d.createdAt
+    }));
+
+    return {
+        safetyEmergencies,
+        pagination: { page, limit, total, pages: Math.ceil(total / limit) || 1 }
+    };
+}
+
+export async function updateSafetyEmergencyStatus(id, status) {
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
+    const updated = await FoodSafetyEmergency.findByIdAndUpdate(id, { $set: { status: String(status) } }, { new: true }).lean();
+    return updated || null;
+}
+
+export async function updateSafetyEmergencyPriority(id, priority) {
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
+    const updated = await FoodSafetyEmergency.findByIdAndUpdate(id, { $set: { priority: String(priority) } }, { new: true }).lean();
+    return updated || null;
+}
+
+export async function deleteSafetyEmergency(id) {
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
+    const deleted = await FoodSafetyEmergency.findByIdAndDelete(id).lean();
+    return deleted ? { id } : null;
 }
 
 export async function getRestaurantById(id) {
