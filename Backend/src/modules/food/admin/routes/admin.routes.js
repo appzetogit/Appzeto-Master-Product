@@ -14,6 +14,11 @@ const requireAdmin = (req, _res, next) => {
 
 router.use(requireAdmin);
 
+// ----- Customers -----
+router.get('/customers', adminController.getCustomers);
+router.get('/customers/:id', adminController.getCustomerById);
+router.patch('/customers/:id/status', adminController.updateCustomerStatus);
+
 // ----- Restaurants -----
 router.get('/restaurants', adminController.getRestaurants);
 router.get('/restaurants/pending', adminController.getPendingRestaurants);
@@ -23,6 +28,15 @@ router.post('/restaurants', adminController.createRestaurant);
 router.patch('/restaurants/:id/menu', adminController.updateRestaurantMenuById);
 router.patch('/restaurants/:id/approve', adminController.approveRestaurant);
 router.patch('/restaurants/:id/reject', adminController.rejectRestaurant);
+
+// ----- Restaurant Commission -----
+router.get('/restaurant-commissions/bootstrap', adminController.getRestaurantCommissionBootstrap);
+router.get('/restaurant-commissions', adminController.getRestaurantCommissions);
+router.post('/restaurant-commissions', adminController.createRestaurantCommission);
+router.get('/restaurant-commissions/:id', adminController.getRestaurantCommissionById);
+router.patch('/restaurant-commissions/:id', adminController.updateRestaurantCommission);
+router.delete('/restaurant-commissions/:id', adminController.deleteRestaurantCommission);
+router.patch('/restaurant-commissions/:id/toggle', adminController.toggleRestaurantCommissionStatus);
 
 // ----- Categories -----
 router.get('/categories', adminController.getCategories);
@@ -47,6 +61,11 @@ router.get('/delivery/join-requests', adminController.getDeliveryJoinRequests);
 router.get('/delivery/wallets', adminController.getDeliveryWallets);
 router.get('/delivery/bonus-transactions', adminController.getDeliveryPartnerBonusTransactions);
 router.post('/delivery/bonus', adminController.addDeliveryPartnerBonus);
+router.get('/delivery/commission-rules', adminController.getDeliveryCommissionRules);
+router.post('/delivery/commission-rules', adminController.createDeliveryCommissionRule);
+router.patch('/delivery/commission-rules/:id', adminController.updateDeliveryCommissionRule);
+router.delete('/delivery/commission-rules/:id', adminController.deleteDeliveryCommissionRule);
+router.patch('/delivery/commission-rules/:id/status', adminController.toggleDeliveryCommissionRuleStatus);
 router.get('/delivery/earning-addons', adminController.getEarningAddons);
 router.post('/delivery/earning-addons', adminController.createEarningAddon);
 router.patch('/delivery/earning-addons/:id', adminController.updateEarningAddon);

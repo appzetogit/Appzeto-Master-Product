@@ -10,6 +10,9 @@ import { FoodOffer } from '../models/offer.model.js';
 import { DeliveryBonusTransaction } from '../models/deliveryBonusTransaction.model.js';
 import { FoodEarningAddon } from '../models/earningAddon.model.js';
 import { FoodEarningAddonHistory } from '../models/earningAddonHistory.model.js';
+import { FoodRestaurantCommission } from '../models/restaurantCommission.model.js';
+import { FoodDeliveryCommissionRule } from '../models/deliveryCommissionRule.model.js';
+import { FoodUser } from '../../../../core/users/user.model.js';
 
 // ----- Restaurants -----
 export async function getRestaurants(query) {
@@ -31,6 +34,274 @@ export async function getRestaurants(query) {
         FoodRestaurant.countDocuments(filter)
     ]);
     return { restaurants, total, page, limit };
+}
+
+// ----- Customers / Users (admin) -----
+export async function getCustomers(query = {}) {
+    const limit = Math.min(Math.max(parseInt(query.limit, 10) || 50, 1), 1000);
+    const page = Math.max(parseInt(query.page, 10) || 1, 1);
+    const skip = (page - 1) * limit;
+
+    const filter = { role: 'USER' };
+
+    if (query.status) {
+        if (String(query.status) === 'active') filter.isActive = true;
+        if (String(query.status) === 'inactive') filter.isActive = false;
+    }
+
+    if (query.joiningDate && String(query.joiningDate).trim()) {
+        const d = new Date(String(query.joiningDate));
+        if (!Number.isNaN(d.getTime())) {
+            const start = new Date(d);
+            start.setHours(0, 0, 0, 0);
+            const end = new Date(d);
+            end.setHours(23, 59, 59, 999);
+            filter.createdAt = { $gte: start, $lte: end };
+        }
+    }
+
+    if (query.search && String(query.search).trim()) {
+        const raw = String(query.search).trim().slice(0, 80);
+        const term = raw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        filter.$or = [
+            { name: { $regex: term, $options: 'i' } },
+            { email: { $regex: term, $options: 'i' } },
+            { phone: { $regex: term, $options: 'i' } }
+        ];
+    }
+
+    const sort = {};
+    const sortBy = String(query.sortBy || '').trim();
+    if (sortBy === 'name-asc') sort.name = 1;
+    else if (sortBy === 'name-desc') sort.name = -1;
+    else sort.createdAt = -1;
+
+    const [docs, total] = await Promise.all([
+        FoodUser.find(filter)
+            .sort(sort)
+            .skip(skip)
+            .limit(limit)
+            .select('name email phone countryCode isVerified isActive createdAt')
+            .lean(),
+        FoodUser.countDocuments(filter)
+    ]);
+
+    let customers = docs.map((u) => ({
+        id: u._id,
+        _id: u._id,
+        name: u.name || 'Unnamed',
+        email: u.email || '',
+        phone: u.phone || '',
+        countryCode: u.countryCode || '+91',
+        status: u.isActive !== false,
+        isActive: u.isActive !== false,
+        isVerified: u.isVerified === true,
+        totalOrder: 0,
+        totalOrderAmount: 0,
+        joiningDate: u.createdAt,
+        createdAt: u.createdAt
+    }));
+
+    const chooseFirst = parseInt(query.chooseFirst, 10);
+    if (Number.isFinite(chooseFirst) && chooseFirst > 0) {
+        customers = customers.slice(0, chooseFirst);
+    }
+
+    return { customers, total, page, limit };
+}
+
+export async function getCustomerById(id) {
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
+    const u = await FoodUser.findById(id).select('-__v').lean();
+    if (!u) return null;
+    return {
+        id: u._id,
+        _id: u._id,
+        name: u.name || 'Unnamed',
+        email: u.email || '',
+        phone: u.phone || '',
+        countryCode: u.countryCode || '+91',
+        status: u.isActive !== false,
+        isActive: u.isActive !== false,
+        isVerified: u.isVerified === true,
+        joiningDate: u.createdAt,
+        createdAt: u.createdAt,
+        updatedAt: u.updatedAt
+    };
+}
+
+export async function updateCustomerStatus(id, isActive) {
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
+    const updated = await FoodUser.findByIdAndUpdate(
+        id,
+        { $set: { isActive: Boolean(isActive) } },
+        { new: true }
+    ).lean();
+    return updated || null;
+}
+
+// ----- Restaurant Commission (admin) -----
+export async function getRestaurantCommissions() {
+    const list = await FoodRestaurantCommission.find({})
+        .sort({ createdAt: -1 })
+        .populate({ path: 'restaurantId', select: 'restaurantName' })
+        .lean();
+
+    const commissions = list.map((c, index) => ({
+        _id: c._id,
+        sl: index + 1,
+        restaurantId: c.restaurantId?._id ? String(c.restaurantId._id) : String(c.restaurantId),
+        restaurantName: c.restaurantId?.restaurantName || '',
+        restaurant: c.restaurantId?._id ? { _id: c.restaurantId._id, name: c.restaurantId.restaurantName } : null,
+        defaultCommission: c.defaultCommission || { type: 'percentage', value: 0 },
+        notes: c.notes || '',
+        status: c.status !== false
+    }));
+
+    return { commissions };
+}
+
+export async function getRestaurantCommissionBootstrap() {
+    const [commissionsData, restaurantsData] = await Promise.all([
+        getRestaurantCommissions(),
+        getRestaurants({ status: 'approved', limit: 1000, page: 1 })
+    ]);
+
+    const commissionByRestaurantId = new Set(
+        (commissionsData.commissions || []).map((c) => String(c.restaurantId))
+    );
+
+    const restaurants = (restaurantsData.restaurants || []).map((r) => ({
+        _id: r._id,
+        name: r.restaurantName || r.name || '',
+        restaurantId: r._id ? `REST${r._id.toString().slice(-6).padStart(6, '0')}` : '',
+        ownerName: r.ownerName || '',
+        hasCommissionSetup: commissionByRestaurantId.has(String(r._id))
+    }));
+
+    return { commissions: commissionsData.commissions || [], restaurants };
+}
+
+export async function getRestaurantCommissionById(id) {
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
+    const doc = await FoodRestaurantCommission.findById(id)
+        .populate({ path: 'restaurantId', select: 'restaurantName' })
+        .lean();
+    if (!doc) return null;
+    return {
+        _id: doc._id,
+        restaurantId: doc.restaurantId?._id ? String(doc.restaurantId._id) : String(doc.restaurantId),
+        restaurant: doc.restaurantId?._id ? { _id: doc.restaurantId._id, name: doc.restaurantId.restaurantName } : null,
+        restaurantName: doc.restaurantId?.restaurantName || '',
+        defaultCommission: doc.defaultCommission || { type: 'percentage', value: 0 },
+        notes: doc.notes || '',
+        status: doc.status !== false
+    };
+}
+
+export async function createRestaurantCommission(body) {
+    const exists = await FoodRestaurantCommission.findOne({ restaurantId: body.restaurantId }).lean();
+    if (exists) {
+        throw new ValidationError('Commission already exists for this restaurant');
+    }
+    const created = await FoodRestaurantCommission.create({
+        restaurantId: body.restaurantId,
+        defaultCommission: body.defaultCommission,
+        notes: body.notes || '',
+        status: true
+    });
+    return created.toObject();
+}
+
+export async function updateRestaurantCommission(id, body) {
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
+    const updated = await FoodRestaurantCommission.findByIdAndUpdate(
+        id,
+        { $set: { defaultCommission: body.defaultCommission, notes: body.notes || '' } },
+        { new: true }
+    ).lean();
+    return updated;
+}
+
+export async function deleteRestaurantCommission(id) {
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
+    const deleted = await FoodRestaurantCommission.findByIdAndDelete(id).lean();
+    return deleted ? { id } : null;
+}
+
+export async function toggleRestaurantCommissionStatus(id) {
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
+    const doc = await FoodRestaurantCommission.findById(id);
+    if (!doc) return null;
+    doc.status = !Boolean(doc.status);
+    await doc.save();
+    return doc.toObject();
+}
+
+// ----- Delivery Boy Commission Rule (admin) -----
+export async function getDeliveryCommissionRules() {
+    const list = await FoodDeliveryCommissionRule.find({}).sort({ createdAt: -1 }).lean();
+    const commissions = list.map((r, index) => ({
+        _id: r._id,
+        sl: index + 1,
+        name: r.name || '',
+        minDistance: r.minDistance,
+        maxDistance: r.maxDistance ?? null,
+        commissionPerKm: r.commissionPerKm,
+        basePayout: r.basePayout,
+        status: r.status !== false
+    }));
+    return { commissions };
+}
+
+export async function createDeliveryCommissionRule(body) {
+    const count = await FoodDeliveryCommissionRule.countDocuments({});
+    if (count >= 1) {
+        throw new ValidationError('Only one commission rule is allowed');
+    }
+    const created = await FoodDeliveryCommissionRule.create({
+        name: body.name || '',
+        minDistance: body.minDistance,
+        maxDistance: body.maxDistance ?? null,
+        commissionPerKm: body.commissionPerKm,
+        basePayout: body.basePayout,
+        status: body.status ?? true
+    });
+    return created.toObject();
+}
+
+export async function updateDeliveryCommissionRule(id, body) {
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
+    const updated = await FoodDeliveryCommissionRule.findByIdAndUpdate(
+        id,
+        {
+            $set: {
+                name: body.name || '',
+                minDistance: body.minDistance,
+                maxDistance: body.maxDistance ?? null,
+                commissionPerKm: body.commissionPerKm,
+                basePayout: body.basePayout
+            }
+        },
+        { new: true }
+    ).lean();
+    return updated;
+}
+
+export async function deleteDeliveryCommissionRule(id) {
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
+    const deleted = await FoodDeliveryCommissionRule.findByIdAndDelete(id).lean();
+    return deleted ? { id } : null;
+}
+
+export async function toggleDeliveryCommissionRuleStatus(id, status) {
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
+    const updated = await FoodDeliveryCommissionRule.findByIdAndUpdate(
+        id,
+        { $set: { status: Boolean(status) } },
+        { new: true }
+    ).lean();
+    return updated;
 }
 
 export async function getRestaurantById(id) {
