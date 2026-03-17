@@ -6,8 +6,7 @@ import { Card, CardContent } from "@food/components/ui/card"
 import { Textarea } from "@food/components/ui/textarea"
 import { useState } from "react"
 import { toast } from "sonner"
-import api from "@food/api"
-import { API_ENDPOINTS } from "@food/api/config"
+import { userAPI } from "@food/api"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -26,8 +25,8 @@ export default function ReportSafetyEmergency() {
 
     try {
       setIsSubmitting(true)
-      const response = await api.post(API_ENDPOINTS.ADMIN.SAFETY_EMERGENCY_CREATE, {
-        message: report.trim()
+      const response = await userAPI.reportSafetyEmergency({
+        message: report.trim(),
       })
       
       if (response.data.success) {

@@ -6,8 +6,7 @@ import { Card, CardContent } from "@food/components/ui/card"
 import { Textarea } from "@food/components/ui/textarea"
 import { useState } from "react"
 import { toast } from "sonner"
-import api from "@food/api"
-import { API_ENDPOINTS } from "@food/api/config"
+import { userAPI } from "@food/api"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -15,6 +14,7 @@ const debugError = (...args) => {}
 
 export default function SendFeedback() {
   const [feedback, setFeedback] = useState("")
+  const [rating, setRating] = useState(5)
   const [isSubmitted, setIsSubmitted] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -26,8 +26,9 @@ export default function SendFeedback() {
 
     try {
       setIsSubmitting(true)
-      const response = await api.post(API_ENDPOINTS.ADMIN.FEEDBACK_CREATE, {
-        message: feedback.trim()
+      const response = await userAPI.submitFeedback({
+        rating,
+        comment: feedback.trim(),
       })
 
       if (response.data.success) {
@@ -83,6 +84,26 @@ export default function SendFeedback() {
             {/* Feedback Form */}
             <Card className="bg-white dark:bg-[#1a1a1a] rounded-xl shadow-sm border-0 dark:border-gray-800 mb-4 md:mb-5 lg:mb-6">
               <CardContent className="p-4 md:p-5 lg:p-6">
+                <label className="block text-sm md:text-base font-medium text-gray-900 dark:text-white mb-2">
+                  Rating
+                </label>
+                <div className="flex items-center gap-2 mb-4">
+                  {[1, 2, 3, 4, 5].map((n) => (
+                    <button
+                      key={n}
+                      type="button"
+                      onClick={() => setRating(n)}
+                      className={`h-10 w-10 rounded-lg border text-sm font-semibold transition-colors ${
+                        rating === n
+                          ? "bg-[#EB590E] text-white border-[#EB590E]"
+                          : "bg-white dark:bg-[#1a1a1a] text-gray-800 dark:text-gray-200 border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-900"
+                      }`}
+                      aria-label={`Set rating ${n}`}
+                    >
+                      {n}
+                    </button>
+                  ))}
+                </div>
                 <label className="block text-sm md:text-base font-medium text-gray-900 dark:text-white mb-2 md:mb-3">
                   Your feedback
                 </label>

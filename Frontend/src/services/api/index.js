@@ -614,7 +614,14 @@ export const deliveryAPI = {
     ),
 };
 
-export const userAPI = createStubAPI();
+export const userAPI = {
+  /** User submits feedback (rating 1-5, comment). */
+  submitFeedback: (body) =>
+    apiClient.post("/food/user/feedback", body ?? {}, { contextModule: "user" }),
+  /** User submits safety emergency report (message). */
+  reportSafetyEmergency: (body) =>
+    apiClient.post("/food/user/safety-emergency", body ?? {}, { contextModule: "user" }),
+};
 export const locationAPI = createStubAPI();
 export const zoneAPI = {
   /** Public: detect active service zone for a lat/lng point. */
