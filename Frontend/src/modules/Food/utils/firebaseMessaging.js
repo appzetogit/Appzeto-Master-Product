@@ -378,18 +378,16 @@ async function getFirebasePublicEnv() {
 
   publicEnvPromise = (async () => {
     try {
-      const response = await adminAPI.getPublicEnvVariables();
-      const data = response?.data?.data || {};
       return {
-        apiKey: sanitize(data.FIREBASE_API_KEY) || sanitize(import.meta.env.VITE_FIREBASE_API_KEY) || DEFAULT_FIREBASE_CONFIG.apiKey,
-        authDomain: sanitize(data.FIREBASE_AUTH_DOMAIN) || sanitize(import.meta.env.VITE_FIREBASE_AUTH_DOMAIN) || DEFAULT_FIREBASE_CONFIG.authDomain,
-        projectId: sanitize(data.FIREBASE_PROJECT_ID) || sanitize(import.meta.env.VITE_FIREBASE_PROJECT_ID) || DEFAULT_FIREBASE_CONFIG.projectId,
-        appId: sanitize(data.FIREBASE_APP_ID) || sanitize(import.meta.env.VITE_FIREBASE_APP_ID) || DEFAULT_FIREBASE_CONFIG.appId,
+        apiKey: sanitize(import.meta.env.VITE_FIREBASE_API_KEY) || DEFAULT_FIREBASE_CONFIG.apiKey,
+        authDomain: sanitize(import.meta.env.VITE_FIREBASE_AUTH_DOMAIN) || DEFAULT_FIREBASE_CONFIG.authDomain,
+        projectId: sanitize(import.meta.env.VITE_FIREBASE_PROJECT_ID) || DEFAULT_FIREBASE_CONFIG.projectId,
+        appId: sanitize(import.meta.env.VITE_FIREBASE_APP_ID) || DEFAULT_FIREBASE_CONFIG.appId,
         messagingSenderId:
-          sanitize(data.FIREBASE_MESSAGING_SENDER_ID) || sanitize(import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID) || DEFAULT_FIREBASE_CONFIG.messagingSenderId,
-        storageBucket: sanitize(data.FIREBASE_STORAGE_BUCKET) || sanitize(import.meta.env.VITE_FIREBASE_STORAGE_BUCKET),
-        measurementId: sanitize(data.MEASUREMENT_ID) || sanitize(import.meta.env.VITE_FIREBASE_MEASUREMENT_ID),
-        vapidKey: sanitize(data.FIREBASE_VAPID_KEY) || sanitize(import.meta.env.VITE_FIREBASE_VAPID_KEY),
+          sanitize(import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID) || DEFAULT_FIREBASE_CONFIG.messagingSenderId,
+        storageBucket: sanitize(import.meta.env.VITE_FIREBASE_STORAGE_BUCKET),
+        measurementId: sanitize(import.meta.env.VITE_FIREBASE_MEASUREMENT_ID),
+        vapidKey: sanitize(import.meta.env.VITE_FIREBASE_VAPID_KEY),
       };
     } catch {
       return {

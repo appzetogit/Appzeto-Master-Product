@@ -4,6 +4,7 @@ import {
     getApprovedRestaurantByIdOrSlug,
     getCurrentRestaurantProfile,
     updateRestaurantProfile,
+    updateRestaurantAcceptingOrders,
     uploadRestaurantProfileImage,
     uploadRestaurantMenuImage,
     listPublicOffers
@@ -57,6 +58,16 @@ export const updateRestaurantProfileController = async (req, res, next) => {
         const restaurantId = req.user?.userId;
         const restaurant = await updateRestaurantProfile(restaurantId, req.body || {});
         return sendResponse(res, 200, 'Restaurant updated successfully', { restaurant });
+    } catch (error) {
+        next(error);
+    }
+};
+
+export const updateRestaurantAcceptingOrdersController = async (req, res, next) => {
+    try {
+        const restaurantId = req.user?.userId;
+        const restaurant = await updateRestaurantAcceptingOrders(restaurantId, req.body?.isAcceptingOrders);
+        return sendResponse(res, 200, 'Restaurant availability updated successfully', { restaurant });
     } catch (error) {
         next(error);
     }

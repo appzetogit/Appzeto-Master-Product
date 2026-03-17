@@ -153,6 +153,16 @@ export const getRestaurantAvailabilityStatus = (restaurant, now = new Date(), op
     }
   }
 
+  if (!ignoreOperationalStatus && !isAcceptingOrders) {
+    return {
+      isOpen: false,
+      isActive,
+      isAcceptingOrders,
+      isWithinTimings: false,
+      reason: "not-accepting-orders",
+    }
+  }
+
   const dayName = DAY_NAMES[now.getDay()]
   const todayTiming = getTodayTiming(restaurant, dayName)
 
@@ -181,17 +191,27 @@ export const getRestaurantAvailabilityStatus = (restaurant, now = new Date(), op
     }
   }
 
-  const openingTime = todayTiming?.openingTime || restaurant?.deliveryTimings?.openingTime || null
-  const closingTime = todayTiming?.closingTime || restaurant?.deliveryTimings?.closingTime || null
+  const openingTime =
+    todayTiming?.openingTime ||
+    restaurant?.deliveryTimings?.openingTime ||
+    restaurant?.openingTime ||
+    null
+  const closingTime =
+    todayTiming?.closingTime ||
+    restaurant?.deliveryTimings?.closingTime ||
+    restaurant?.closingTime ||
+    null
 
   const openingMinutes = parseTimeToMinutes(openingTime)
   const closingMinutes = parseTimeToMinutes(closingTime)
   const nowMinutes = now.getHours() * 60 + now.getMinutes()
   const hasExplicitWindow = Boolean(openingTime || closingTime)
+  // If a restaurant provides only one side of the window, treat timings as not enforced
+  // (prevents accidental "offline" due to partial data).
   const isWithinTimings = hasExplicitWindow
     ? (openingMinutes !== null && closingMinutes !== null
       ? isWithinTimeWindow(nowMinutes, openingMinutes, closingMinutes)
-      : false)
+      : true)
     : true
   const minutesUntilClose = isWithinTimings
     ? getMinutesUntilClosing(nowMinutes, openingMinutes, closingMinutes)

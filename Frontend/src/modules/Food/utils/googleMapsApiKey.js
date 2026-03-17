@@ -1,10 +1,9 @@
 /**
  * Google Maps API Key Utility
- * Fetches API key from backend database instead of .env file
+ * Uses build-time env only (no backend calls).
  */
 
 let cachedApiKey = null;
-let apiKeyPromise = null;
 
 function sanitizeApiKey(value) {
   if (!value) return "";
@@ -12,8 +11,8 @@ function sanitizeApiKey(value) {
 }
 
 /**
- * Get Google Maps API Key from backend
- * Uses caching to avoid multiple requests
+ * Get Google Maps API Key from frontend env.
+ * Uses caching to avoid repeated sanitization.
  * @returns {Promise<string>} Google Maps API Key
  */
 export async function getGoogleMapsApiKey() {
@@ -22,46 +21,8 @@ export async function getGoogleMapsApiKey() {
     return cachedApiKey;
   }
 
-  // Return existing promise if already fetching
-  if (apiKeyPromise) {
-    return apiKeyPromise;
-  }
-
-  // Fetch from backend
-  apiKeyPromise = (async () => {
-    const envFallbackKey = sanitizeApiKey(import.meta.env.VITE_GOOGLE_MAPS_API_KEY);
-    try {
-      const { adminAPI } = await import('@food/api');
-      const response = await adminAPI.getPublicEnvVariables();
-
-      const dbKey = sanitizeApiKey(response?.data?.data?.VITE_GOOGLE_MAPS_API_KEY);
-      if (response?.data?.success && dbKey) {
-        cachedApiKey = dbKey;
-        return cachedApiKey;
-      }
-
-      if (envFallbackKey) {
-        console.warn('⚠️ Google Maps API key not found in database. Using VITE_GOOGLE_MAPS_API_KEY fallback.');
-        cachedApiKey = envFallbackKey;
-        return cachedApiKey;
-      }
-
-      console.warn('⚠️ Google Maps API key missing in both database and frontend env.');
-      return "";
-    } catch (error) {
-      console.warn('Failed to fetch Google Maps API key from backend:', error.message);
-      if (envFallbackKey) {
-        console.warn('⚠️ Using VITE_GOOGLE_MAPS_API_KEY fallback after backend key fetch failure.');
-        cachedApiKey = envFallbackKey;
-        return cachedApiKey;
-      }
-      return "";
-    } finally {
-      apiKeyPromise = null;
-    }
-  })();
-
-  return apiKeyPromise;
+  cachedApiKey = sanitizeApiKey(import.meta.env.VITE_GOOGLE_MAPS_API_KEY);
+  return cachedApiKey;
 }
 
 /**
@@ -69,6 +30,5 @@ export async function getGoogleMapsApiKey() {
  */
 export function clearGoogleMapsApiKeyCache() {
   cachedApiKey = null;
-  apiKeyPromise = null;
 }
 

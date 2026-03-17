@@ -31,8 +31,6 @@ const debugWarn = (...args) => {}
 const debugError = (...args) => {}
 
 
-const STORAGE_KEY = "restaurant_outlet_timings"
-
 const getDefaultDayData = () => ({
   isOpen: true,
   slots: [{ id: Date.now(), start: "03:45", end: "02:15", startPeriod: "am", endPeriod: "pm" }]
@@ -387,32 +385,7 @@ export default function DaySlots() {
   const { day } = useParams()
   const dayName = day ? day.charAt(0).toUpperCase() + day.slice(1) : "Monday"
   
-  const [dayData, setDayData] = useState(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY)
-      if (saved) {
-        const allDays = JSON.parse(saved)
-        const dayData = allDays[dayName]
-        if (dayData && dayData.slots && Array.isArray(dayData.slots) && dayData.slots.length > 0) {
-          // Ensure slots have proper structure
-          return {
-            isOpen: dayData.isOpen !== undefined ? dayData.isOpen : true,
-            slots: dayData.slots.map(slot => ({
-              id: slot.id || Date.now() + Math.random(),
-              start: slot.start || "09:00",
-              end: slot.end || "05:00",
-              startPeriod: slot.startPeriod || "am",
-              endPeriod: slot.endPeriod || "pm"
-            }))
-          }
-        }
-        return getDefaultDayData()
-      }
-    } catch (error) {
-      debugError("Error loading day slots:", error)
-    }
-    return getDefaultDayData()
-  })
+  const [dayData, setDayData] = useState(getDefaultDayData)
 
   const [copyToAllDays, setCopyToAllDays] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)

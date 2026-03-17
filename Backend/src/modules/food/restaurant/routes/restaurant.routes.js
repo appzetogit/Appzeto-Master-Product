@@ -7,6 +7,7 @@ import {
     listPublicOffersController,
     getCurrentRestaurantController,
     updateRestaurantProfileController,
+    updateRestaurantAcceptingOrdersController,
     uploadRestaurantProfileImageController,
     uploadRestaurantMenuImageController
 } from '../controllers/restaurant.controller.js';
@@ -22,6 +23,11 @@ import {
     deleteCategoryController
 } from '../controllers/restaurantCategory.controller.js';
 import { getMenuController, updateMenuController, getPublicRestaurantMenuController } from '../controllers/restaurantMenu.controller.js';
+import {
+    getOutletTimingsByRestaurantIdController,
+    getCurrentRestaurantOutletTimingsController,
+    upsertCurrentRestaurantOutletTimingsController
+} from '../controllers/outletTimings.controller.js';
 import {
     createRestaurantFoodController,
     updateRestaurantFoodController
@@ -52,6 +58,7 @@ router.post('/register', uploadFields, registerRestaurantController);
 router.get('/restaurants', listApprovedRestaurantsController);
 router.get('/restaurants/:id', getApprovedRestaurantController);
 router.get('/restaurants/:id/menu', getPublicRestaurantMenuController);
+router.get('/restaurants/:id/outlet-timings', getOutletTimingsByRestaurantIdController);
 router.get('/offers', listPublicOffersController);
 // Public: categories list (zone-aware; returns zone categories + global)
 router.get('/categories/public', listCategoriesController);
@@ -59,6 +66,9 @@ router.get('/categories/public', listCategoriesController);
 // Restaurant dashboard/profile (Bearer token + RESTAURANT role)
 router.get('/current', authMiddleware, requireRestaurant, getCurrentRestaurantController);
 router.patch('/profile', authMiddleware, requireRestaurant, updateRestaurantProfileController);
+router.patch('/availability', authMiddleware, requireRestaurant, updateRestaurantAcceptingOrdersController);
+router.get('/outlet-timings', authMiddleware, requireRestaurant, getCurrentRestaurantOutletTimingsController);
+router.put('/outlet-timings', authMiddleware, requireRestaurant, upsertCurrentRestaurantOutletTimingsController);
 router.post(
     '/profile/profile-image',
     authMiddleware,

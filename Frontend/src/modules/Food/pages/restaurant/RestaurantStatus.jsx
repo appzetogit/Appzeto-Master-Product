@@ -19,8 +19,6 @@ const debugWarn = (...args) => {}
 const debugError = (...args) => {}
 
 
-const STORAGE_KEY = "restaurant_outlet_timings"
-
 export default function RestaurantStatus() {
   const navigate = useNavigate()
   const [deliveryStatus, setDeliveryStatus] = useState(false)
@@ -66,18 +64,18 @@ export default function RestaurantStatus() {
     fetchRestaurantData()
   }, [])
 
-  // Load outlet timings from localStorage
+  // Load outlet timings from backend (DB)
   useEffect(() => {
     const loadOutletTimings = () => {
-      try {
-        const saved = localStorage.getItem(STORAGE_KEY)
-        if (saved) {
-          const data = JSON.parse(saved)
-          setOutletTimings(data)
-        }
-      } catch (error) {
-        debugError("Error loading outlet timings:", error)
-      }
+      restaurantAPI
+        .getOutletTimings()
+        .then((res) => {
+          const data = res?.data?.data?.outletTimings || res?.data?.outletTimings
+          if (data) setOutletTimings(data)
+        })
+        .catch((error) => {
+          debugError("Error loading outlet timings:", error)
+        })
     }
 
     loadOutletTimings()
@@ -99,17 +97,7 @@ export default function RestaurantStatus() {
       const currentMinute = now.getMinutes()
       const currentTimeInMinutes = currentHour * 60 + currentMinute
 
-      // Single source of truth: outlet timings from /restaurant/outlet-timings
-      let outletTimingsData = null
-      try {
-        const saved = localStorage.getItem(STORAGE_KEY)
-        if (saved) {
-          outletTimingsData = JSON.parse(saved)
-          setOutletTimings(outletTimingsData)
-        }
-      } catch (error) {
-        debugError("Error loading outlet timings:", error)
-      }
+      const outletTimingsData = outletTimings
 
       if (!outletTimingsData || !outletTimingsData[currentDayFull]) {
         // No outlet timings configured for today yet
@@ -163,72 +151,39 @@ export default function RestaurantStatus() {
       clearInterval(interval)
       window.removeEventListener("outletTimingsUpdated", handleOutletTimingsUpdate)
     }
-  }, [currentDateTime])
+  }, [currentDateTime, outletTimings])
 
   // Note: Delivery status is now manually controlled by user via toggle
   // We don't automatically set it based on timings anymore
   // The isWithinTimings is only used to show warning messages
 
-  // Load delivery status from backend and sync with localStorage
+  // Load delivery status from backend
   useEffect(() => {
     const loadDeliveryStatus = async () => {
       try {
-        // First try to get from backend
         const response = await restaurantAPI.getCurrentRestaurant()
         const restaurant = response?.data?.data?.restaurant || response?.data?.restaurant
         if (restaurant?.isAcceptingOrders !== undefined) {
           setDeliveryStatus(restaurant.isAcceptingOrders)
-          // Sync localStorage with backend
-          localStorage.setItem('restaurant_online_status', JSON.stringify(restaurant.isAcceptingOrders))
           // Dispatch event to update navbar
           window.dispatchEvent(new CustomEvent('restaurantStatusChanged', { 
             detail: { isOnline: restaurant.isAcceptingOrders } 
           }))
         } else {
-          // Fallback to localStorage
-          const savedStatus = localStorage.getItem('restaurant_online_status')
-          if (savedStatus !== null) {
-            const status = JSON.parse(savedStatus)
-            setDeliveryStatus(status)
-            // Dispatch event to update navbar
-            window.dispatchEvent(new CustomEvent('restaurantStatusChanged', { 
-              detail: { isOnline: status } 
-            }))
-          } else {
-            // Default to false if not set
-            setDeliveryStatus(false)
-            // Dispatch event to update navbar
-            window.dispatchEvent(new CustomEvent('restaurantStatusChanged', { 
-              detail: { isOnline: false } 
-            }))
-          }
+          setDeliveryStatus(false)
+          window.dispatchEvent(new CustomEvent('restaurantStatusChanged', { 
+            detail: { isOnline: false } 
+          }))
         }
       } catch (error) {
         // Only log error if it's not a network/timeout error (backend might be down/slow)
         if (error.code !== 'ERR_NETWORK' && error.code !== 'ECONNABORTED' && !error.message?.includes('timeout')) {
           debugError("Error loading delivery status:", error)
         }
-        // Fallback to localStorage
-        try {
-          const savedStatus = localStorage.getItem('restaurant_online_status')
-          if (savedStatus !== null) {
-            const status = JSON.parse(savedStatus)
-            setDeliveryStatus(status)
-            window.dispatchEvent(new CustomEvent('restaurantStatusChanged', { 
-              detail: { isOnline: status } 
-            }))
-          } else {
-            setDeliveryStatus(false)
-            window.dispatchEvent(new CustomEvent('restaurantStatusChanged', { 
-              detail: { isOnline: false } 
-            }))
-          }
-        } catch (localError) {
-          setDeliveryStatus(false)
-          window.dispatchEvent(new CustomEvent('restaurantStatusChanged', { 
-            detail: { isOnline: false } 
-          }))
-        }
+        setDeliveryStatus(false)
+        window.dispatchEvent(new CustomEvent('restaurantStatusChanged', { 
+          detail: { isOnline: false } 
+        }))
       }
     }
 
@@ -251,16 +206,15 @@ export default function RestaurantStatus() {
     
     setDeliveryStatus(checked)
     try {
-      // Save to localStorage
-      localStorage.setItem('restaurant_online_status', JSON.stringify(checked))
-      
       // Update backend
       try {
-        await restaurantAPI.updateDeliveryStatus(checked)
+        await restaurantAPI.updateAcceptingOrders(checked)
         debugLog('? Delivery status updated in backend:', checked)
       } catch (apiError) {
         debugError('Error updating delivery status in backend:', apiError)
-        // Still continue with local update even if backend fails
+        // Revert local toggle if backend fails.
+        setDeliveryStatus((prev) => !prev)
+        return
       }
       
       // Dispatch custom event for navbar to listen

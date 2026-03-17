@@ -81,6 +81,7 @@ const toRestaurantProfile = (doc) => {
         openingTime: doc.openingTime || null,
         closingTime: doc.closingTime || null,
         openDays: Array.isArray(doc.openDays) ? doc.openDays : [],
+        isAcceptingOrders: doc.isAcceptingOrders !== false,
         status: doc.status || null,
         createdAt: doc.createdAt,
         updatedAt: doc.updatedAt,
@@ -274,12 +275,53 @@ export const getCurrentRestaurantProfile = async (restaurantId) => {
                 'openingTime',
                 'closingTime',
                 'openDays',
+                'isAcceptingOrders',
                 'status',
                 'createdAt',
                 'updatedAt'
             ].join(' ')
         )
         .lean();
+    return toRestaurantProfile(doc);
+};
+
+export const updateRestaurantAcceptingOrders = async (restaurantId, isAcceptingOrders) => {
+    if (!restaurantId) {
+        throw new ValidationError('Invalid restaurant id');
+    }
+    const value = Boolean(isAcceptingOrders);
+    const doc = await FoodRestaurant.findByIdAndUpdate(
+        restaurantId,
+        { $set: { isAcceptingOrders: value } },
+        {
+            new: true,
+            runValidators: true,
+            projection: [
+                'restaurantName',
+                'cuisines',
+                'addressLine1',
+                'addressLine2',
+                'area',
+                'city',
+                'state',
+                'pincode',
+                'landmark',
+                'ownerName',
+                'ownerEmail',
+                'ownerPhone',
+                'primaryContactNumber',
+                'profileImage',
+                'menuImages',
+                'openingTime',
+                'closingTime',
+                'openDays',
+                'isAcceptingOrders',
+                'status',
+                'createdAt',
+                'updatedAt'
+            ].join(' ')
+        }
+    ).lean();
     return toRestaurantProfile(doc);
 };
 
@@ -533,6 +575,7 @@ export const listApprovedRestaurants = async (query = {}) => {
         featuredPrice: 1,
         rating: 1,
         totalRatings: 1,
+        isAcceptingOrders: 1,
         status: 1,
         createdAt: 1,
         location: 1
