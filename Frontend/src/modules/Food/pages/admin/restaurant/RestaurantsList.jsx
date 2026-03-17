@@ -529,48 +529,26 @@ export default function RestaurantsList() {
         return
       }
 
-      // Try to fetch full restaurant details from API
-      // Use _id if available, otherwise use id or restaurantId
+      // Always fetch full details from Admin API (single source of truth)
       const restaurantId = restaurant._id || restaurant.id || restaurant.restaurantId
-      let response = null
-
-      if (restaurantId) {
-        try {
-          // Try admin API first if it exists
-          if (adminAPI.getRestaurantById) {
-            response = await adminAPI.getRestaurantById(restaurantId)
-          }
-        } catch (err) {
-          debugLog("Admin API failed, trying restaurant API:", err)
-        }
-
-        // Fallback to regular restaurant API
-        if (!response || !response?.data?.success) {
-          try {
-            response = await restaurantAPI.getRestaurantById(restaurantId)
-          } catch (err) {
-            debugLog("Restaurant API also failed:", err)
-          }
-        }
-      }
-
-      // Check response structure
-      if (response?.data?.success) {
-        const data = response.data.data
-        // Handle different response structures
-        if (data?.restaurant) {
-          setRestaurantDetails(data.restaurant)
-        } else if (data) {
-          setRestaurantDetails(data)
-        } else {
-          // Fallback to restaurant data from list
-          setRestaurantDetails(restaurant)
-        }
-      } else {
-        // Use the restaurant data we already have
-        debugLog("Using restaurant data from list:", restaurant)
+      if (!restaurantId || !adminAPI.getRestaurantById) {
         setRestaurantDetails(restaurant)
+        return
       }
+
+      const response = await adminAPI.getRestaurantById(restaurantId)
+      if (!response?.data?.success) {
+        setRestaurantDetails(restaurant)
+        return
+      }
+
+      const data = response?.data?.data
+      if (data && (data.restaurantName || data._id)) {
+        setRestaurantDetails(data)
+        return
+      }
+
+      setRestaurantDetails(restaurant)
     } catch (err) {
       debugError("Error fetching restaurant details:", err)
       // Use the restaurant data we already have
@@ -712,8 +690,8 @@ export default function RestaurantsList() {
       cuisinesText: Array.isArray(restaurant.cuisines) ? restaurant.cuisines.join(", ") : "",
       estimatedDeliveryTime: restaurant.estimatedDeliveryTime || "",
       offer: restaurant.offer || "",
-      openingTime: restaurant.deliveryTimings?.openingTime || "",
-      closingTime: restaurant.deliveryTimings?.closingTime || "",
+      openingTime: restaurant.openingTime || restaurant.deliveryTimings?.openingTime || "",
+      closingTime: restaurant.closingTime || restaurant.deliveryTimings?.closingTime || "",
       isActive: restaurant.isActive !== false,
     }
   }
@@ -1003,7 +981,7 @@ export default function RestaurantsList() {
 
             <div className="flex items-center gap-3">
               <button
-                onClick={() => navigate("/admin/restaurants/add")}
+                onClick={() => navigate("/admin/food/restaurants/add")}
                 className="px-4 py-2.5 text-sm font-medium rounded-lg bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-2 transition-all"
               >
                 <Plus className="w-4 h-4" />
@@ -1179,9 +1157,9 @@ export default function RestaurantsList() {
                               <span className="text-[11px] text-slate-500">
                                 {restaurant.availability.closingCountdownLabel}
                               </span>
-                            ) : restaurant.availability?.openingTime && restaurant.availability?.closingTime ? (
+                            ) : (restaurant.availability?.openingTime && restaurant.availability?.closingTime) || (restaurant.openingTime && restaurant.closingTime) ? (
                               <span className="text-[11px] text-slate-500">
-                                {restaurant.availability.openingTime} - {restaurant.availability.closingTime}
+                                {(restaurant.availability?.openingTime || restaurant.openingTime) || "—"} – {(restaurant.availability?.closingTime || restaurant.closingTime) || "—"}
                               </span>
                             ) : (
                               <span className="text-[11px] text-slate-500">
@@ -1391,9 +1369,25 @@ export default function RestaurantsList() {
               {!loadingDetails && !isEditingDetails && (restaurantDetails || selectedRestaurant) && (() => {
                 const r = restaurantDetails || selectedRestaurant?.originalData || selectedRestaurant
                 const profileImgUrl = typeof r?.profileImage === "string" ? r.profileImage : (r?.profileImage?.url || r?.logo || r?.restaurantImage)
-                const hasFlatAddress = r?.addressLine1 || r?.area || r?.city
-                const flatAddress = [r?.addressLine1, r?.addressLine2, r?.area, r?.city, r?.landmark].filter(Boolean).join(", ")
+                const hasFlatAddress = r?.addressLine1 || r?.area || r?.city || r?.state || r?.pincode
+                const flatAddress = [r?.addressLine1, r?.addressLine2, r?.area, r?.city, r?.state, r?.pincode, r?.landmark].filter(Boolean).join(", ")
                 const hasFlatDocs = r?.panNumber || r?.panImage || r?.fssaiNumber || r?.accountNumber
+                const menuImages = Array.isArray(r?.menuImages) ? r.menuImages.filter(Boolean) : []
+                const cuisinesList =
+                  (Array.isArray(r?.cuisines) && r.cuisines.length ? r.cuisines : null) ||
+                  (Array.isArray(r?.onboarding?.step2?.cuisines) && r.onboarding.step2.cuisines.length ? r.onboarding.step2.cuisines : null) ||
+                  null
+                const openingTimeVal = r?.openingTime || r?.deliveryTimings?.openingTime || r?.onboarding?.step2?.deliveryTimings?.openingTime || ""
+                const closingTimeVal = r?.closingTime || r?.deliveryTimings?.closingTime || r?.onboarding?.step2?.deliveryTimings?.closingTime || ""
+                const openDaysVal =
+                  (Array.isArray(r?.openDays) && r.openDays.length ? r.openDays : null) ||
+                  (Array.isArray(r?.onboarding?.step2?.openDays) && r.onboarding.step2.openDays.length ? r.onboarding.step2.openDays : null) ||
+                  null
+                const offerVal = r?.offer || r?.onboarding?.step4?.offer || ""
+                const estimatedDeliveryTimeVal = r?.estimatedDeliveryTime || r?.onboarding?.step4?.estimatedDeliveryTime || ""
+                const featuredDishVal = r?.featuredDish || r?.onboarding?.step4?.featuredDish || ""
+                const featuredPriceVal = r?.featuredPrice ?? r?.onboarding?.step4?.featuredPrice
+                const diningSettingsVal = r?.diningSettings || r?.onboarding?.step4?.diningSettings || null
                 return (
                 <div className="space-y-10">
                   {/* Restaurant Basic Info */}
@@ -1551,23 +1545,45 @@ export default function RestaurantsList() {
                         <div>
                           <p className="text-xs text-slate-500 mb-1">Cuisines</p>
                           <div className="flex flex-wrap gap-2">
-                            {r?.cuisines && Array.isArray(r.cuisines) && r.cuisines.length > 0 ? (
-                              r.cuisines.map((cuisine, idx) => (
+                            {cuisinesList ? (
+                              cuisinesList.map((cuisine, idx) => (
                                 <span key={idx} className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-sm font-medium">
                                   {cuisine}
                                 </span>
                               ))
                             ) : (
-                              <span className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-sm font-medium">
-                                {r?.cuisine || "N/A"}
-                              </span>
+                              <span className="text-sm text-slate-500">{r?.cuisine || "N/A"}</span>
                             )}
                           </div>
                         </div>
-                        {r?.offer && (
+                        {(featuredDishVal || featuredPriceVal != null) && (
+                          <div>
+                            <p className="text-xs text-slate-500 mb-1">Featured Dish</p>
+                            <p className="text-sm font-medium text-slate-900">
+                              {featuredDishVal || "—"}
+                              {featuredPriceVal != null && featuredPriceVal !== "" && (
+                                <span className="text-slate-600 ml-1">(₹{featuredPriceVal})</span>
+                              )}
+                            </p>
+                          </div>
+                        )}
+                        {offerVal && (
                           <div>
                             <p className="text-xs text-slate-500 mb-1">Current Offer</p>
-                            <p className="text-sm font-medium text-green-600">{r.offer}</p>
+                            <p className="text-sm font-medium text-green-600">{offerVal}</p>
+                          </div>
+                        )}
+                        {diningSettingsVal && (
+                          <div>
+                            <p className="text-xs text-slate-500 mb-1">Dining</p>
+                            <p className="text-sm font-medium text-slate-900">
+                              {diningSettingsVal?.isEnabled ? "Enabled" : "Disabled"}
+                              {diningSettingsVal?.isEnabled && (
+                                <span className="text-slate-600 ml-1">
+                                  (max {diningSettingsVal?.maxGuests ?? 6}, {diningSettingsVal?.diningType || "family-dining"})
+                                </span>
+                              )}
+                            </p>
                           </div>
                         )}
                       </div>
@@ -1576,28 +1592,28 @@ export default function RestaurantsList() {
                     <div>
                       <h4 className="text-lg font-semibold text-slate-900 mb-4">Timings & Status</h4>
                       <div className="space-y-3">
-                        {(r?.openingTime || r?.closingTime || r?.deliveryTimings) && (
+                        {(openingTimeVal || closingTimeVal) && (
                           <div className="flex items-center gap-3">
                             <Clock className="w-5 h-5 text-slate-400" />
                             <div>
                               <p className="text-xs text-slate-500">Opening / Closing</p>
                               <p className="text-sm font-medium text-slate-900">
-                                {r?.openingTime || r?.deliveryTimings?.openingTime || "N/A"} – {r?.closingTime || r?.deliveryTimings?.closingTime || "N/A"}
+                                {openingTimeVal || "N/A"} – {closingTimeVal || "N/A"}
                               </p>
                             </div>
                           </div>
                         )}
-                        {r?.estimatedDeliveryTime && (
+                        {estimatedDeliveryTimeVal && (
                           <div>
                             <p className="text-xs text-slate-500 mb-1">Estimated Delivery Time</p>
-                            <p className="text-sm font-medium text-slate-900">{r.estimatedDeliveryTime}</p>
+                            <p className="text-sm font-medium text-slate-900">{estimatedDeliveryTimeVal}</p>
                           </div>
                         )}
-                        {r?.openDays && Array.isArray(r.openDays) && r.openDays.length > 0 && (
+                        {openDaysVal && (
                           <div>
                             <p className="text-xs text-slate-500 mb-1">Open Days</p>
                             <div className="flex flex-wrap gap-2">
-                              {r.openDays.map((day, idx) => (
+                              {openDaysVal.map((day, idx) => (
                                 <span key={idx} className="px-2 py-1 bg-slate-100 text-slate-700 rounded text-xs font-medium capitalize">{day}</span>
                               ))}
                             </div>
@@ -1616,6 +1632,57 @@ export default function RestaurantsList() {
                       </div>
                     </div>
                   </div>
+
+                  {/* Media */}
+                  {(profileImgUrl || menuImages.length > 0) && (
+                    <div className="pt-6 border-t border-slate-200">
+                      <h4 className="text-lg font-semibold text-slate-900 mb-4">Media</h4>
+                      <div className="space-y-4">
+                        {profileImgUrl && (
+                          <div>
+                            <p className="text-xs text-slate-500 mb-2">Profile Image</p>
+                            <a
+                              href={profileImgUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-700"
+                            >
+                              <ImageIcon className="w-4 h-4" />
+                              <span>View Profile Image</span>
+                              <ExternalLink className="w-3 h-3" />
+                            </a>
+                          </div>
+                        )}
+                        {menuImages.length > 0 && (
+                          <div>
+                            <p className="text-xs text-slate-500 mb-2">Menu Images</p>
+                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                              {menuImages.map((url, idx) => (
+                                <a
+                                  key={`${url}-${idx}`}
+                                  href={url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="relative aspect-[4/5] rounded-lg overflow-hidden border border-slate-200 bg-slate-50 hover:border-slate-300"
+                                  title="Open menu image"
+                                >
+                                  <img
+                                    src={url}
+                                    alt={`Menu ${idx + 1}`}
+                                    className="w-full h-full object-cover"
+                                    loading="lazy"
+                                    onError={(e) => {
+                                      e.target.style.display = "none"
+                                    }}
+                                  />
+                                </a>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
 
                   {/* Registration Information */}
                   {(r?.createdAt || r?.updatedAt) && (

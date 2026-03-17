@@ -315,14 +315,14 @@ export default function AdminNavbar({ onMenuClick }) {
                 <DropdownMenuGroup>
                   <DropdownMenuItem
                     className="cursor-pointer hover:bg-neutral-100 focus:bg-neutral-100"
-                    onClick={() => navigate("/admin/profile")}
+                    onClick={() => navigate("/admin/food/profile")}
                   >
                     <User className="mr-2 w-4 h-4" />
                     <span>Profile</span>
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     className="cursor-pointer hover:bg-neutral-100 focus:bg-neutral-100"
-                    onClick={() => navigate("/admin/settings")}
+                    onClick={() => navigate("/admin/food/settings")}
                   >
                     <Settings className="mr-2 w-4 h-4" />
                     <span>Settings</span>

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react"
-import { useNavigate } from "react-router-dom"
+import { useNavigate, useLocation } from "react-router-dom"
 import { adminAPI } from "@food/api"
 import { setAuthData } from "@food/utils/auth"
 import { loadBusinessSettings } from "@food/utils/businessSettings"
@@ -23,13 +23,23 @@ const debugError = (...args) => {}
 
 export default function AdminLogin() {
   const navigate = useNavigate()
+  const location = useLocation()
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState("")
+  const [successMessage, setSuccessMessage] = useState("")
   const [logoUrl, setLogoUrl] = useState(quickSpicyLogo)
   const submittingRef = useRef(false)
+
+  useEffect(() => {
+    const message = location.state?.message
+    if (message) {
+      setSuccessMessage(message)
+      window.history.replaceState({}, document.title, location.pathname)
+    }
+  }, [location.state?.message, location.pathname])
 
   // Fetch business settings logo on mount
   useEffect(() => {
@@ -50,6 +60,7 @@ export default function AdminLogin() {
   const handleSubmit = async (e) => {
     e.preventDefault()
     setError("")
+    setSuccessMessage("")
     if (submittingRef.current) return
 
     const trimmedEmail = email.trim()
@@ -139,6 +150,11 @@ export default function AdminLogin() {
 
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-6">
+              {successMessage && (
+                <div className="rounded-md border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
+                  {successMessage}
+                </div>
+              )}
               {error && (
                 <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
                   {error}
@@ -189,8 +205,16 @@ export default function AdminLogin() {
                 </div>
               </div>
 
-              <div className="flex items-center text-sm">
-                <div className="text-gray-600">Use your admin credentials to continue.</div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-gray-600">Use your admin credentials to continue.</span>
+                <button
+                  type="button"
+                  onClick={() => navigate("/admin/forgot-password")}
+                  className="text-black font-medium hover:underline focus:outline-none focus:underline"
+                  disabled={isLoading}
+                >
+                  Forgot Password?
+                </button>
               </div>
 
               <Button

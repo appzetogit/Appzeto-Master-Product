@@ -187,7 +187,7 @@ export default function DiningList() {
                             <h1 className="text-2xl font-bold text-slate-900">Dining List</h1>
                         </div>
                         <button
-                            onClick={() => navigate("/admin/restaurants/add")}
+                            onClick={() => navigate("/admin/food/restaurants/add")}
                             className="px-4 py-2.5 text-sm font-medium rounded-lg bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-2 transition-all shadow-sm hover:shadow"
                         >
                             <Plus className="w-4 h-4" />
@@ -213,7 +213,7 @@ export default function DiningList() {
                                 Get started by adding your first restaurant to the dining management system.
                             </p>
                             <button
-                                onClick={() => navigate("/admin/restaurants/add")}
+                                onClick={() => navigate("/admin/food/restaurants/add")}
                                 className="px-6 py-3 text-sm font-medium rounded-lg bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-2 transition-all shadow-md"
                             >
                                 <Plus className="w-5 h-5" />

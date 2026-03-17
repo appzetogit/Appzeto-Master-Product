@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { adminAPI } from "@food/api";
 import { Button } from "@food/components/ui/button";
 import { Input } from "@food/components/ui/input";
@@ -11,13 +11,14 @@ import {
   CardTitle,
 } from "@food/components/ui/card";
 import { toast } from "sonner";
-import { Lock, Eye, EyeOff, Save, Loader2, Shield } from "lucide-react";
+import { Lock, Eye, EyeOff, Save, Loader2, Shield, User, Mail } from "lucide-react";
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
 
 
 export default function AdminSettings() {
+  const [adminInfo, setAdminInfo] = useState(null);
   const [passwordForm, setPasswordForm] = useState({
     currentPassword: "",
     newPassword: "",
@@ -28,6 +29,36 @@ export default function AdminSettings() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState({});
+
+  // Single API: getAdminProfile (GET /auth/me) for current account display
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const res = await adminAPI.getAdminProfile();
+        const admin = res?.data?.data?.admin ?? res?.data?.admin;
+        if (!cancelled && admin) {
+          setAdminInfo({ name: admin.name, email: admin.email, role: admin.role });
+          return;
+        }
+      } catch (_) {}
+      if (!cancelled) {
+        try {
+          const adminUserStr = localStorage.getItem("admin_user");
+          if (adminUserStr) {
+            const local = JSON.parse(adminUserStr);
+            setAdminInfo({
+              name: local.name || "Admin User",
+              email: local.email || "",
+              role: local.role || "admin",
+            });
+          }
+        } catch (_) {}
+      }
+    };
+    load();
+    return () => { cancelled = true; };
+  }, []);
 
   const handlePasswordChange = (field, value) => {
     setPasswordForm((prev) => ({
@@ -117,6 +148,40 @@ export default function AdminSettings() {
           Manage your account settings and preferences
         </p>
       </div>
+
+      {/* Current account (real data) */}
+      {adminInfo && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <User className="w-5 h-5 text-neutral-700" />
+              <CardTitle>Current account</CardTitle>
+            </div>
+            <CardDescription>
+              Logged in with the following account. Use the form below to change password.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <div className="flex items-center gap-2 text-sm">
+              <User className="w-4 h-4 text-neutral-500" />
+              <span className="text-neutral-600">Name:</span>
+              <span className="font-medium text-neutral-900">{adminInfo.name || "—"}</span>
+            </div>
+            <div className="flex items-center gap-2 text-sm">
+              <Mail className="w-4 h-4 text-neutral-500" />
+              <span className="text-neutral-600">Email:</span>
+              <span className="font-medium text-neutral-900">{adminInfo.email || "—"}</span>
+            </div>
+            {adminInfo.role && (
+              <div className="flex items-center gap-2 text-sm">
+                <Shield className="w-4 h-4 text-neutral-500" />
+                <span className="text-neutral-600">Role:</span>
+                <span className="font-medium capitalize text-neutral-900">{adminInfo.role}</span>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Password Change Card */}
       <Card>

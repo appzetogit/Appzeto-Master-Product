@@ -97,3 +97,51 @@ export const registerRestaurant = async (payload, files) => {
     return restaurant.toObject();
 };
 
+export const listApprovedRestaurants = async (query = {}) => {
+    const limit = Math.min(Math.max(parseInt(query.limit, 10) || 100, 1), 1000);
+    const page = Math.max(parseInt(query.page, 10) || 1, 1);
+    const skip = (page - 1) * limit;
+
+    const filter = { status: 'approved' };
+    if (query.city && String(query.city).trim()) {
+        filter.city = { $regex: String(query.city).trim(), $options: 'i' };
+    }
+    if (query.search && String(query.search).trim()) {
+        const term = String(query.search).trim();
+        filter.$or = [
+            { restaurantName: { $regex: term, $options: 'i' } },
+            { area: { $regex: term, $options: 'i' } },
+            { city: { $regex: term, $options: 'i' } },
+            { cuisines: { $in: [new RegExp(term, 'i')] } }
+        ];
+    }
+
+    const [restaurants, total] = await Promise.all([
+        FoodRestaurant.find(filter)
+            .sort({ createdAt: -1 })
+            .skip(skip)
+            .limit(limit)
+            .lean(),
+        FoodRestaurant.countDocuments(filter)
+    ]);
+
+    return { restaurants, total, page, limit };
+};
+
+export const getApprovedRestaurantByIdOrSlug = async (idOrSlug) => {
+    const value = String(idOrSlug || '').trim();
+    if (!value) return null;
+
+    // ObjectId path
+    if (/^[0-9a-fA-F]{24}$/.test(value)) {
+        return FoodRestaurant.findOne({ _id: value, status: 'approved' }).lean();
+    }
+
+    // Slug path: "my-restaurant" -> "my restaurant" (case-insensitive exact match)
+    const name = value.replace(/-/g, ' ').trim();
+    return FoodRestaurant.findOne({
+        status: 'approved',
+        restaurantName: { $regex: `^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' }
+    }).lean();
+};
+

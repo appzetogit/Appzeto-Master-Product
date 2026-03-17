@@ -15,9 +15,16 @@ const adminSchema = new mongoose.Schema(
             type: String,
             required: true
         },
+        name: { type: String, trim: true, default: '' },
+        phone: { type: String, trim: true, default: '' },
+        profileImage: { type: String, trim: true, default: '' },
         role: {
             type: String,
             default: 'ADMIN'
+        },
+        isActive: {
+            type: Boolean,
+            default: true
         },
         servicesAccess: {
             type: [String],

@@ -67,10 +67,37 @@ export const authAPI = {
   },
 };
 
-/** Admin API - login via new backend */
+/** Admin API - new backend only (GET /auth/me, PATCH /auth/admin/profile, POST /auth/admin/change-password) */
 export const adminAPI = {
   login: (email, password) => authService.adminLogin(email, password),
+  /** POST /auth/admin/forgot-password/request-otp – only accepts registered admin email */
+  requestForgotPasswordOtp: (email) =>
+    apiClient.post("/auth/admin/forgot-password/request-otp", { email: String(email || "").trim().toLowerCase() }),
+  /** POST /auth/admin/forgot-password/reset – verify OTP and set new password in one call */
+  resetPasswordWithOtp: (email, otp, newPassword) =>
+    apiClient.post("/auth/admin/forgot-password/reset", {
+      email: String(email || "").trim().toLowerCase(),
+      otp: String(otp || "").replace(/\D/g, ""),
+      newPassword: String(newPassword || ""),
+    }),
+  /** Raw /auth/me for admin (e.g. navbar). For Profile & Settings use getAdminProfile. */
   getCurrentAdmin: () => authService.getMe("admin"),
+  /** Single API for admin profile: GET /auth/me, returns { data: { admin } }. Use on Profile & Settings only. */
+  getAdminProfile: () =>
+    authService.getMe("admin").then((res) => {
+      const user = res?.data?.data?.user ?? res?.data?.user ?? res?.data?.data ?? res?.data;
+      return { data: { data: { admin: user }, admin: user } };
+    }),
+  /** PATCH /auth/admin/profile. Body: name?, phone?, profileImage? */
+  updateAdminProfile: (body) =>
+    apiClient.patch("/auth/admin/profile", body ?? {}, { contextModule: "admin" }),
+  /** POST /auth/admin/change-password */
+  changePassword: (currentPassword, newPassword) =>
+    apiClient.post(
+      "/auth/admin/change-password",
+      { currentPassword, newPassword },
+      { contextModule: "admin" }
+    ),
   logout: (refreshToken) => {
     const token =
       refreshToken ||
@@ -127,13 +154,19 @@ export const adminAPI = {
   /** PATCH /food/admin/delivery/support-tickets/:id - update adminResponse, status. */
   updateDeliverySupportTicket: (id, body) =>
     apiClient.patch(`/food/admin/delivery/support-tickets/${id}`, body ?? {}, { contextModule: "admin" }),
-  /** List restaurants for admin (Explore More dropdowns, reports, etc.). Requires admin auth. */
+  /** List restaurants for admin. Requires admin auth. */
   getRestaurants: (params = {}, config = {}) =>
     apiClient.get("/food/admin/restaurants", {
       params: { limit: 1000, ...params },
       contextModule: "admin",
       ...config,
     }),
+  /** Get single restaurant by id (full details for View Details modal). */
+  getRestaurantById: (id) =>
+    apiClient.get(`/food/admin/restaurants/${id}`, { contextModule: "admin" }),
+  /** Create restaurant (admin). Single API: POST /food/admin/restaurants. Body: JSON with image URLs. */
+  createRestaurant: (body) =>
+    apiClient.post("/food/admin/restaurants", body ?? {}, { contextModule: "admin" }),
   /** List delivery zones. Query: limit, page, isActive, search */
   getZones: (params = {}) =>
     apiClient.get("/food/admin/zones", { params: { limit: 1000, ...params }, contextModule: "admin" }),
@@ -181,6 +214,15 @@ export const restaurantAPI = {
     }
     return apiClient.post("/food/restaurant/register", formData);
   },
+  /** Public: list approved restaurants for user app */
+  getRestaurants: (params = {}, config = {}) =>
+    apiClient.get("/food/restaurant/restaurants", {
+      params: { limit: 1000, ...params },
+      ...config,
+    }),
+  /** Public: get single approved restaurant by id or slug */
+  getRestaurantById: (id, config = {}) =>
+    apiClient.get(`/food/restaurant/restaurants/${String(id)}`, { ...config }),
 };
 
 /** Single in-flight + short cache for delivery /auth/me - one call per page load / refresh. */

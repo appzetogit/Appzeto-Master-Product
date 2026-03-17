@@ -51,9 +51,35 @@ export default function AdminProfile() {
           phone: adminData.phone || "",
           profileImage: adminData.profileImage || "",
         });
+        return;
       }
+      throw new Error("No admin data in response");
     } catch (error) {
       debugError("Error fetching admin profile:", error);
+      // Fallback: show data from localStorage (login) so page still shows real name/email
+      try {
+        const adminUserStr = localStorage.getItem("admin_user");
+        if (adminUserStr) {
+          const localAdmin = JSON.parse(adminUserStr);
+          const fallback = {
+            name: localAdmin.name || "Admin User",
+            email: localAdmin.email || "",
+            phone: localAdmin.phone || "",
+            profileImage: localAdmin.profileImage || "",
+            role: localAdmin.role || "admin",
+            isActive: localAdmin.isActive !== false,
+          };
+          setProfile(fallback);
+          setFormData({
+            name: fallback.name || "",
+            email: fallback.email || "",
+            phone: fallback.phone || "",
+            profileImage: fallback.profileImage || "",
+          });
+          toast.info("Showing saved profile. Backend disconnected — updates may not persist.");
+          return;
+        }
+      } catch (_) {}
       toast.error(
         error?.response?.data?.message || "Failed to load profile"
       );
@@ -143,7 +169,7 @@ export default function AdminProfile() {
         profileImage: profileImageUrl || undefined,
       });
 
-      const updatedAdmin = response?.data?.data?.admin || response?.data?.admin;
+      const updatedAdmin = response?.data?.data?.user ?? response?.data?.data?.admin ?? response?.data?.admin;
       
       if (updatedAdmin) {
         setProfile(updatedAdmin);
@@ -452,8 +478,8 @@ export default function AdminProfile() {
             <div className="pt-4 border-t border-neutral-200 space-y-2">
               <div className="flex items-center justify-between text-sm">
                 <span className="text-neutral-600">Account Status</span>
-                <span className={`font-medium ${profile.isActive ? "text-green-600" : "text-red-600"}`}>
-                  {profile.isActive ? "Active" : "Inactive"}
+                <span className={`font-medium ${profile.isActive !== false ? "text-green-600" : "text-red-600"}`}>
+                  {profile.isActive !== false ? "Active" : "Inactive"}
                 </span>
               </div>
               {profile.lastLogin && (

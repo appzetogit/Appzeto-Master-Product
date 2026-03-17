@@ -36,6 +36,12 @@ const restaurantSchema = new mongoose.Schema(
         city: {
             type: String
         },
+        state: {
+            type: String
+        },
+        pincode: {
+            type: String
+        },
         landmark: {
             type: String
         },
@@ -105,6 +111,15 @@ const restaurantSchema = new mongoose.Schema(
         },
         fssaiImage: {
             type: String
+        },
+        estimatedDeliveryTime: { type: String },
+        featuredDish: { type: String },
+        featuredPrice: { type: Number },
+        offer: { type: String },
+        diningSettings: {
+            isEnabled: { type: Boolean, default: false },
+            maxGuests: { type: Number, default: 6 },
+            diningType: { type: String, default: 'family-dining' }
         },
         status: {
             type: String,

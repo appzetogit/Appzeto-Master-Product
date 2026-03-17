@@ -123,19 +123,12 @@ export default function AddRestaurant() {
     }
   })
 
-  // Authentication
-  const [auth, setAuth] = useState({
-    email: "",
-    phone: "",
-    signupMethod: "email",
-  })
-
   const languageTabs = [
     { key: "default", label: "Default" },
     { key: "en", label: "English(EN)" },
-    { key: "bn", label: "Bengali - বাংলা(BN)" },
-    { key: "ar", label: "Arabic - العربية (AR)" },
-    { key: "es", label: "Spanish - espa�ol(ES)" },
+    { key: "bn", label: "Bengali - ?????(BN)" },
+    { key: "ar", label: "Arabic - ??????? (AR)" },
+    { key: "es", label: "Spanish - espa�ol(ES)" },
   ]
 
   // Upload handler for images
@@ -236,14 +229,6 @@ export default function AddRestaurant() {
     return errors
   }
 
-  const validateAuth = () => {
-    const errors = []
-    if (!auth.email && !auth.phone) errors.push("Either email or phone is required")
-    if (auth.email && !EMAIL_REGEX.test(auth.email.trim())) errors.push("Please enter a valid email address")
-    if (auth.phone && !PHONE_REGEX.test(auth.phone.trim())) errors.push("Phone number must be 10 digits")
-    return errors
-  }
-
   const handleNext = () => {
     setFormErrors({})
     let validationErrors = []
@@ -256,8 +241,6 @@ export default function AddRestaurant() {
       validationErrors = validateStep3()
     } else if (step === 4) {
       validationErrors = validateStep4()
-    } else if (step === 5) {
-      validationErrors = validateAuth()
     }
 
     if (validationErrors.length > 0) {
@@ -267,7 +250,7 @@ export default function AddRestaurant() {
       return
     }
 
-    if (step < 5) {
+    if (step < 4) {
       setStep(step + 1)
     } else {
       handleSubmit()
@@ -355,25 +338,21 @@ export default function AddRestaurant() {
         featuredDish: step4.featuredDish,
         featuredPrice: parseFloat(step4.featuredPrice) || 249,
         offer: step4.offer,
-        // Auth
-        email: auth.email || null,
-        phone: auth.phone || null,
-        signupMethod: auth.email ? 'email' : 'phone',
-        // Dining Settings
         diningSettings: step4.diningSettings,
       }
 
       // Call backend API
       const response = await adminAPI.createRestaurant(payload)
 
-      if (response.data.success) {
+      const data = response?.data?.data ?? response?.data
+      if (response?.data?.success !== false && data) {
         toast.success("Restaurant created successfully!")
         setShowSuccessDialog(true)
         setTimeout(() => {
-          navigate("/admin/restaurants")
+          navigate("/admin/food/restaurants")
         }, 2000)
       } else {
-        throw new Error(response.data.message || "Failed to create restaurant")
+        throw new Error(response?.data?.message || "Failed to create restaurant")
       }
     } catch (error) {
       debugError("Error creating restaurant:", error)
@@ -811,43 +790,11 @@ export default function AddRestaurant() {
     </div>
   )
 
-  const renderStep5 = () => (
-    <div className="space-y-6">
-      <section className="bg-white p-4 sm:p-6 rounded-md space-y-4">
-        <h2 className="text-lg font-semibold text-black">Authentication Details</h2>
-        <p className="text-sm text-gray-600">Set up login credentials for the restaurant</p>
-        <div>
-          <Label className="text-xs text-gray-700">Email*</Label>
-          <Input
-            type="email"
-            value={String(auth.email || "")}
-            onChange={(e) => setAuth({ ...auth, email: e.target.value || "", signupMethod: e.target.value ? 'email' : 'phone' })}
-            className="mt-1 bg-white text-sm"
-            placeholder="restaurant@example.com"
-          />
-        </div>
-        <div>
-          <Label className="text-xs text-gray-700">Phone (if no email)</Label>
-          <Input
-            type="tel"
-            value={String(auth.phone || "")}
-            onChange={(e) => setAuth({ ...auth, phone: sanitizeDigits(e.target.value).slice(0, 10), signupMethod: !auth.email ? 'phone' : 'email' })}
-            className="mt-1 bg-white text-sm"
-            placeholder="10-digit phone number"
-            inputMode="numeric"
-            maxLength={10}
-          />
-        </div>
-      </section>
-    </div>
-  )
-
   const renderStep = () => {
     if (step === 1) return renderStep1()
     if (step === 2) return renderStep2()
     if (step === 3) return renderStep3()
-    if (step === 4) return renderStep4()
-    return renderStep5()
+    return renderStep4()
   }
 
   return (
@@ -857,7 +804,7 @@ export default function AddRestaurant() {
           <Building2 className="w-5 h-5 text-blue-600" />
           <div className="text-sm font-semibold text-black">Add New Restaurant</div>
         </div>
-        <div className="text-xs text-gray-600">Step {step} of 5</div>
+        <div className="text-xs text-gray-600">Step {step} of 4</div>
       </header>
 
       <main className="flex-1 px-4 sm:px-6 py-4 space-y-4">
@@ -883,7 +830,7 @@ export default function AddRestaurant() {
             disabled={isSubmitting}
             className="text-sm bg-black text-white px-6"
           >
-            {step === 5 ? (isSubmitting ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Creating... </> : "Create Restaurant") : isSubmitting ? "Saving..." : "Continue"}
+            {step === 4 ? (isSubmitting ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Creating... </> : "Create Restaurant") : isSubmitting ? "Saving..." : "Continue"}
           </Button>
         </div>
       </footer>
@@ -903,7 +850,7 @@ export default function AddRestaurant() {
             <DialogHeader>
               <DialogTitle className="text-2xl font-bold text-slate-900 mb-2">Restaurant Created Successfully!</DialogTitle>
               <DialogDescription className="text-sm text-slate-600">
-                The restaurant has been created and can now login with the provided credentials.
+                The restaurant has been created successfully.
               </DialogDescription>
             </DialogHeader>
           </div>

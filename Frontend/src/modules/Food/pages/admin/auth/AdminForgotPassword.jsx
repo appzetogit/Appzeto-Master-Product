@@ -13,8 +13,7 @@ import { Input } from "@food/components/ui/input"
 import { Label } from "@food/components/ui/label"
 import { Mail, ArrowLeft, Shield } from "lucide-react"
 import quickSpicyLogo from "@food/assets/quicky-spicy-logo.png"
-import { authAPI } from "@food/api"
-import apiClient from "@food/api/axios"
+import { adminAPI } from "@food/api"
 import { useCompanyName } from "@food/hooks/useCompanyName"
 
 export default function AdminForgotPassword() {
@@ -36,14 +35,16 @@ export default function AdminForgotPassword() {
     e.preventDefault()
     setError("")
 
-    if (!email.trim()) {
+    const trimmedEmail = email.trim().toLowerCase()
+    if (!trimmedEmail) {
       setError("Email is required")
       return
     }
 
     setIsLoading(true)
     try {
-      await authAPI.sendOTP(null, "reset-password", email)
+      await adminAPI.requestForgotPasswordOtp(trimmedEmail)
+      setEmail(trimmedEmail)
       setStep(2)
       setResendTimer(60)
       const timer = setInterval(() => {
@@ -60,7 +61,7 @@ export default function AdminForgotPassword() {
         err?.response?.data?.message ||
         err?.response?.data?.error ||
         err?.message ||
-        "Failed to send OTP. Please try again."
+        "This email is not registered as an admin account or something went wrong."
       setError(message)
     } finally {
       setIsLoading(false)
@@ -103,33 +104,16 @@ export default function AdminForgotPassword() {
     }
   }
 
-  const handleOtpSubmit = async (e) => {
+  const handleOtpSubmit = (e) => {
     e.preventDefault()
     setError("")
 
     const otpCode = otp.join("")
     if (otpCode.length !== 6) {
-      setError("Please enter the complete OTP")
+      setError("Please enter the complete 6-digit OTP")
       return
     }
-
-    setIsLoading(true)
-    try {
-      // Verify OTP
-      await authAPI.verifyOTP(null, otpCode, "reset-password", null, email, "admin")
-      setStep(3)
-    } catch (err) {
-      const message =
-        err?.response?.data?.message ||
-        err?.response?.data?.error ||
-        err?.message ||
-        "Invalid OTP. Please try again."
-      setError(message)
-      setOtp(["", "", "", "", "", ""])
-      inputRefs.current[0]?.focus()
-    } finally {
-      setIsLoading(false)
-    }
+    setStep(3)
   }
 
   const handleResendOtp = async () => {
@@ -138,7 +122,7 @@ export default function AdminForgotPassword() {
     setIsLoading(true)
     setError("")
     try {
-      await authAPI.sendOTP(null, "reset-password", email)
+      await adminAPI.requestForgotPasswordOtp(email)
       setResendTimer(60)
       const timer = setInterval(() => {
         setResendTimer((prev) => {
@@ -182,19 +166,8 @@ export default function AdminForgotPassword() {
 
     setIsLoading(true)
     try {
-      const response = await apiClient.post("/auth/reset-password", {
-        email,
-        otp: otp.join(""),
-        newPassword,
-        role: "admin",
-      })
+      await adminAPI.resetPasswordWithOtp(email, otp.join(""), newPassword)
 
-      const data = response?.data || {}
-      if (!data.success) {
-        throw new Error(data.message || "Failed to reset password")
-      }
-
-      // Success - redirect to login
       navigate("/admin/login", {
         state: { message: "Password reset successfully. Please login with your new password." },
       })

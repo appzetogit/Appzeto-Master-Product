@@ -56,5 +56,12 @@ export const config = {
     cloudinaryApiSecret: process.env.CLOUDINARY_API_SECRET,
 
     // Socket.io
-    socketCorsOrigin: process.env.SOCKET_CORS_ORIGIN || '*'
+    socketCorsOrigin: process.env.SOCKET_CORS_ORIGIN || '*',
+
+    // Email (SMTP) – for admin forgot password OTP etc.
+    emailHost: process.env.EMAIL_HOST,
+    emailPort: Number(process.env.EMAIL_PORT) || 587,
+    emailUser: process.env.EMAIL_USER,
+    emailPass: process.env.EMAIL_PASS ? String(process.env.EMAIL_PASS).replace(/\s/g, '') : '',
+    emailFrom: process.env.EMAIL_FROM || process.env.EMAIL_USER || 'noreply@example.com'
 };

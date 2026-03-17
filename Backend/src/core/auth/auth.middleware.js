@@ -1,6 +1,13 @@
 import { verifyAccessToken } from './token.util.js';
 import { sendError } from '../../utils/response.js';
 
+export const requireAdmin = (req, res, next) => {
+    if (req.user?.role !== 'ADMIN') {
+        return sendError(res, 403, 'Admin access required');
+    }
+    next();
+};
+
 export const authMiddleware = (req, res, next) => {
     const authHeader = req.headers.authorization || '';
     const token = authHeader.startsWith('Bearer ') ? authHeader.substring(7) : null;

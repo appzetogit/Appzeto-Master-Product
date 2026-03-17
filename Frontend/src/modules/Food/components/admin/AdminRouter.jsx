@@ -122,6 +122,7 @@ const DiningManagement = lazy(() => import("@food/pages/admin/system/DiningManag
 const DiningList = lazy(() => import("@food/pages/admin/system/DiningList"));
 const AdminLogin = lazy(() => import("@food/pages/admin/auth/AdminLogin"));
 const AdminSignup = lazy(() => import("@food/pages/admin/auth/AdminSignup"));
+const AdminForgotPassword = lazy(() => import("@food/pages/admin/auth/AdminForgotPassword"));
 
 export default function AdminRouter() {
   return (
@@ -130,6 +131,7 @@ export default function AdminRouter() {
         {/* Protected Routes - With Layout */}
         {/* Admin Login - Same as earlier */}
         <Route path="login" element={<AdminLogin />} />
+        <Route path="forgot-password" element={<AdminForgotPassword />} />
         <Route path="signup" element={<AdminSignup />} />
 
         {/* Protected Routes - With Layout */}

@@ -1,6 +1,8 @@
+import crypto from 'crypto';
 import ms from 'ms';
 import { FoodUser } from '../users/user.model.js';
 import { FoodAdmin } from '../admin/admin.model.js';
+import { AdminResetOtp } from '../admin/adminResetOtp.model.js';
 import { FoodRestaurant } from '../../modules/food/restaurant/models/restaurant.model.js';
 import { FoodDeliveryPartner } from '../../modules/food/delivery/models/deliveryPartner.model.js';
 import { createOrUpdateOtp, verifyOtp } from '../otp/otp.service.js';
@@ -8,6 +10,8 @@ import { signAccessToken, signRefreshToken } from './token.util.js';
 import { FoodRefreshToken } from '../refreshTokens/refreshToken.model.js';
 import { ValidationError, AuthError } from './errors.js';
 import { config } from '../../config/env.js';
+import { logger } from '../../utils/logger.js';
+import { sendAdminResetOtpEmail } from '../../utils/email.js';
 
 const ROLES = { USER: 'USER', RESTAURANT: 'RESTAURANT', DELIVERY_PARTNER: 'DELIVERY_PARTNER', ADMIN: 'ADMIN' };
 
@@ -272,6 +276,128 @@ export const getProfile = async (userId, role) => {
         throw new AuthError('Profile not found');
     }
     return { user: profile };
+};
+
+const ADMIN_SERVICES_ALLOWED = ['food', 'quickCommerce', 'taxi'];
+
+/** Update admin profile (name, phone, profileImage). Only for ADMIN role. */
+export const updateAdminProfile = async (userId, body) => {
+    if (!userId) {
+        throw new AuthError('Invalid token payload');
+    }
+    const admin = await FoodAdmin.findById(userId);
+    if (!admin) {
+        throw new AuthError('Profile not found');
+    }
+    if (body.name !== undefined) admin.name = String(body.name || '').trim();
+    if (body.phone !== undefined) admin.phone = String(body.phone || '').trim();
+    if (body.profileImage !== undefined) admin.profileImage = String(body.profileImage || '').trim();
+    // Normalize servicesAccess so legacy values (e.g. 'zomato') don't fail schema validation on save
+    if (Array.isArray(admin.servicesAccess)) {
+        const valid = admin.servicesAccess.filter((s) => ADMIN_SERVICES_ALLOWED.includes(s));
+        admin.servicesAccess = valid.length ? valid : ['food'];
+    } else {
+        admin.servicesAccess = ['food'];
+    }
+    await admin.save();
+    const profile = admin.toObject();
+    delete profile.password;
+    return { user: profile };
+};
+
+/** Change admin password. Only for ADMIN role. */
+export const changeAdminPassword = async (userId, currentPassword, newPassword) => {
+    if (!userId) {
+        throw new AuthError('Invalid token payload');
+    }
+    const admin = await FoodAdmin.findById(userId);
+    if (!admin) {
+        throw new AuthError('Profile not found');
+    }
+    const isMatch = await admin.comparePassword(currentPassword);
+    if (!isMatch) {
+        throw new AuthError('Current password is incorrect');
+    }
+    if (!newPassword || String(newPassword).length < 6) {
+        throw new ValidationError('New password must be at least 6 characters');
+    }
+    admin.password = newPassword;
+    await admin.save();
+    return { success: true };
+};
+
+/** Admin forgot password: request OTP. Only accepts email that is registered as admin. */
+export const requestAdminForgotPasswordOtp = async (email) => {
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+    if (!normalizedEmail) {
+        throw new ValidationError('Email is required');
+    }
+
+    const admin = await FoodAdmin.findOne({ email: normalizedEmail });
+    if (!admin) {
+        throw new AuthError('This email is not registered as an admin account.');
+    }
+
+    const otp = config.useDefaultOtp ? '123456' : String(crypto.randomInt(100000, 999999));
+    const ttlMs = (config.otpExpiryMinutes || 10) * 60 * 1000;
+    const expiresAt = new Date(Date.now() + ttlMs);
+
+    await AdminResetOtp.findOneAndUpdate(
+        { email: normalizedEmail },
+        { otp, expiresAt, attempts: 0 },
+        { upsert: true, new: true }
+    );
+
+    if (config.useDefaultOtp) {
+        logger.info(`Admin reset OTP for ${normalizedEmail}: ${otp}`);
+    }
+
+    const sent = await sendAdminResetOtpEmail(normalizedEmail, otp);
+    if (!sent && !config.useDefaultOtp) {
+        logger.warn(`Admin OTP not sent by email to ${normalizedEmail}; check SMTP config.`);
+    }
+
+    return { success: true, message: 'If this email is registered, you will receive an OTP shortly.' };
+};
+
+/** Admin forgot password: verify OTP and set new password in one call. */
+export const resetAdminPasswordWithOtp = async (email, otp, newPassword) => {
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+    const otpStr = String(otp || '').replace(/\D/g, '');
+    if (!normalizedEmail || !otpStr) {
+        throw new ValidationError('Email and OTP are required');
+    }
+    if (!newPassword || String(newPassword).length < 6) {
+        throw new ValidationError('New password must be at least 6 characters');
+    }
+
+    const record = await AdminResetOtp.findOne({ email: normalizedEmail });
+    if (!record) {
+        throw new AuthError('OTP not found or expired. Please request a new code.');
+    }
+    if (record.expiresAt < new Date()) {
+        await record.deleteOne();
+        throw new AuthError('OTP has expired. Please request a new code.');
+    }
+    if (record.attempts >= (config.otpMaxAttempts || 5)) {
+        throw new AuthError('Too many attempts. Please request a new code.');
+    }
+    record.attempts += 1;
+    if (record.otp !== otpStr) {
+        await record.save();
+        throw new AuthError('Invalid OTP.');
+    }
+
+    const admin = await FoodAdmin.findOne({ email: normalizedEmail });
+    if (!admin) {
+        await record.deleteOne();
+        throw new AuthError('Account not found.');
+    }
+
+    admin.password = newPassword;
+    await admin.save();
+    await record.deleteOne();
+    return { success: true, message: 'Password reset successfully.' };
 };
 
 export const refreshAccessToken = async (token) => {
