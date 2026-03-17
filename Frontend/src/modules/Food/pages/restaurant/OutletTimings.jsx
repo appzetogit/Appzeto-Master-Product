@@ -8,12 +8,10 @@ import { MobileTimePicker } from "@mui/x-date-pickers/MobileTimePicker"
 import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider"
 import { AdapterDateFns } from "@mui/x-date-pickers/AdapterDateFns"
 import { useCompanyName } from "@food/hooks/useCompanyName"
+import { restaurantAPI } from "@food/api"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
-
-
-const STORAGE_KEY = "restaurant_outlet_timings"
 
 // Helper function to convert "HH:mm" string to Date object
 const stringToTime = (timeString) => {
@@ -62,92 +60,48 @@ export default function OutletTimings() {
   const navigate = useNavigate()
   const [expandedDay, setExpandedDay] = useState("Monday")
   const isInternalUpdate = useRef(false)
-  const [days, setDays] = useState(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY)
-      if (saved) {
-        const parsed = JSON.parse(saved)
-        // Validate and ensure all days have proper structure
-        const dayNames = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-        const validated = {}
-        dayNames.forEach(day => {
-          if (parsed[day]) {
-            // Migrate from old slot-based format to new time-based format
-            if (parsed[day].slots && Array.isArray(parsed[day].slots) && parsed[day].slots.length > 0) {
-              const firstSlot = parsed[day].slots[0]
-              // Convert slot format to time format
-              const parseSlotTime = (time, period) => {
-                if (!time) return "09:00"
-                const [hours, minutes] = time.split(":").map(Number)
-                let hour24 = hours || 9
-                if (period === "pm" && hour24 !== 12) hour24 += 12
-                if (period === "am" && hour24 === 12) hour24 = 0
-                return `${hour24.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}`
-              }
-              validated[day] = {
-                isOpen: parsed[day].isOpen !== undefined ? parsed[day].isOpen : true,
-                openingTime: parseSlotTime(firstSlot.start, firstSlot.startPeriod || "am"),
-                closingTime: parseSlotTime(firstSlot.end, firstSlot.endPeriod || "pm"),
-              }
-            } else {
-              validated[day] = {
-                isOpen: parsed[day].isOpen !== undefined ? parsed[day].isOpen : true,
-                openingTime: parsed[day].openingTime || "09:00",
-                closingTime: parsed[day].closingTime || "22:00",
-              }
-            }
-          } else {
-            validated[day] = { isOpen: true, openingTime: "09:00", closingTime: "22:00" }
-          }
-        })
-        return validated
-      }
-    } catch (error) {
-      debugError("Error loading outlet timings:", error)
-    }
-    return getDefaultDays()
-  })
+  const [days, setDays] = useState(getDefaultDays)
+  const [loading, setLoading] = useState(true)
+  const saveTimerRef = useRef(null)
 
-  // Save to localStorage whenever days change.
-  // Also ensure we persist once when storage is empty so Status page can read configured timings.
+  // Load from backend on mount.
   useEffect(() => {
-    const hasPersistedTimings = !!localStorage.getItem(STORAGE_KEY)
-    if (isInternalUpdate.current || !hasPersistedTimings) {
+    let mounted = true
+    ;(async () => {
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(days))
-        // Dispatch event to notify other components
+        setLoading(true)
+        const res = await restaurantAPI.getOutletTimings()
+        const outletTimings = res?.data?.data?.outletTimings || res?.data?.outletTimings
+        if (mounted && outletTimings && typeof outletTimings === "object") {
+          setDays({ ...getDefaultDays(), ...outletTimings })
+        }
+      } catch (error) {
+        debugError("Error loading outlet timings from backend:", error)
+      } finally {
+        if (mounted) setLoading(false)
+      }
+    })()
+    return () => {
+      mounted = false
+    }
+  }, [])
+
+  // Save to backend whenever days change (debounced).
+  useEffect(() => {
+    if (loading) return
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    saveTimerRef.current = setTimeout(async () => {
+      try {
+        await restaurantAPI.saveOutletTimings(days)
         window.dispatchEvent(new Event("outletTimingsUpdated"))
       } catch (error) {
-        debugError("Error saving outlet timings:", error)
+        debugError("Error saving outlet timings to backend:", error)
       }
-      isInternalUpdate.current = false
+    }, 500)
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
     }
-  }, [days])
-
-  // Listen for updates from other components
-  useEffect(() => {
-    const handleUpdate = () => {
-      if (!isInternalUpdate.current) {
-        try {
-          const saved = localStorage.getItem(STORAGE_KEY)
-          if (saved) {
-            const newDays = JSON.parse(saved)
-            setDays(prevDays => {
-              if (JSON.stringify(newDays) !== JSON.stringify(prevDays)) {
-                return newDays
-              }
-              return prevDays
-            })
-          }
-        } catch (error) {
-          debugError("Error loading updated outlet timings:", error)
-        }
-      }
-    }
-
-    window.addEventListener("outletTimingsUpdated", handleUpdate)
-    return () => window.removeEventListener("outletTimingsUpdated", handleUpdate)
-  }, [])
+  }, [days, loading])
 
   // Lenis smooth scrolling
   useEffect(() => {
@@ -211,6 +165,14 @@ export default function OutletTimings() {
   }
 
   const dayNames = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-white flex items-center justify-center">
+        <div className="text-sm text-gray-600">Loading outlet timings...</div>
+      </div>
+    )
+  }
 
   return (
     <LocalizationProvider dateAdapter={AdapterDateFns}>

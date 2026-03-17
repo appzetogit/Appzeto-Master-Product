@@ -10,7 +10,6 @@ const debugWarn = (...args) => {}
 const debugError = (...args) => {}
 
 
-const STORAGE_KEY = "restaurant_outlet_timings"
 const DELIVERY_STATUS_KEY = "restaurant_delivery_status"
 
 export default function DeliverySettings() {
@@ -69,57 +68,8 @@ export default function DeliverySettings() {
     }
   }, [showConfirmDialog])
 
-  // Check if current time is within outlet timings
-  const isWithinOutletTimings = () => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY)
-      if (!saved) return false
-
-      const days = JSON.parse(saved)
-      const now = new Date()
-      const currentDay = now.toLocaleDateString('en-US', { weekday: 'long' })
-      const currentHour = now.getHours()
-      const currentMinute = now.getMinutes()
-      const currentTimeInMinutes = currentHour * 60 + currentMinute
-
-      const dayData = days[currentDay]
-      if (!dayData || !dayData.isOpen || !dayData.slots || dayData.slots.length === 0) {
-        return false
-      }
-
-      // Check if current time falls within any slot for today
-      return dayData.slots.some(slot => {
-        if (!slot || !slot.start || !slot.end) return false
-
-        const parseTime = (timeStr, period) => {
-          if (!timeStr || !timeStr.includes(":")) return 0
-          const [hours, minutes] = timeStr.split(":")
-          let hour = parseInt(hours) || 0
-          const mins = parseInt(minutes) || 0
-          if (period === "pm" && hour !== 12) hour += 12
-          if (period === "am" && hour === 12) hour = 0
-          return hour * 60 + mins
-        }
-
-        const startMinutes = parseTime(slot.start, slot.startPeriod || "am")
-        const endMinutes = parseTime(slot.end, slot.endPeriod || "pm")
-        
-        // Handle slots that span midnight (e.g., 11pm to 2am)
-        if (endMinutes < startMinutes) {
-          // Slot spans midnight
-          return currentTimeInMinutes >= startMinutes || currentTimeInMinutes <= endMinutes
-        } else {
-          // Normal slot within same day
-          return currentTimeInMinutes >= startMinutes && currentTimeInMinutes <= endMinutes
-        }
-      })
-    } catch (error) {
-      debugError("Error checking outlet timings:", error)
-      return false
-    }
-  }
-
-  const canEnableDelivery = isWithinOutletTimings()
+  // Outlet timings are stored in DB now; this screen no longer gates delivery toggle by local schedule.
+  const canEnableDelivery = true
 
   const showToast = (message) => {
     setToastMessage(message)

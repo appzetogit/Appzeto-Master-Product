@@ -199,12 +199,22 @@ export default function CategoryPage() {
   }, [])
 
   // Helper function to check if menu has dishes matching category keywords
+  const getCategoryKeywords = (categoryId) => {
+    const raw = String(categoryId || "").trim().toLowerCase()
+    const fromAdmin = categoryKeywords[raw]
+    if (Array.isArray(fromAdmin) && fromAdmin.length > 0) return fromAdmin
+    // Fallback: derive keywords from the slug in URL (e.g. "samosha" -> ["samosha"])
+    // This prevents "no data" when admin categories don't include the slug.
+    const parts = raw.split(/[\s-]+/).filter(Boolean)
+    return parts.length > 0 ? Array.from(new Set([raw, ...parts])) : []
+  }
+
   const checkCategoryInMenu = (menu, categoryId) => {
     if (!menu || !menu.sections || !Array.isArray(menu.sections)) {
       return false
     }
 
-    const keywords = categoryKeywords[categoryId] || []
+    const keywords = getCategoryKeywords(categoryId)
     if (keywords.length === 0) {
       return false
     }
@@ -218,12 +228,31 @@ export default function CategoryPage() {
       if (section.items && Array.isArray(section.items)) {
         for (const item of section.items) {
           const itemNameLower = (item.name || '').toLowerCase()
-          const itemCategoryLower = (item.category || '').toLowerCase()
+          const itemCategoryLower = (item.categoryName || item.category || '').toLowerCase()
 
           if (keywords.some(keyword =>
             itemNameLower.includes(keyword) || itemCategoryLower.includes(keyword)
           )) {
             return true
+          }
+        }
+      }
+
+      // Also check subsection items (new menu builder can nest items)
+      if (section.subsections && Array.isArray(section.subsections)) {
+        for (const subsection of section.subsections) {
+          const subsectionNameLower = (subsection?.name || "").toLowerCase()
+          if (keywords.some((keyword) => subsectionNameLower.includes(keyword))) {
+            return true
+          }
+
+          const subItems = Array.isArray(subsection?.items) ? subsection.items : []
+          for (const item of subItems) {
+            const itemNameLower = (item?.name || "").toLowerCase()
+            const itemCategoryLower = (item?.categoryName || item?.category || "").toLowerCase()
+            if (keywords.some((keyword) => itemNameLower.includes(keyword) || itemCategoryLower.includes(keyword))) {
+              return true
+            }
           }
         }
       }
@@ -238,7 +267,7 @@ export default function CategoryPage() {
       return []
     }
 
-    const keywords = categoryKeywords[categoryId] || []
+    const keywords = getCategoryKeywords(categoryId)
     if (keywords.length === 0) {
       return []
     }
@@ -246,14 +275,20 @@ export default function CategoryPage() {
     const matchingDishes = []
 
     for (const section of menu.sections) {
+      const sectionNameLower = (section?.name || "").toLowerCase()
+      const sectionMatches = keywords.some((keyword) => sectionNameLower.includes(keyword))
+
       if (section.items && Array.isArray(section.items)) {
         for (const item of section.items) {
           const itemNameLower = (item.name || '').toLowerCase()
-          const itemCategoryLower = (item.category || '').toLowerCase()
+          const itemCategoryLower = (item.categoryName || item.category || '').toLowerCase()
 
-          if (keywords.some(keyword =>
+          const itemMatches = keywords.some(keyword =>
             itemNameLower.includes(keyword) || itemCategoryLower.includes(keyword)
-          )) {
+          )
+
+          // If the section name matches the category, include all items in it.
+          if (sectionMatches || itemMatches) {
             // Calculate final price considering discounts
             const originalPrice = item.originalPrice || item.price || 0
             const discountPercent = item.discountPercent || 0
@@ -275,6 +310,42 @@ export default function CategoryPage() {
           }
         }
       }
+
+      // Include subsection items too
+      if (section.subsections && Array.isArray(section.subsections)) {
+        for (const subsection of section.subsections) {
+          const subsectionNameLower = (subsection?.name || "").toLowerCase()
+          const subsectionMatches = keywords.some((keyword) => subsectionNameLower.includes(keyword))
+          const subItems = Array.isArray(subsection?.items) ? subsection.items : []
+
+          for (const item of subItems) {
+            const itemNameLower = (item?.name || "").toLowerCase()
+            const itemCategoryLower = (item?.categoryName || item?.category || "").toLowerCase()
+            const itemMatches = keywords.some((keyword) => itemNameLower.includes(keyword) || itemCategoryLower.includes(keyword))
+
+            if (sectionMatches || subsectionMatches || itemMatches) {
+              const originalPrice = item?.originalPrice || item?.price || 0
+              const discountPercent = item?.discountPercent || 0
+              const finalPrice = discountPercent > 0
+                ? Math.round(originalPrice * (1 - discountPercent / 100))
+                : originalPrice
+
+              const dishImage = normalizeImageUrl(
+                item?.image?.url || item?.image || subsection?.image?.url || subsection?.image || section?.image?.url || section?.image
+              )
+
+              matchingDishes.push({
+                name: item?.name,
+                price: finalPrice,
+                image: dishImage,
+                originalPrice: originalPrice,
+                itemId: item?._id || item?.id || `${item?.name}-${finalPrice}`,
+                foodType: item?.foodType,
+              })
+            }
+          }
+        }
+      }
     }
 
     return matchingDishes
@@ -291,11 +362,9 @@ export default function CategoryPage() {
     const fetchRestaurants = async () => {
       try {
         setLoadingRestaurants(true)
-        // Optional: Add zoneId if available (for sorting/filtering, but show all restaurants)
+        // IMPORTANT: Do NOT pass zoneId as a hard filter.
+        // UX is "show all restaurants", and we only style out-of-service state.
         const params = {}
-        if (zoneId) {
-          params.zoneId = zoneId
-        }
         const response = await restaurantAPI.getRestaurants(params)
 
         if (response.data && response.data.success && response.data.data && response.data.data.restaurants) {
@@ -464,30 +533,8 @@ export default function CategoryPage() {
             })
           })
 
-          if (sectionStatsMap.size > 0) {
-            const sourceEntries = Array.from(sectionStatsMap.entries())
-              .map(([slug, stats]) => [slug, stats.name])
-
-            const dynamicCategories = [
-              { id: "all", name: "All", image: foodImages[7] || foodImages[0], slug: "all" },
-              ...sourceEntries.map(([slug, name], idx) => ({
-                id: slug,
-                name,
-                image: foodImages[idx % foodImages.length] || foodImages[0],
-                slug,
-              })),
-            ]
-
-            const dynamicKeywords = {}
-            sourceEntries.forEach(([slug, name]) => {
-              const lowered = name.toLowerCase()
-              const words = lowered.split(/[\s-]+/).filter((w) => w.length > 0)
-              dynamicKeywords[slug] = [lowered, ...words]
-            })
-
-            setCategories(dynamicCategories)
-            setCategoryKeywords(dynamicKeywords)
-          }
+          // Keep category list coming from admin categories API.
+          // Do not generate "fake" category images from local assets.
         } else {
           setRestaurantsData([])
         }
@@ -840,22 +887,27 @@ export default function CategoryPage() {
                         <Grid2x2 className={`h-6 w-6 md:h-7 md:w-7 ${isSelected ? 'text-[#EB590E]' : 'text-gray-500 dark:text-gray-400'}`} />
                       </div>
                     ) : cat.image ? (
-                      <div className={`w-16 h-16 md:w-20 md:h-20 rounded-full overflow-hidden border-2 transition-all ${isSelected ? 'border-[#EB590E] shadow-lg' : 'border-transparent'
+                  <div className={`w-16 h-16 md:w-20 md:h-20 rounded-full overflow-hidden border-2 transition-all ${isSelected ? 'border-[#EB590E] shadow-lg' : 'border-transparent'
                         }`}>
                         <img
                           src={cat.image}
                           alt={cat.name}
                           className="w-full h-full object-cover"
                           onError={(e) => {
-                            // Fallback to default image if category image fails to load
-                            e.target.src = foodImages[0] || 'https://via.placeholder.com/100'
+                            // If the backend image is missing/broken, show initials instead of fake assets.
+                            e.target.style.display = 'none'
                           }}
                         />
                       </div>
                     ) : (
-                      <div className={`w-16 h-16 md:w-20 md:h-20 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center border-2 transition-all ${isSelected ? 'border-[#EB590E] shadow-lg bg-[#FFF2EB] dark:bg-[#EB590E]/20' : 'border-transparent'
-                        }`}>
-                        <span className="text-xl md:text-2xl">???</span>
+                      <div
+                        className={`w-16 h-16 md:w-20 md:h-20 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center border-2 transition-all ${isSelected ? 'border-[#EB590E] shadow-lg bg-[#FFF2EB] dark:bg-[#EB590E]/20' : 'border-transparent'
+                          }`}
+                        aria-label={`${cat.name} category`}
+                      >
+                        <span className="text-sm md:text-base font-semibold text-gray-600 dark:text-gray-300">
+                          {String(cat.name || "?").trim().slice(0, 2).toUpperCase()}
+                        </span>
                       </div>
                     )}
                     <span className={`text-xs md:text-sm font-medium whitespace-nowrap ${isSelected ? 'text-[#EB590E] dark:text-[#EB590E]' : 'text-gray-600 dark:text-gray-400'

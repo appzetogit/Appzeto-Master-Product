@@ -262,6 +262,24 @@ export const adminAPI = {
     }),
   deleteFood: (id) =>
     apiClient.delete(`/food/admin/foods/${id}`, { contextModule: "admin" }),
+  /** Food approvals (admin) - pending items created by restaurants */
+  getPendingFoodApprovals: (params = {}) =>
+    apiClient.get("/food/admin/foods/pending-approvals", {
+      params,
+      contextModule: "admin",
+    }),
+  approveFoodItem: (id) =>
+    apiClient.patch(
+      `/food/admin/foods/${String(id)}/approve`,
+      {},
+      { contextModule: "admin" },
+    ),
+  rejectFoodItem: (id, reason) =>
+    apiClient.patch(
+      `/food/admin/foods/${String(id)}/reject`,
+      { reason: String(reason || "").trim() },
+      { contextModule: "admin" },
+    ),
   /** Customers (admin) */
   getCustomers: (params = {}) =>
     apiClient.get("/food/admin/customers", { params, contextModule: "admin" }),
@@ -302,8 +320,7 @@ export const adminAPI = {
     apiClient.delete(`/food/admin/zones/${id}`, { contextModule: "admin" }),
 
   /** Public env variables (safe subset). Used for runtime keys like Google Maps. */
-  getPublicEnvVariables: () =>
-    apiClient.get("/food/public/env"),
+  // getPublicEnvVariables removed: rely on import.meta.env instead.
 
   /** Offers & Coupons (admin) */
   getAllOffers: (params = {}) =>
@@ -510,6 +527,20 @@ export const restaurantAPI = {
         restaurantCurrentCacheTime = Date.now();
         return res;
       }),
+  /** PATCH /food/restaurant/availability. Body: { isAcceptingOrders: boolean } */
+  updateAcceptingOrders: (isAcceptingOrders) =>
+    apiClient
+      .patch(
+        "/food/restaurant/availability",
+        { isAcceptingOrders: Boolean(isAcceptingOrders) },
+        { contextModule: "restaurant" },
+      )
+      .then((res) => {
+        // Keep cache coherent to avoid an immediate refetch storm.
+        restaurantCurrentCached = res;
+        restaurantCurrentCacheTime = Date.now();
+        return res;
+      }),
   /** Upload and set restaurant profile image (multipart). Field name: file */
   uploadProfileImage: (file) => {
     if (!file) return Promise.reject(new Error("File is required"));
@@ -588,6 +619,15 @@ export const restaurantAPI = {
     apiClient.patch("/food/restaurant/menu", body ?? {}, {
       contextModule: "restaurant",
     }),
+  /** Outlet timings (restaurant dashboard) */
+  getOutletTimings: () =>
+    apiClient.get("/food/restaurant/outlet-timings", { contextModule: "restaurant" }),
+  saveOutletTimings: (outletTimings) =>
+    apiClient.put(
+      "/food/restaurant/outlet-timings",
+      { outletTimings: outletTimings || {} },
+      { contextModule: "restaurant" },
+    ),
   /** Foods (restaurant) - stored in food_items collection */
   createFood: (body) =>
     apiClient.post("/food/restaurant/foods", body ?? {}, {
@@ -633,6 +673,11 @@ export const restaurantAPI = {
   /** Public: get approved menu by restaurant id or slug */
   getMenuByRestaurantId: (id, config = {}) =>
     apiClient.get(`/food/restaurant/restaurants/${String(id)}/menu`, {
+      ...config,
+    }),
+  /** Public: get outlet timings by restaurant id */
+  getOutletTimingsByRestaurantId: (id, config = {}) =>
+    apiClient.get(`/food/restaurant/restaurants/${String(id)}/outlet-timings`, {
       ...config,
     }),
   /** Public: list coupons/offers created by admin */
