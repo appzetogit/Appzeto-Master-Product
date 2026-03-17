@@ -590,27 +590,10 @@ export const listApprovedRestaurants = async (query = {}) => {
                 ? { estimatedDeliveryTimeMinutes: 1, createdAt: -1 }
                 : { createdAt: -1 };
 
-    const [restaurants, total] = await Promise.all([
-        FoodRestaurant.find(filter).select(Object.keys(projection).join(' ')).sort(sort).skip(skip).limit(limit).lean(),
     const [restaurantsRaw, total] = await Promise.all([
         FoodRestaurant.find(filter)
-            .select(
-                [
-                    'restaurantName',
-                    'area',
-                    'city',
-                    'cuisines',
-                    'profileImage',
-                    'menuImages',
-                    'estimatedDeliveryTime',
-                    'offer',
-                    'featuredDish',
-                    'featuredPrice',
-                    'status',
-                    'createdAt'
-                ].join(' ')
-            )
-            .sort({ createdAt: -1 })
+            .select(Object.keys(projection).join(' '))
+            .sort(sort)
             .skip(skip)
             .limit(limit)
             .lean(),
