@@ -12,7 +12,9 @@ import { FoodEarningAddon } from '../models/earningAddon.model.js';
 import { FoodEarningAddonHistory } from '../models/earningAddonHistory.model.js';
 import { FoodRestaurantCommission } from '../models/restaurantCommission.model.js';
 import { FoodDeliveryCommissionRule } from '../models/deliveryCommissionRule.model.js';
+import { FoodFeeSettings } from '../models/feeSettings.model.js';
 import { FoodUser } from '../../../../core/users/user.model.js';
+import { FoodDeliveryCashLimit } from '../models/deliveryCashLimit.model.js';
 
 // ----- Restaurants -----
 export async function getRestaurants(query) {
@@ -302,6 +304,82 @@ export async function toggleDeliveryCommissionRuleStatus(id, status) {
         { new: true }
     ).lean();
     return updated;
+}
+
+// ----- Fee Settings (admin) -----
+export async function getFeeSettings() {
+    const doc = await FoodFeeSettings.findOne({ isActive: true }).sort({ createdAt: -1 }).lean();
+    const feeSettings = doc || {
+        deliveryFee: 25,
+        deliveryFeeRanges: [],
+        freeDeliveryThreshold: 149,
+        platformFee: 5,
+        gstRate: 5,
+        isActive: true
+    };
+    return { feeSettings };
+}
+
+export async function upsertFeeSettings(body) {
+    // Single active doc pattern: keep only one active record.
+    const existing = await FoodFeeSettings.findOne({ isActive: true }).sort({ createdAt: -1 });
+    if (existing) {
+        if (body.deliveryFee !== undefined) existing.deliveryFee = body.deliveryFee;
+        if (body.deliveryFeeRanges !== undefined) existing.deliveryFeeRanges = body.deliveryFeeRanges;
+        if (body.freeDeliveryThreshold !== undefined) existing.freeDeliveryThreshold = body.freeDeliveryThreshold;
+        if (body.platformFee !== undefined) existing.platformFee = body.platformFee;
+        if (body.gstRate !== undefined) existing.gstRate = body.gstRate;
+        if (body.isActive !== undefined) existing.isActive = body.isActive;
+        await existing.save();
+        return existing.toObject();
+    }
+
+    const created = await FoodFeeSettings.create({
+        deliveryFee: body.deliveryFee ?? 25,
+        deliveryFeeRanges: body.deliveryFeeRanges ?? [],
+        freeDeliveryThreshold: body.freeDeliveryThreshold ?? 149,
+        platformFee: body.platformFee ?? 5,
+        gstRate: body.gstRate ?? 5,
+        isActive: body.isActive !== false
+    });
+    return created.toObject();
+}
+
+// ----- Delivery Cash Limit (admin) -----
+export async function getDeliveryCashLimitSettings() {
+    const doc = await FoodDeliveryCashLimit.findOne({ isActive: true }).sort({ createdAt: -1 }).lean();
+    const settings = doc || { deliveryCashLimit: 0, deliveryWithdrawalLimit: 100, isActive: true };
+    return {
+        deliveryCashLimit: Number(settings.deliveryCashLimit) || 0,
+        deliveryWithdrawalLimit: Number(settings.deliveryWithdrawalLimit) || 100
+    };
+}
+
+export async function upsertDeliveryCashLimitSettings(body = {}) {
+    const existing = await FoodDeliveryCashLimit.findOne({ isActive: true }).sort({ createdAt: -1 });
+    const nextCashLimit = body.deliveryCashLimit;
+    const nextWithdrawalLimit = body.deliveryWithdrawalLimit;
+
+    if (existing) {
+        if (nextCashLimit !== undefined) existing.deliveryCashLimit = Math.max(0, Number(nextCashLimit) || 0);
+        if (nextWithdrawalLimit !== undefined) existing.deliveryWithdrawalLimit = Math.max(0, Number(nextWithdrawalLimit) || 0);
+        await existing.save();
+        return {
+            deliveryCashLimit: existing.deliveryCashLimit,
+            deliveryWithdrawalLimit: existing.deliveryWithdrawalLimit
+        };
+    }
+
+    const created = await FoodDeliveryCashLimit.create({
+        deliveryCashLimit: nextCashLimit !== undefined ? Math.max(0, Number(nextCashLimit) || 0) : 0,
+        deliveryWithdrawalLimit: nextWithdrawalLimit !== undefined ? Math.max(0, Number(nextWithdrawalLimit) || 0) : 100,
+        isActive: true
+    });
+
+    return {
+        deliveryCashLimit: created.deliveryCashLimit,
+        deliveryWithdrawalLimit: created.deliveryWithdrawalLimit
+    };
 }
 
 export async function getRestaurantById(id) {

@@ -56,6 +56,14 @@ router.get('/offers', adminController.getAllOffers);
 router.post('/offers', adminController.createAdminOffer);
 router.patch('/offers/:id/cart-visibility', adminController.updateAdminOfferCartVisibility);
 
+// ----- Fee Settings -----
+router.get('/fee-settings', adminController.getFeeSettings);
+router.put('/fee-settings', adminController.createOrUpdateFeeSettings);
+
+// ----- Delivery Cash Limit -----
+router.get('/delivery-cash-limit', adminController.getDeliveryCashLimit);
+router.patch('/delivery-cash-limit', adminController.updateDeliveryCashLimit);
+
 // ----- Delivery -----
 router.get('/delivery/join-requests', adminController.getDeliveryJoinRequests);
 router.get('/delivery/wallets', adminController.getDeliveryWallets);

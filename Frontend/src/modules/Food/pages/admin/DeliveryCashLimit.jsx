@@ -96,30 +96,8 @@ export default function DeliveryCashLimit() {
     isMountedRef.current = true
     fetchLimit()
 
-    const onFocus = () => fetchLimit({ silent: true })
-    const onVisibility = () => {
-      if (document.visibilityState === "visible") {
-        fetchLimit({ silent: true })
-      }
-    }
-    const onPageShow = () => fetchLimit({ silent: true })
-
-    const intervalId = setInterval(() => {
-      if (document.visibilityState === "visible") {
-        fetchLimit({ silent: true })
-      }
-    }, 30000)
-
-    window.addEventListener("focus", onFocus)
-    window.addEventListener("pageshow", onPageShow)
-    document.addEventListener("visibilitychange", onVisibility)
-
     return () => {
       isMountedRef.current = false
-      clearInterval(intervalId)
-      window.removeEventListener("focus", onFocus)
-      window.removeEventListener("pageshow", onPageShow)
-      document.removeEventListener("visibilitychange", onVisibility)
     }
   }, [fetchLimit])
 

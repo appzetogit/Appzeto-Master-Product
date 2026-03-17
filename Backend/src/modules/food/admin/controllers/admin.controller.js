@@ -5,6 +5,7 @@ import { validateCreateOfferDto, validateUpdateOfferCartVisibilityDto } from '..
 import { validateAddDeliveryBonusDto } from '../validators/deliveryBonus.validator.js';
 import { validateCheckCompletionsDto, validateEarningAddonHistoryActionDto, validateEarningAddonUpsertDto, validateToggleEarningAddonStatusDto } from '../validators/earningAddon.validator.js';
 import { validateDeliveryCommissionRuleDto, validateOptionalStatusDto, validateRestaurantCommissionUpsertDto } from '../validators/commission.validator.js';
+import { validateFeeSettingsUpsertDto } from '../validators/feeSettings.validator.js';
 
 // ----- Customers / Users -----
 export async function getCustomers(req, res, next) {
@@ -587,6 +588,45 @@ export async function toggleDeliveryCommissionRuleStatus(req, res, next) {
             return res.status(404).json({ success: false, message: 'Commission rule not found' });
         }
         res.status(200).json({ success: true, message: 'Status updated successfully', data: { commission: updated } });
+    } catch (error) {
+        next(error);
+    }
+}
+
+// ----- Fee Settings (admin) -----
+export async function getFeeSettings(req, res, next) {
+    try {
+        const data = await adminService.getFeeSettings();
+        res.status(200).json({ success: true, message: 'Fee settings fetched successfully', data });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function createOrUpdateFeeSettings(req, res, next) {
+    try {
+        const body = validateFeeSettingsUpsertDto(req.body || {});
+        const feeSettings = await adminService.upsertFeeSettings(body);
+        res.status(200).json({ success: true, message: 'Fee settings saved successfully', data: { feeSettings } });
+    } catch (error) {
+        next(error);
+    }
+}
+
+// ----- Delivery Cash Limit (admin) -----
+export async function getDeliveryCashLimit(req, res, next) {
+    try {
+        const data = await adminService.getDeliveryCashLimitSettings();
+        res.status(200).json({ success: true, message: 'Delivery cash limit fetched successfully', data });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function updateDeliveryCashLimit(req, res, next) {
+    try {
+        const data = await adminService.upsertDeliveryCashLimitSettings(req.body || {});
+        res.status(200).json({ success: true, message: 'Delivery cash limit updated successfully', data });
     } catch (error) {
         next(error);
     }

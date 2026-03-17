@@ -64,7 +64,17 @@ export default function FeeSettings() {
 
       if (response.data.success) {
         toast.success('Fee settings saved successfully')
-        fetchFeeSettings()
+        // Avoid an extra API call; update local state from response
+        const saved = response?.data?.data?.feeSettings
+        if (saved) {
+          setFeeSettings({
+            deliveryFee: saved.deliveryFee ?? 25,
+            deliveryFeeRanges: saved.deliveryFeeRanges ?? [],
+            freeDeliveryThreshold: saved.freeDeliveryThreshold ?? 149,
+            platformFee: saved.platformFee ?? 5,
+            gstRate: saved.gstRate ?? 5,
+          })
+        }
       } else {
         toast.error(response.data.message || 'Failed to save fee settings')
       }

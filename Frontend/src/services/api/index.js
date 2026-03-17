@@ -313,6 +313,17 @@ export const adminAPI = {
       { status: Boolean(status) },
       { contextModule: "admin" }
     ),
+
+  /** Fee Settings (admin) */
+  getFeeSettings: () => apiClient.get("/food/admin/fee-settings", { contextModule: "admin" }),
+  createOrUpdateFeeSettings: (body) =>
+    apiClient.put("/food/admin/fee-settings", body ?? {}, { contextModule: "admin" }),
+
+  /** Delivery Cash Limit (admin) */
+  getDeliveryCashLimit: () =>
+    apiClient.get("/food/admin/delivery-cash-limit", { contextModule: "admin" }),
+  updateDeliveryCashLimit: (body) =>
+    apiClient.patch("/food/admin/delivery-cash-limit", body ?? {}, { contextModule: "admin" }),
 };
 
 /** Restaurant API - OTP login via new backend; no email/password. */
