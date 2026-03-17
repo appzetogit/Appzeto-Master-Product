@@ -117,7 +117,7 @@ export default function UserLayout() {
 
   useEffect(() => {
     // Reset scroll to top whenever location changes (pathname, search, or hash)
-    window.scrollTo({ top: 0, left: 0, behavior: 'instant' })
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' })
   }, [location.pathname, location.search, location.hash])
 
   // Note: Authentication checks and redirects are handled by ProtectedRoute components

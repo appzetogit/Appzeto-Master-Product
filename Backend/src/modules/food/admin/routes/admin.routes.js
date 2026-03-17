@@ -18,9 +18,24 @@ router.use(requireAdmin);
 router.get('/restaurants', adminController.getRestaurants);
 router.get('/restaurants/pending', adminController.getPendingRestaurants);
 router.get('/restaurants/:id', adminController.getRestaurantById);
+router.get('/restaurants/:id/menu', adminController.getRestaurantMenuById);
 router.post('/restaurants', adminController.createRestaurant);
+router.patch('/restaurants/:id/menu', adminController.updateRestaurantMenuById);
 router.patch('/restaurants/:id/approve', adminController.approveRestaurant);
 router.patch('/restaurants/:id/reject', adminController.rejectRestaurant);
+
+// ----- Categories -----
+router.get('/categories', adminController.getCategories);
+router.post('/categories', adminController.createCategory);
+router.patch('/categories/:id', adminController.updateCategory);
+router.delete('/categories/:id', adminController.deleteCategory);
+router.patch('/categories/:id/toggle', adminController.toggleCategoryStatus);
+
+// ----- Foods -----
+router.get('/foods', adminController.getFoods);
+router.post('/foods', adminController.createFood);
+router.patch('/foods/:id', adminController.updateFood);
+router.delete('/foods/:id', adminController.deleteFood);
 
 // ----- Delivery -----
 router.get('/delivery/join-requests', adminController.getDeliveryJoinRequests);

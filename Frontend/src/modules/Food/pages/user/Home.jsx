@@ -2502,7 +2502,16 @@ export default function Home() {
             </AnimatePresence>
             <div className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3  gap-3 sm:gap-4 lg:gap-5 xl:gap-6 pt-1 sm:pt-1.5 lg:pt-2 items-stretch ${isLoadingFilterResults || loadingRestaurants ? 'opacity-50' : 'opacity-100'} transition-opacity duration-300`}>
               {filteredRestaurants.map((restaurant, index) => {
-                const restaurantSlug = restaurant.slug || restaurant.name.toLowerCase().replace(/\s+/g, "-")
+                const nameStr = typeof restaurant?.name === "string" ? restaurant.name.trim() : ""
+                const fallbackSlugSource =
+                  nameStr ||
+                  (typeof restaurant?.restaurantName === "string" ? restaurant.restaurantName.trim() : "") ||
+                  String(restaurant?.slug || restaurant?.id || restaurant?._id || `restaurant-${index}`)
+
+                const restaurantSlug =
+                  (typeof restaurant?.slug === "string" && restaurant.slug.trim())
+                    ? restaurant.slug.trim()
+                    : fallbackSlugSource.toLowerCase().replace(/\s+/g, "-")
                 const availability = getRestaurantAvailabilityStatus(restaurant, new Date(availabilityTick), { ignoreOperationalStatus: true })
                 // Direct favorite check - isFavorite is already memoized in context
                 const favorite = isFavorite(restaurantSlug)
@@ -2535,7 +2544,7 @@ export default function Home() {
 
                 return (
                   <div
-                    key={restaurant.id}
+                    key={restaurant?.id || restaurant?._id || restaurantSlug || index}
                     className="h-full transform transition-all duration-300 hover:-translate-y-3 hover:scale-[1.02]"
                     style={{
                       perspective: 1000,

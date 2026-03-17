@@ -3,6 +3,7 @@ import { Search, Trash2, Loader2, Eye, Pencil, Plus, Save, ChevronDown, ChevronL
 import { adminAPI, uploadAPI } from "@food/api"
 import { toast } from "sonner"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@food/components/ui/dialog"
+import { Popover, PopoverContent, PopoverTrigger } from "@food/components/ui/popover"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -10,7 +11,8 @@ const debugError = (...args) => {}
 
 const createFoodForm = () => ({
   restaurantId: "",
-  sectionName: "",
+  categoryId: "",
+  categoryName: "",
   name: "",
   price: "",
   description: "",
@@ -35,6 +37,8 @@ export default function FoodsList() {
   const [editingFood, setEditingFood] = useState(null)
   const [submittingFood, setSubmittingFood] = useState(false)
   const [categoryOptions, setCategoryOptions] = useState([])
+  const [categorySearch, setCategorySearch] = useState("")
+  const [categoryPopoverOpen, setCategoryPopoverOpen] = useState(false)
   const [selectedImageFile, setSelectedImageFile] = useState(null)
   const [imagePreviewUrl, setImagePreviewUrl] = useState("")
   const [currentPage, setCurrentPage] = useState(1)
@@ -91,7 +95,7 @@ export default function FoodsList() {
         restaurants
           .map((restaurant) => ({
             id: String(restaurant?._id || restaurant?.id || ""),
-            name: restaurant?.name || "Unknown Restaurant",
+            name: restaurant?.name || restaurant?.restaurantName || "Unknown Restaurant",
           }))
           .filter((restaurant) => restaurant.id)
           .sort((a, b) => a.name.localeCompare(b.name))
@@ -102,74 +106,35 @@ export default function FoodsList() {
         return
       }
 
-      const allFoods = []
-
-      for (const restaurant of restaurants) {
-        try {
-          const restaurantId = restaurant._id || restaurant.id
-          const menuResponse = await adminAPI.getRestaurantMenuById(restaurantId, { noCache: true })
-          const menu = menuResponse?.data?.data?.menu || menuResponse?.data?.menu
-
-          if (menu && Array.isArray(menu.sections)) {
-            toArray(menu.sections).forEach((section) => {
-              toArray(section.items).forEach((item) => {
-                allFoods.push({
-                  id: item.id || `${restaurantId}-${section.id}-${item.name}`,
-                  _id: item._id,
-                  name: item.name || "Unnamed Item",
-                  image: item.image || item.images?.[0] || "https://via.placeholder.com/40",
-                  priority: "Normal",
-                  status: item.isAvailable !== false && item.approvalStatus !== "rejected",
-                  restaurantId,
-                  restaurantName: restaurant.name || "Unknown Restaurant",
-                  sectionId: section.id,
-                  sectionName: section.name || "Unknown Section",
-                  price: item.price || 0,
-                  foodType: item.foodType || "Non-Veg",
-                  approvalStatus: item.approvalStatus || "pending",
-                  originalItem: item,
-                })
-              })
-
-              toArray(section.subsections).forEach((subsection) => {
-                toArray(subsection.items).forEach((item) => {
-                  allFoods.push({
-                    id: item.id || `${restaurantId}-${section.id}-${subsection.id}-${item.name}`,
-                    _id: item._id,
-                    name: item.name || "Unnamed Item",
-                    image: item.image || item.images?.[0] || "https://via.placeholder.com/40",
-                    priority: "Normal",
-                    status: item.isAvailable !== false && item.approvalStatus !== "rejected",
-                    restaurantId,
-                    restaurantName: restaurant.name || "Unknown Restaurant",
-                    sectionId: section.id,
-                    sectionName: section.name || "Unknown Section",
-                    subsectionId: subsection.id,
-                    subsectionName: subsection.name || "Unknown Subsection",
-                    price: item.price || 0,
-                    foodType: item.foodType || "Non-Veg",
-                    approvalStatus: item.approvalStatus || "pending",
-                    originalItem: item,
-                  })
-                })
-              })
-            })
-          }
-        } catch (error) {
-          debugWarn(`Failed to fetch menu for restaurant ${restaurant._id || restaurant.id}:`, error.message)
-        }
-      }
-
-      allFoods.sort((a, b) => getItemCreatedMs(b.originalItem) - getItemCreatedMs(a.originalItem))
+      const foodsRes = await adminAPI.getFoods({ limit: 1000 })
+      const list = foodsRes?.data?.data?.foods || []
       setFoods(
-        allFoods.filter(
-          (food) => String(food.approvalStatus || "").toLowerCase() === "approved"
-        )
+        Array.isArray(list)
+          ? list.map((f) => ({
+              id: String(f.id || f._id || ""),
+              _id: f._id || f.id,
+              name: f.name || "Unnamed Item",
+              image: f.image || "https://via.placeholder.com/40",
+              status: f.isAvailable !== false && String(f.approvalStatus || "").toLowerCase() !== "rejected",
+              restaurantId: String(f.restaurantId || ""),
+              restaurantName: f.restaurantName || "Unknown Restaurant",
+              categoryId: String(f.categoryId || ""),
+              categoryName: f.categoryName || "",
+              price: f.price || 0,
+              foodType: f.foodType || "Non-Veg",
+              approvalStatus: f.approvalStatus || "approved",
+              description: f.description || "",
+              preparationTime: f.preparationTime || "",
+              isAvailable: f.isAvailable !== false,
+              createdAt: f.createdAt,
+              updatedAt: f.updatedAt,
+            }))
+          : []
       )
       setImageVersion(Date.now())
     } catch (error) {
       debugError("Error fetching foods:", error)
-      toast.error("Failed to load foods from restaurants")
+      toast.error("Failed to load foods")
       setFoods([])
       setRestaurantsForFilter([])
     } finally {
@@ -223,8 +188,7 @@ export default function FoodsList() {
         food.name.toLowerCase().includes(query) ||
         food.id.toString().includes(query) ||
         food.restaurantName?.toLowerCase().includes(query) ||
-        food.sectionName?.toLowerCase().includes(query) ||
-        food.subsectionName?.toLowerCase().includes(query)
+        food.categoryName?.toLowerCase().includes(query)
       )
     }
 
@@ -232,7 +196,7 @@ export default function FoodsList() {
       result = result.filter((food) => String(food.restaurantId) === selectedRestaurant)
     }
 
-    result.sort((a, b) => getItemCreatedMs(b.originalItem) - getItemCreatedMs(a.originalItem))
+    result.sort((a, b) => getItemCreatedMs(b) - getItemCreatedMs(a))
     return result
   }, [foods, searchQuery, selectedRestaurant])
 
@@ -269,6 +233,8 @@ export default function FoodsList() {
     })
     setSelectedImageFile(null)
     setImagePreviewUrl("")
+    setCategorySearch("")
+    setCategoryPopoverOpen(false)
     setShowFoodFormModal(true)
   }
 
@@ -277,27 +243,25 @@ export default function FoodsList() {
     setEditingFood(food)
     setFoodForm({
       restaurantId: String(food.restaurantId || ""),
-      sectionName: String(food.sectionName || ""),
-      name: String(food.originalItem?.name || ""),
-        price: String(food.originalItem?.price || ""),
-      description: String(food.originalItem?.description || ""),
-      image: String(food.originalItem?.image || food.originalItem?.images?.[0] || ""),
-      foodType: String(food.originalItem?.foodType || "Non-Veg"),
-      isAvailable: food.originalItem?.isAvailable !== false,
-      preparationTime: String(food.originalItem?.preparationTime || ""),
+      categoryId: String(food.categoryId || ""),
+      categoryName: String(food.categoryName || ""),
+      name: String(food.name || ""),
+      price: String(food.price || ""),
+      description: String(food.description || ""),
+      image: String(food.image || ""),
+      foodType: String(food.foodType || "Non-Veg"),
+      isAvailable: food.isAvailable !== false,
+      preparationTime: String(food.preparationTime || ""),
     })
     setSelectedImageFile(null)
-    setImagePreviewUrl(String(food.originalItem?.image || food.originalItem?.images?.[0] || ""))
+    setImagePreviewUrl(String(food.image || ""))
+    setCategorySearch("")
+    setCategoryPopoverOpen(false)
     setShowFoodFormModal(true)
   }
 
-  const loadRestaurantMenu = useCallback(async (restaurantId) => {
-    const menuResponse = await adminAPI.getRestaurantMenuById(restaurantId, { noCache: true })
-    return menuResponse?.data?.data?.menu || menuResponse?.data?.menu || { sections: [] }
-  }, [])
-
   useEffect(() => {
-    if (!showFoodFormModal || !foodForm.restaurantId) {
+    if (!showFoodFormModal) {
       setCategoryOptions([])
       return
     }
@@ -306,36 +270,14 @@ export default function FoodsList() {
 
     const loadCategoryOptions = async () => {
       try {
-        const menu = await loadRestaurantMenu(foodForm.restaurantId)
-        const menuSections = Array.isArray(menu.sections) ? menu.sections : []
-        const menuOptions = menuSections
-          .map((section) => ({
-            id: section.id || section.name,
-            name: section.name || "Unknown Category",
-          }))
-          .filter((section) => String(section.name || "").trim())
-
-        const fallbackOptions = foods.reduce((acc, food) => {
-          if (String(food.restaurantId) !== String(foodForm.restaurantId)) return acc
-          if (!acc.some((section) => String(section.name) === String(food.sectionName || ""))) {
-            acc.push({
-              id: food.sectionId || food.sectionName,
-              name: food.sectionName || "Unknown Category",
-            })
-          }
-          return acc
-        }, [])
-
-        const mergedOptions = [...menuOptions, ...fallbackOptions].filter(
-          (section, index, array) =>
-            array.findIndex(
-              (candidate) => String(candidate.name || "").trim().toLowerCase() === String(section.name || "").trim().toLowerCase()
-            ) === index
-        )
-
-        if (!cancelled) {
-          setCategoryOptions(mergedOptions)
-        }
+        const res = await adminAPI.getCategories({ limit: 1000 })
+        const list = res?.data?.data?.categories || []
+        const options = Array.isArray(list)
+          ? list
+              .map((c) => ({ id: String(c.id || c._id || c.name), name: String(c.name || "").trim() }))
+              .filter((c) => c.name)
+          : []
+        if (!cancelled) setCategoryOptions(options)
       } catch (error) {
         if (!cancelled) {
           setCategoryOptions([])
@@ -348,18 +290,14 @@ export default function FoodsList() {
     return () => {
       cancelled = true
     }
-  }, [foodForm.restaurantId, foods, loadRestaurantMenu, showFoodFormModal])
-
-  const persistRestaurantMenu = async (restaurantId, sections) => {
-    await adminAPI.updateRestaurantMenuById(restaurantId, { sections })
-  }
+  }, [showFoodFormModal])
 
   const handleFoodFormSubmit = async () => {
     if (!foodForm.restaurantId) {
       toast.error("Please select a restaurant")
       return
     }
-    if (!foodForm.sectionName.trim()) {
+    if (!String(foodForm.categoryName || "").trim()) {
       toast.error("Please select or enter a category")
       return
     }
@@ -388,98 +326,23 @@ export default function FoodsList() {
           imageUrl
       }
 
-      const menu = await loadRestaurantMenu(foodForm.restaurantId)
-      const menuSections = Array.isArray(menu.sections) ? [...menu.sections] : []
-      const targetSectionIndex = menuSections.findIndex(
-        (section) => String(section.name || "").trim().toLowerCase() === foodForm.sectionName.trim().toLowerCase()
-      )
-
-      const targetSection =
-        targetSectionIndex >= 0
-          ? {
-              ...menuSections[targetSectionIndex],
-              items: Array.isArray(menuSections[targetSectionIndex].items) ? [...menuSections[targetSectionIndex].items] : [],
-              subsections: Array.isArray(menuSections[targetSectionIndex].subsections) ? [...menuSections[targetSectionIndex].subsections] : [],
-            }
-          : {
-              id: `section-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
-              name: foodForm.sectionName.trim(),
-              isEnabled: true,
-              order: menuSections.length,
-              items: [],
-              subsections: [],
-            }
-
-      const nextItem = {
-        ...(foodFormMode === "edit" ? editingFood?.originalItem : {}),
-        id:
-          foodFormMode === "edit"
-            ? editingFood?.originalItem?.id || editingFood?.id
-            : `item-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+      const payload = {
+        restaurantId: foodForm.restaurantId,
+        categoryId: foodForm.categoryId || undefined,
+        categoryName: String(foodForm.categoryName || "").trim(),
         name: foodForm.name.trim(),
         price: parsedPrice,
         description: foodForm.description.trim(),
         image: imageUrl,
-        images: imageUrl ? [imageUrl] : [],
         foodType: foodForm.foodType === "Veg" ? "Veg" : "Non-Veg",
         isAvailable: foodForm.isAvailable !== false,
-        category: foodForm.sectionName.trim(),
-        preparationTime: foodForm.preparationTime.trim(),
-        approvalStatus: "approved",
+        preparationTime: String(foodForm.preparationTime || "").trim(),
       }
 
-      const editingItemId = String(editingFood?.originalItem?.id || editingFood?.id || "")
-
       if (foodFormMode === "edit") {
-        let itemReplaced = false
-
-        const removeItemById = (items = []) =>
-          items.filter((item) => {
-            const isTarget = String(item?.id || "") === editingItemId
-            if (isTarget) itemReplaced = true
-            return !isTarget
-          })
-
-        const cleanedSections = menuSections.map((section) => ({
-          ...section,
-          items: removeItemById(Array.isArray(section.items) ? [...section.items] : []),
-          subsections: Array.isArray(section.subsections)
-            ? section.subsections.map((subsection) => ({
-                ...subsection,
-                items: removeItemById(Array.isArray(subsection.items) ? [...subsection.items] : []),
-              }))
-            : [],
-        }))
-
-        if (!itemReplaced) {
-          throw new Error("Could not find the selected food item in menu data.")
-        }
-
-        const finalTargetSectionIndex = cleanedSections.findIndex(
-          (section) => String(section.name || "").trim().toLowerCase() === foodForm.sectionName.trim().toLowerCase()
-        )
-
-        if (finalTargetSectionIndex >= 0) {
-          cleanedSections[finalTargetSectionIndex] = {
-            ...cleanedSections[finalTargetSectionIndex],
-            items: [...(cleanedSections[finalTargetSectionIndex].items || []), nextItem],
-          }
-        } else {
-          cleanedSections.push({
-            ...targetSection,
-            items: [nextItem],
-          })
-        }
-
-        await persistRestaurantMenu(foodForm.restaurantId, cleanedSections)
+        await adminAPI.updateFood(editingFood?._id || editingFood?.id, payload)
       } else {
-        targetSection.items.push(nextItem)
-        if (targetSectionIndex >= 0) {
-          menuSections[targetSectionIndex] = targetSection
-        } else {
-          menuSections.push(targetSection)
-        }
-        await persistRestaurantMenu(foodForm.restaurantId, menuSections)
+        await adminAPI.createFood(payload)
       }
       toast.success(foodFormMode === "edit" ? "Food updated successfully" : "Food added successfully")
       setShowFoodFormModal(false)
@@ -506,56 +369,8 @@ export default function FoodsList() {
 
     try {
       setDeleting(true)
-
-      const menu = await loadRestaurantMenu(food.restaurantId)
-      
-      if (!menu || !menu.sections) {
-        throw new Error("Menu not found")
-      }
-
-      // Find and remove the item from the menu structure
-      let itemRemoved = false
-      const updatedSections = menu.sections.map(section => {
-        // Check items in section
-        if (section.items && Array.isArray(section.items)) {
-          const itemIndex = section.items.findIndex(item => 
-            String(item.id) === String(food.id) || 
-            String(item.id) === String(food.originalItem?.id)
-          )
-          if (itemIndex !== -1) {
-            section.items.splice(itemIndex, 1)
-            itemRemoved = true
-          }
-        }
-        
-        // Check items in subsections
-        if (section.subsections && Array.isArray(section.subsections)) {
-          section.subsections = section.subsections.map(subsection => {
-            if (subsection.items && Array.isArray(subsection.items)) {
-              const itemIndex = subsection.items.findIndex(item => 
-                String(item.id) === String(food.id) || 
-                String(item.id) === String(food.originalItem?.id)
-              )
-              if (itemIndex !== -1) {
-                subsection.items.splice(itemIndex, 1)
-                itemRemoved = true
-              }
-            }
-            return subsection
-          })
-        }
-        
-        return section
-      })
-
-      if (!itemRemoved) {
-        throw new Error("Item not found in menu")
-      }
-
-      await persistRestaurantMenu(food.restaurantId, updatedSections)
-
-      // Remove from local state
-      setFoods(foods.filter(f => f.id !== id))
+      await adminAPI.deleteFood(food?._id || food?.id)
+      setFoods((prev) => prev.filter((f) => String(f.id) !== String(id)))
       toast.success("Food item deleted successfully")
     } catch (error) {
       debugError("Error deleting food:", error)
@@ -661,7 +476,7 @@ export default function FoodsList() {
                   <td colSpan={6} className="px-6 py-20 text-center">
                     <div className="flex flex-col items-center justify-center">
                       <Loader2 className="w-8 h-8 animate-spin text-blue-600 mb-2" />
-                      <p className="text-sm text-slate-500">Loading foods from restaurants...</p>
+                      <p className="text-sm text-slate-500">Loading foods...</p>
                     </div>
                   </td>
                 </tr>
@@ -709,10 +524,7 @@ export default function FoodsList() {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex flex-col">
-                        <span className="text-sm font-medium text-slate-800">{food.sectionName || "-"}</span>
-                        {food.subsectionName && (
-                          <span className="text-xs text-slate-500">{food.subsectionName}</span>
-                        )}
+                        <span className="text-sm font-medium text-slate-800">{food.categoryName || "-"}</span>
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-center">
@@ -828,13 +640,13 @@ export default function FoodsList() {
               <div className="grid grid-cols-2 gap-4 text-sm bg-slate-50 border border-slate-200 rounded-lg p-4">
                 <p><span className="font-semibold text-slate-700">Restaurant:</span> <span className="text-slate-900">{selectedFood.restaurantName || "-"}</span></p>
                 <p><span className="font-semibold text-slate-700">Price:</span> <span className="text-slate-900">?{selectedFood.price}</span></p>
-                <p><span className="font-semibold text-slate-700">Category:</span> <span className="text-slate-900">{selectedFood.sectionName || "-"}</span></p>
+                <p><span className="font-semibold text-slate-700">Category:</span> <span className="text-slate-900">{selectedFood.categoryName || "-"}</span></p>
                 <p><span className="font-semibold text-slate-700">Food Type:</span> <span className="text-slate-900">{selectedFood.foodType || "-"}</span></p>
                 <p><span className="font-semibold text-slate-700">Approval:</span> <span className="text-slate-900 capitalize">{selectedFood.approvalStatus || "-"}</span></p>
               </div>
-              {selectedFood.originalItem?.description && (
+              {selectedFood.description && (
                 <p className="text-sm text-slate-700 leading-relaxed">
-                  <span className="font-semibold text-slate-800">Description:</span> {selectedFood.originalItem.description}
+                  <span className="font-semibold text-slate-800">Description:</span> {selectedFood.description}
                 </p>
               )}
             </div>
@@ -850,6 +662,8 @@ export default function FoodsList() {
             setEditingFood(null)
             setFoodForm(createFoodForm())
             setCategoryOptions([])
+            setCategorySearch("")
+            setCategoryPopoverOpen(false)
             setSelectedImageFile(null)
             setImagePreviewUrl("")
           }
@@ -867,7 +681,7 @@ export default function FoodsList() {
                 <label className="block text-sm font-medium text-slate-700 mb-1">Restaurant</label>
                 <select
                   value={foodForm.restaurantId}
-                  onChange={(e) => setFoodForm((prev) => ({ ...prev, restaurantId: e.target.value, sectionName: "" }))}
+                  onChange={(e) => setFoodForm((prev) => ({ ...prev, restaurantId: e.target.value, categoryId: "", categoryName: "" }))}
                   disabled={foodFormMode === "edit"}
                   className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm bg-white disabled:bg-slate-100"
                 >
@@ -881,18 +695,55 @@ export default function FoodsList() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Category</label>
-                <input
-                  list="food-category-options"
-                  value={foodForm.sectionName}
-                  onChange={(e) => setFoodForm((prev) => ({ ...prev, sectionName: e.target.value }))}
-                  className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm bg-white"
-                  placeholder="Select or enter category"
-                />
-                <datalist id="food-category-options">
-                  {categoryOptions.map((section) => (
-                    <option key={section.id} value={section.name} />
-                  ))}
-                </datalist>
+                <Popover open={categoryPopoverOpen} onOpenChange={setCategoryPopoverOpen}>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm bg-white text-left flex items-center justify-between"
+                    >
+                      <span className={foodForm.categoryName ? "text-slate-900" : "text-slate-400"}>
+                        {foodForm.categoryName || "Select category"}
+                      </span>
+                      <ChevronDown className="w-4 h-4 text-slate-500" />
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-2" align="start">
+                    <input
+                      type="text"
+                      value={categorySearch}
+                      onChange={(e) => setCategorySearch(e.target.value)}
+                      className="w-full px-3 py-2 border border-slate-200 rounded-md text-sm bg-white mb-2"
+                      placeholder="Search category..."
+                      autoFocus
+                    />
+                    <div className="max-h-56 overflow-y-auto">
+                      {categoryOptions
+                        .filter((c) => {
+                          const q = String(categorySearch || "").trim().toLowerCase()
+                          if (!q) return true
+                          return String(c.name || "").toLowerCase().includes(q)
+                        })
+                        .map((c) => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            onClick={() => {
+                              setFoodForm((prev) => ({ ...prev, categoryId: c.id, categoryName: c.name }))
+                              setCategoryPopoverOpen(false)
+                            }}
+                            className={`w-full text-left px-3 py-2 rounded-md text-sm hover:bg-slate-100 ${
+                              String(foodForm.categoryName || "") === String(c.name) ? "bg-slate-100 font-medium" : ""
+                            }`}
+                          >
+                            {c.name}
+                          </button>
+                        ))}
+                      {categoryOptions.length === 0 && (
+                        <div className="px-3 py-2 text-sm text-slate-500">No categories found</div>
+                      )}
+                    </div>
+                  </PopoverContent>
+                </Popover>
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Food Name</label>

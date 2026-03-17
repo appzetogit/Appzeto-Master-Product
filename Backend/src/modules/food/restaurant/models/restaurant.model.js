@@ -135,6 +135,9 @@ const restaurantSchema = new mongoose.Schema(
             maxGuests: { type: Number, default: 6 },
             diningType: { type: String, default: 'family-dining' }
         },
+        menu: {
+            sections: { type: Array, default: [] }
+        },
         status: {
             type: String,
             enum: ['pending', 'approved', 'rejected'],

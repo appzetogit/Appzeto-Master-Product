@@ -161,9 +161,34 @@ export const adminAPI = {
       contextModule: "admin",
       ...config,
     }),
+  /** Categories (admin) */
+  getCategories: (params = {}) =>
+    apiClient.get("/food/admin/categories", { params, contextModule: "admin" }),
+  createCategory: (body) =>
+    apiClient.post("/food/admin/categories", body ?? {}, { contextModule: "admin" }),
+  updateCategory: (id, body) =>
+    apiClient.patch(`/food/admin/categories/${id}`, body ?? {}, { contextModule: "admin" }),
+  deleteCategory: (id) =>
+    apiClient.delete(`/food/admin/categories/${id}`, { contextModule: "admin" }),
+  toggleCategoryStatus: (id) =>
+    apiClient.patch(`/food/admin/categories/${id}/toggle`, {}, { contextModule: "admin" }),
   /** Get single restaurant by id (full details for View Details modal). */
   getRestaurantById: (id) =>
     apiClient.get(`/food/admin/restaurants/${id}`, { contextModule: "admin" }),
+  /** Restaurant menu (admin) */
+  getRestaurantMenuById: (id, config = {}) =>
+    apiClient.get(`/food/admin/restaurants/${id}/menu`, { contextModule: "admin", ...config }),
+  updateRestaurantMenuById: (id, body) =>
+    apiClient.patch(`/food/admin/restaurants/${id}/menu`, body ?? {}, { contextModule: "admin" }),
+  /** Foods (admin) - separate collection */
+  getFoods: (params = {}) =>
+    apiClient.get("/food/admin/foods", { params, contextModule: "admin" }),
+  createFood: (body) =>
+    apiClient.post("/food/admin/foods", body ?? {}, { contextModule: "admin" }),
+  updateFood: (id, body) =>
+    apiClient.patch(`/food/admin/foods/${id}`, body ?? {}, { contextModule: "admin" }),
+  deleteFood: (id) =>
+    apiClient.delete(`/food/admin/foods/${id}`, { contextModule: "admin" }),
   /** Create restaurant (admin). Single API: POST /food/admin/restaurants. Body: JSON with image URLs. */
   createRestaurant: (body) =>
     apiClient.post("/food/admin/restaurants", body ?? {}, { contextModule: "admin" }),

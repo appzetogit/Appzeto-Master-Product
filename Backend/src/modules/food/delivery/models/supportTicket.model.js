@@ -33,7 +33,7 @@ const supportTicketSchema = new mongoose.Schema(
         adminResponse: { type: String },
         respondedAt: { type: Date }
     },
-    { collection: 'delivery_support_tickets', timestamps: true }
+    { collection: 'food_delivery_support_tickets', timestamps: true }
 );
 
 supportTicketSchema.index({ deliveryPartnerId: 1, createdAt: -1 });

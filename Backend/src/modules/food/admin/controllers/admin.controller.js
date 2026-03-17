@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import * as adminService from '../services/admin.service.js';
+import { validateCategoryListQuery, validateCategoryUpsertDto } from '../validators/category.validator.js';
 
 // ----- Restaurants -----
 export async function getRestaurants(req, res, next) {
@@ -30,6 +31,159 @@ export async function getRestaurantById(req, res, next) {
             message: 'Restaurant fetched successfully',
             data: restaurant
         });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function getRestaurantMenuById(req, res, next) {
+    try {
+        const { id } = req.params;
+        if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+            return res.status(400).json({ success: false, message: 'Invalid restaurant id' });
+        }
+        const menu = await adminService.getRestaurantMenuById(id);
+        if (!menu) {
+            return res.status(404).json({ success: false, message: 'Restaurant not found' });
+        }
+        res.status(200).json({ success: true, message: 'Menu fetched successfully', data: { menu } });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function updateRestaurantMenuById(req, res, next) {
+    try {
+        const { id } = req.params;
+        if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+            return res.status(400).json({ success: false, message: 'Invalid restaurant id' });
+        }
+        const menu = await adminService.updateRestaurantMenuById(id, req.body || {});
+        if (!menu) {
+            return res.status(404).json({ success: false, message: 'Restaurant not found' });
+        }
+        res.status(200).json({ success: true, message: 'Menu updated successfully', data: { menu } });
+    } catch (error) {
+        next(error);
+    }
+}
+
+// ----- Foods -----
+export async function getFoods(req, res, next) {
+    try {
+        const data = await adminService.getFoods(req.query || {});
+        res.status(200).json({ success: true, message: 'Foods fetched successfully', data });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function createFood(req, res, next) {
+    try {
+        const created = await adminService.createFood(req.body || {});
+        res.status(201).json({ success: true, message: 'Food created successfully', data: { food: created } });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function updateFood(req, res, next) {
+    try {
+        const { id } = req.params;
+        if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+            return res.status(400).json({ success: false, message: 'Invalid food id' });
+        }
+        const updated = await adminService.updateFood(id, req.body || {});
+        if (!updated) {
+            return res.status(404).json({ success: false, message: 'Food not found' });
+        }
+        res.status(200).json({ success: true, message: 'Food updated successfully', data: { food: updated } });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function deleteFood(req, res, next) {
+    try {
+        const { id } = req.params;
+        if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+            return res.status(400).json({ success: false, message: 'Invalid food id' });
+        }
+        const result = await adminService.deleteFood(id);
+        if (!result) {
+            return res.status(404).json({ success: false, message: 'Food not found' });
+        }
+        res.status(200).json({ success: true, message: 'Food deleted successfully', data: result });
+    } catch (error) {
+        next(error);
+    }
+}
+
+// ----- Categories -----
+export async function getCategories(req, res, next) {
+    try {
+        const query = validateCategoryListQuery(req.query || {});
+        const data = await adminService.getCategories(query);
+        res.status(200).json({ success: true, message: 'Categories fetched successfully', data });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function createCategory(req, res, next) {
+    try {
+        const body = validateCategoryUpsertDto(req.body || {});
+        const created = await adminService.createCategory(body);
+        res.status(201).json({ success: true, message: 'Category created successfully', data: { category: created } });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function updateCategory(req, res, next) {
+    try {
+        const { id } = req.params;
+        if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+            return res.status(400).json({ success: false, message: 'Invalid category id' });
+        }
+        const body = validateCategoryUpsertDto(req.body || {});
+        const updated = await adminService.updateCategory(id, body);
+        if (!updated) {
+            return res.status(404).json({ success: false, message: 'Category not found' });
+        }
+        res.status(200).json({ success: true, message: 'Category updated successfully', data: { category: updated } });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function deleteCategory(req, res, next) {
+    try {
+        const { id } = req.params;
+        if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+            return res.status(400).json({ success: false, message: 'Invalid category id' });
+        }
+        const result = await adminService.deleteCategory(id);
+        if (!result) {
+            return res.status(404).json({ success: false, message: 'Category not found' });
+        }
+        res.status(200).json({ success: true, message: 'Category deleted successfully', data: result });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function toggleCategoryStatus(req, res, next) {
+    try {
+        const { id } = req.params;
+        if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+            return res.status(400).json({ success: false, message: 'Invalid category id' });
+        }
+        const updated = await adminService.toggleCategoryStatus(id);
+        if (!updated) {
+            return res.status(404).json({ success: false, message: 'Category not found' });
+        }
+        res.status(200).json({ success: true, message: 'Category status updated successfully', data: { category: updated } });
     } catch (error) {
         next(error);
     }
