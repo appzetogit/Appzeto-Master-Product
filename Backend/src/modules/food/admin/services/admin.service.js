@@ -15,6 +15,7 @@ import { FoodDeliveryCommissionRule } from '../models/deliveryCommissionRule.mod
 import { FoodFeeSettings } from '../models/feeSettings.model.js';
 import { FoodUser } from '../../../../core/users/user.model.js';
 import { FoodDeliveryCashLimit } from '../models/deliveryCashLimit.model.js';
+import { FoodDeliveryEmergencyHelp } from '../models/deliveryEmergencyHelp.model.js';
 
 // ----- Restaurants -----
 export async function getRestaurants(query) {
@@ -388,6 +389,54 @@ export async function upsertDeliveryCashLimitSettings(body = {}) {
     return {
         deliveryCashLimit: created.deliveryCashLimit,
         deliveryWithdrawalLimit: created.deliveryWithdrawalLimit
+    };
+}
+
+// ----- Delivery Emergency Help (admin) -----
+export async function getDeliveryEmergencyHelp() {
+    const doc = await FoodDeliveryEmergencyHelp.findOne({ isActive: true }).sort({ createdAt: -1 }).lean();
+    const data = doc || {
+        medicalEmergency: '',
+        accidentHelpline: '',
+        contactPolice: '',
+        insurance: '',
+        isActive: true
+    };
+    return {
+        medicalEmergency: data.medicalEmergency || '',
+        accidentHelpline: data.accidentHelpline || '',
+        contactPolice: data.contactPolice || '',
+        insurance: data.insurance || ''
+    };
+}
+
+export async function upsertDeliveryEmergencyHelp(body = {}) {
+    const existing = await FoodDeliveryEmergencyHelp.findOne({ isActive: true }).sort({ createdAt: -1 });
+    if (existing) {
+        if (body.medicalEmergency !== undefined) existing.medicalEmergency = String(body.medicalEmergency || '').trim();
+        if (body.accidentHelpline !== undefined) existing.accidentHelpline = String(body.accidentHelpline || '').trim();
+        if (body.contactPolice !== undefined) existing.contactPolice = String(body.contactPolice || '').trim();
+        if (body.insurance !== undefined) existing.insurance = String(body.insurance || '').trim();
+        await existing.save();
+        return {
+            medicalEmergency: existing.medicalEmergency || '',
+            accidentHelpline: existing.accidentHelpline || '',
+            contactPolice: existing.contactPolice || '',
+            insurance: existing.insurance || ''
+        };
+    }
+    const created = await FoodDeliveryEmergencyHelp.create({
+        medicalEmergency: String(body.medicalEmergency || '').trim(),
+        accidentHelpline: String(body.accidentHelpline || '').trim(),
+        contactPolice: String(body.contactPolice || '').trim(),
+        insurance: String(body.insurance || '').trim(),
+        isActive: true
+    });
+    return {
+        medicalEmergency: created.medicalEmergency || '',
+        accidentHelpline: created.accidentHelpline || '',
+        contactPolice: created.contactPolice || '',
+        insurance: created.insurance || ''
     };
 }
 

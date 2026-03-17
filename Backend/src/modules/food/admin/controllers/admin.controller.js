@@ -6,6 +6,7 @@ import { validateAddDeliveryBonusDto } from '../validators/deliveryBonus.validat
 import { validateCheckCompletionsDto, validateEarningAddonHistoryActionDto, validateEarningAddonUpsertDto, validateToggleEarningAddonStatusDto } from '../validators/earningAddon.validator.js';
 import { validateDeliveryCommissionRuleDto, validateOptionalStatusDto, validateRestaurantCommissionUpsertDto } from '../validators/commission.validator.js';
 import { validateFeeSettingsUpsertDto } from '../validators/feeSettings.validator.js';
+import { validateDeliveryEmergencyHelpUpsertDto } from '../validators/deliveryEmergencyHelp.validator.js';
 
 // ----- Customers / Users -----
 export async function getCustomers(req, res, next) {
@@ -627,6 +628,26 @@ export async function updateDeliveryCashLimit(req, res, next) {
     try {
         const data = await adminService.upsertDeliveryCashLimitSettings(req.body || {});
         res.status(200).json({ success: true, message: 'Delivery cash limit updated successfully', data });
+    } catch (error) {
+        next(error);
+    }
+}
+
+// ----- Delivery Emergency Help (admin) -----
+export async function getEmergencyHelp(req, res, next) {
+    try {
+        const data = await adminService.getDeliveryEmergencyHelp();
+        res.status(200).json({ success: true, message: 'Emergency help fetched successfully', data });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function createOrUpdateEmergencyHelp(req, res, next) {
+    try {
+        const body = validateDeliveryEmergencyHelpUpsertDto(req.body || {});
+        const data = await adminService.upsertDeliveryEmergencyHelp(body);
+        res.status(200).json({ success: true, message: 'Emergency help saved successfully', data });
     } catch (error) {
         next(error);
     }

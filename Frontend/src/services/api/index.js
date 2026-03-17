@@ -324,6 +324,12 @@ export const adminAPI = {
     apiClient.get("/food/admin/delivery-cash-limit", { contextModule: "admin" }),
   updateDeliveryCashLimit: (body) =>
     apiClient.patch("/food/admin/delivery-cash-limit", body ?? {}, { contextModule: "admin" }),
+
+  /** Delivery Emergency Help (admin) */
+  getEmergencyHelp: () =>
+    apiClient.get("/food/admin/delivery-emergency-help", { contextModule: "admin" }),
+  createOrUpdateEmergencyHelp: (body) =>
+    apiClient.put("/food/admin/delivery-emergency-help", body ?? {}, { contextModule: "admin" }),
 };
 
 /** Restaurant API - OTP login via new backend; no email/password. */

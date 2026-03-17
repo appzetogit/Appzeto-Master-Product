@@ -64,6 +64,10 @@ router.put('/fee-settings', adminController.createOrUpdateFeeSettings);
 router.get('/delivery-cash-limit', adminController.getDeliveryCashLimit);
 router.patch('/delivery-cash-limit', adminController.updateDeliveryCashLimit);
 
+// ----- Delivery Emergency Help -----
+router.get('/delivery-emergency-help', adminController.getEmergencyHelp);
+router.put('/delivery-emergency-help', adminController.createOrUpdateEmergencyHelp);
+
 // ----- Delivery -----
 router.get('/delivery/join-requests', adminController.getDeliveryJoinRequests);
 router.get('/delivery/wallets', adminController.getDeliveryWallets);
