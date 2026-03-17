@@ -22,7 +22,8 @@ export async function getRestaurants(query) {
             .sort({ createdAt: -1 })
             .skip(skip)
             .limit(limit)
-            .select('restaurantName area city profileImage status ownerName ownerPhone')
+            .select('restaurantName location area city profileImage status ownerName ownerPhone zoneId')
+            .populate('zoneId', 'name zoneName')
             .lean(),
         FoodRestaurant.countDocuments(filter)
     ]);
@@ -31,7 +32,10 @@ export async function getRestaurants(query) {
 
 export async function getRestaurantById(id) {
     if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
-    return FoodRestaurant.findById(id).select('-__v').lean();
+    return FoodRestaurant.findById(id)
+        .select('-__v')
+        .populate('zoneId', 'name zoneName serviceLocation isActive')
+        .lean();
 }
 
 export async function getRestaurantMenuById(id) {
@@ -361,6 +365,125 @@ export async function rejectRestaurant(id, reason) {
         },
         { new: true, runValidators: false }
     ).lean();
+}
+
+const toStr = (v) => (v != null ? String(v).trim() : '');
+const toFinite = (v) => {
+    const n = typeof v === 'number' ? v : parseFloat(String(v));
+    return Number.isFinite(n) ? n : null;
+};
+
+export async function updateRestaurantById(id, body = {}) {
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
+    const doc = await FoodRestaurant.findById(id);
+    if (!doc) return null;
+
+    if (body.name !== undefined || body.restaurantName !== undefined) {
+        const raw = body.name !== undefined ? body.name : body.restaurantName;
+        const name = toStr(raw);
+        if (name) doc.restaurantName = name;
+    }
+    if (body.ownerName !== undefined) doc.ownerName = toStr(body.ownerName);
+    if (body.ownerEmail !== undefined) doc.ownerEmail = toStr(body.ownerEmail).toLowerCase();
+    if (body.ownerPhone !== undefined) doc.ownerPhone = toStr(body.ownerPhone);
+    if (body.primaryContactNumber !== undefined) doc.primaryContactNumber = toStr(body.primaryContactNumber);
+    if (body.cuisines !== undefined && Array.isArray(body.cuisines)) {
+        doc.cuisines = body.cuisines.map((c) => toStr(c)).filter(Boolean).slice(0, 50);
+    }
+    if (body.estimatedDeliveryTime !== undefined) doc.estimatedDeliveryTime = toStr(body.estimatedDeliveryTime);
+    if (body.offer !== undefined) doc.offer = toStr(body.offer);
+    if (body.openingTime !== undefined) doc.openingTime = toStr(body.openingTime);
+    if (body.closingTime !== undefined) doc.closingTime = toStr(body.closingTime);
+    if (body.openDays !== undefined && Array.isArray(body.openDays)) {
+        doc.openDays = body.openDays.map((d) => toStr(d)).filter(Boolean).slice(0, 7);
+    }
+    if (body.profileImage !== undefined) {
+        const url = typeof body.profileImage === 'string' ? toStr(body.profileImage) : toStr(body.profileImage?.url);
+        if (url) doc.profileImage = url;
+    }
+    if (body.isActive !== undefined) {
+        // Map UI's isActive to existing status field.
+        // If restaurant is approved already, keep it approved but allow "inactive" via a soft flag in future.
+        // For now, represent inactive as rejected? Avoid: keep current status and just store a flag isActive if schema supports.
+        // Schema currently uses `status` only; treat false as rejected, true as approved (best-effort).
+        const isActive = body.isActive !== false;
+        if (isActive && doc.status !== 'approved') doc.status = 'approved';
+        if (!isActive && doc.status === 'approved') doc.status = 'rejected';
+    }
+
+    await doc.save();
+    return doc.toObject();
+}
+
+export async function updateRestaurantStatus(id, body = {}) {
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
+    const doc = await FoodRestaurant.findById(id);
+    if (!doc) return null;
+    const isActive = body.status !== undefined ? body.status !== false : body.isActive !== false;
+    if (isActive && doc.status !== 'approved') doc.status = 'approved';
+    if (!isActive && doc.status === 'approved') doc.status = 'rejected';
+    await doc.save();
+    return doc.toObject();
+}
+
+export async function updateRestaurantLocation(id, body = {}) {
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
+    const doc = await FoodRestaurant.findById(id);
+    if (!doc) return null;
+
+    // Optional: bind restaurant to an existing service zone.
+    if (body.zoneId !== undefined && body.zoneId !== null && String(body.zoneId).trim()) {
+        const zid = String(body.zoneId).trim();
+        if (!mongoose.Types.ObjectId.isValid(zid)) {
+            throw new ValidationError('Invalid zoneId');
+        }
+        doc.zoneId = new mongoose.Types.ObjectId(zid);
+    }
+
+    const lat = toFinite(body.latitude ?? body.lat);
+    const lng = toFinite(body.longitude ?? body.lng);
+    if (lat === null || lng === null) {
+        throw new ValidationError('Valid latitude and longitude are required');
+    }
+
+    const formattedAddress = toStr(body.formattedAddress || body.address);
+    const addressLine1 = toStr(body.addressLine1 || formattedAddress);
+    const addressLine2 = toStr(body.addressLine2);
+    const area = toStr(body.area);
+    const city = toStr(body.city);
+    const state = toStr(body.state);
+    const pincode = toStr(body.pincode || body.postalCode || body.zipCode);
+    const landmark = toStr(body.landmark);
+
+    // Store everything inside the single `location` object (geo + address fields).
+    doc.location = {
+        type: 'Point',
+        coordinates: [lng, lat],
+        latitude: lat,
+        longitude: lng,
+        formattedAddress,
+        address: toStr(body.address || formattedAddress),
+        addressLine1,
+        addressLine2,
+        area,
+        city,
+        state,
+        pincode,
+        landmark
+    };
+
+    // Backward compatibility for older code paths (can be removed once all readers use location.*)
+    doc.addressLine1 = addressLine1;
+    doc.addressLine2 = addressLine2;
+    doc.area = area;
+    doc.city = city;
+    doc.state = state;
+    doc.pincode = pincode;
+    doc.landmark = landmark;
+
+    await doc.save();
+    // Return a shape that frontend expects under `restaurant.location` too
+    return doc.toObject();
 }
 
 // ----- Delivery join requests -----
