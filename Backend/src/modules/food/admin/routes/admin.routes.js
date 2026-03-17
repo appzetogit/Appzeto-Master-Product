@@ -76,14 +76,6 @@ router.patch('/delivery-cash-limit', adminController.updateDeliveryCashLimit);
 router.get('/delivery-emergency-help', adminController.getEmergencyHelp);
 router.put('/delivery-emergency-help', adminController.createOrUpdateEmergencyHelp);
 
-// ----- Help & Support -----
-router.get('/help-support/user-feedback', adminController.getUserFeedbacks);
-router.delete('/help-support/user-feedback/:id', adminController.deleteUserFeedback);
-router.get('/help-support/safety-emergencies', adminController.getSafetyEmergencies);
-router.put('/help-support/safety-emergencies/:id/status', adminController.updateSafetyEmergencyStatus);
-router.put('/help-support/safety-emergencies/:id/priority', adminController.updateSafetyEmergencyPriority);
-router.delete('/help-support/safety-emergencies/:id', adminController.deleteSafetyEmergency);
-
 // ----- Delivery -----
 router.get('/delivery/join-requests', adminController.getDeliveryJoinRequests);
 router.get('/delivery/wallets', adminController.getDeliveryWallets);

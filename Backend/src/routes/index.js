@@ -5,7 +5,6 @@ import restaurantRoutes from '../modules/food/restaurant/routes/restaurant.route
 import landingRoutes from '../modules/food/landing/routes/landing.routes.js';
 import uploadRoutes from '../modules/uploads/routes/upload.routes.js';
 import restaurantAdminRoutes from '../modules/food/admin/routes/admin.routes.js';
-import userRoutes from '../modules/food/user/routes/user.routes.js';
 import { authMiddleware } from '../core/auth/auth.middleware.js';
 import { requireRoles } from '../core/roles/role.middleware.js';
 import { getQueuesController } from '../controllers/admin.controller.js';
@@ -23,7 +22,6 @@ router.use('/v1/food/auth', authRoutes);
 router.use('/v1/auth', authRoutes);
 router.use('/v1/food/delivery', deliveryRoutes);
 router.use('/v1/food/restaurant', restaurantRoutes);
-router.use('/v1/food/user', userRoutes);
 // Landing & hero-banners for Food user app (paths start with /food/hero-banners/...)
 router.use('/v1/food', landingRoutes);
 router.use('/v1/uploads', uploadRoutes);
