@@ -575,26 +575,6 @@ export const restaurantAPI = {
       contextModule: "restaurant",
     });
   },
-  /** Add a staff/manager user (multipart FormData: name, role, phone|email, optional photo). */
-  addStaff: (formData) => {
-    if (!formData || !(formData instanceof FormData)) {
-      return Promise.reject(new Error("FormData is required"));
-    }
-    return apiClient.post("/food/restaurant/staff", formData, {
-      contextModule: "restaurant",
-    });
-  },
-  /** List staff/manager users */
-  getStaff: (params = {}) =>
-    apiClient.get("/food/restaurant/staff", {
-      params,
-      contextModule: "restaurant",
-    }),
-  /** Remove a staff/manager user */
-  deleteStaff: (id) =>
-    apiClient.delete(`/food/restaurant/staff/${String(id)}`, {
-      contextModule: "restaurant",
-    }),
   /** Categories (restaurant dashboard) */
   getCategories: (params = {}) =>
     // Compact payload for item creation forms (id + name only).
