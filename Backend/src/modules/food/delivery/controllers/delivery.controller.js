@@ -2,6 +2,7 @@ import { registerDeliveryPartner, updateDeliveryPartnerProfile, updateDeliveryPa
 import { getDeliveryCashLimitSettings, getDeliveryEmergencyHelp } from '../../admin/services/admin.service.js';
 import { validateDeliveryRegisterDto, validateDeliveryProfileUpdateDto, validateDeliveryBankDetailsDto } from '../validators/delivery.validator.js';
 import { sendResponse } from '../../../../utils/response.js';
+import { getDeliveryReferralStats } from '../services/deliveryReferral.service.js';
 
 export const registerDeliveryPartnerController = async (req, res, next) => {
     try {
@@ -160,6 +161,16 @@ export const getCashLimitController = async (req, res, next) => {
     try {
         const data = await getDeliveryCashLimitSettings();
         return sendResponse(res, 200, 'Cash limit fetched successfully', data);
+    } catch (error) {
+        next(error);
+    }
+};
+
+export const getDeliveryReferralStatsController = async (req, res, next) => {
+    try {
+        const deliveryPartnerId = req.user?.userId;
+        const stats = await getDeliveryReferralStats(deliveryPartnerId);
+        return sendResponse(res, 200, 'Referral stats fetched successfully', { stats });
     } catch (error) {
         next(error);
     }

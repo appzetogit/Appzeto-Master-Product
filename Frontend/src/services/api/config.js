@@ -49,7 +49,10 @@ export const API_ENDPOINTS = {
     CANCELLATION: "/food/admin/pages-social-media/cancellation",
     CANCELLATION_PUBLIC: "/food/pages/cancellation",
     FEEDBACK_CREATE: "", FEEDBACK_EXPERIENCE: "", FEEDBACK_EXPERIENCE_CREATE: "", FEEDBACK_EXPERIENCE_BY_ID: "",
-    SAFETY_EMERGENCY: "", SAFETY_EMERGENCY_CREATE: "", REVIEWS: "",
+    SAFETY_EMERGENCY: "/food/admin/safety-emergency-reports",
+    // User creates reports via USER context; kept for legacy imports.
+    SAFETY_EMERGENCY_CREATE: "/food/user/safety-emergency-reports",
+    REVIEWS: "",
     CATEGORIES: "", CATEGORIES_PUBLIC: "", CATEGORY_BY_ID: "", FEE_SETTINGS: "", FEE_SETTINGS_PUBLIC: "",
     ZONES: "", ZONE_BY_ID: "", RESTAURANT_COMMISSION: "", RESTAURANT_COMMISSION_BY_ID: "",
     FOOD_APPROVALS: "", FOOD_APPROVAL_APPROVE: "", FOOD_APPROVAL_REJECT: "",

@@ -7,6 +7,7 @@ import { validateCheckCompletionsDto, validateEarningAddonHistoryActionDto, vali
 import { validateDeliveryCommissionRuleDto, validateOptionalStatusDto, validateRestaurantCommissionUpsertDto } from '../validators/commission.validator.js';
 import { validateFeeSettingsUpsertDto } from '../validators/feeSettings.validator.js';
 import { validateDeliveryEmergencyHelpUpsertDto } from '../validators/deliveryEmergencyHelp.validator.js';
+import { validateReferralSettingsUpsertDto } from '../validators/referralSettings.validator.js';
 
 // ----- Customers / Users -----
 export async function getCustomers(req, res, next) {
@@ -42,6 +43,49 @@ export async function updateCustomerStatus(req, res, next) {
         const updated = await adminService.updateCustomerStatus(id, isActive);
         if (!updated) return res.status(404).json({ success: false, message: 'Customer not found' });
         res.status(200).json({ success: true, message: 'Customer status updated successfully', data: { user: updated, customer: updated } });
+    } catch (error) {
+        next(error);
+    }
+}
+
+// ----- Safety / Emergency Reports -----
+export async function getSafetyEmergencyReports(req, res, next) {
+    try {
+        const data = await adminService.getSafetyEmergencyReports(req.query || {});
+        res.status(200).json({ success: true, message: 'Safety emergency reports fetched successfully', data });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function updateSafetyEmergencyStatus(req, res, next) {
+    try {
+        const { id } = req.params;
+        const updated = await adminService.updateSafetyEmergencyStatus(id, req.body?.status);
+        if (!updated) return res.status(404).json({ success: false, message: 'Report not found' });
+        res.status(200).json({ success: true, message: 'Status updated successfully', data: { report: updated } });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function updateSafetyEmergencyPriority(req, res, next) {
+    try {
+        const { id } = req.params;
+        const updated = await adminService.updateSafetyEmergencyPriority(id, req.body?.priority);
+        if (!updated) return res.status(404).json({ success: false, message: 'Report not found' });
+        res.status(200).json({ success: true, message: 'Priority updated successfully', data: { report: updated } });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function deleteSafetyEmergencyReport(req, res, next) {
+    try {
+        const { id } = req.params;
+        const deleted = await adminService.deleteSafetyEmergencyReport(id);
+        if (!deleted) return res.status(404).json({ success: false, message: 'Report not found' });
+        res.status(200).json({ success: true, message: 'Safety emergency report deleted successfully', data: { report: deleted } });
     } catch (error) {
         next(error);
     }
@@ -657,6 +701,26 @@ export async function createOrUpdateFeeSettings(req, res, next) {
         const body = validateFeeSettingsUpsertDto(req.body || {});
         const feeSettings = await adminService.upsertFeeSettings(body);
         res.status(200).json({ success: true, message: 'Fee settings saved successfully', data: { feeSettings } });
+    } catch (error) {
+        next(error);
+    }
+}
+
+// ----- Referral Settings (admin) -----
+export async function getReferralSettings(req, res, next) {
+    try {
+        const data = await adminService.getReferralSettings();
+        res.status(200).json({ success: true, message: 'Referral settings fetched successfully', data });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function createOrUpdateReferralSettings(req, res, next) {
+    try {
+        const body = validateReferralSettingsUpsertDto(req.body || {});
+        const referralSettings = await adminService.upsertReferralSettings(body);
+        res.status(200).json({ success: true, message: 'Referral settings saved successfully', data: { referralSettings } });
     } catch (error) {
         next(error);
     }

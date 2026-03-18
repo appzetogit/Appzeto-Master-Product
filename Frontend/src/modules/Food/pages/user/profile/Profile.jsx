@@ -22,7 +22,6 @@ import {
   Power,
   ShoppingCart,
   MapPin,
-  Copy,
   Share2
 } from "lucide-react"
 
@@ -41,7 +40,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@food/components/ui/dialog"
-import { authAPI } from "@food/api"
+import { authAPI, userAPI } from "@food/api"
 import { firebaseAuth } from "@food/firebase"
 import { clearModuleAuth } from "@food/utils/auth"
 const debugLog = (...args) => {}
@@ -69,7 +68,8 @@ export default function Profile() {
   const [vegModeOpen, setVegModeOpen] = useState(false)
   const [appearanceOpen, setAppearanceOpen] = useState(false)
   const [isLoggingOut, setIsLoggingOut] = useState(false)
-  const [referralCopied, setReferralCopied] = useState(false)
+  const [referralReward, setReferralReward] = useState(0)
+  const [walletBalance, setWalletBalance] = useState(0)
 
   const handleVegModeUpdate = (nextValue) => {
     setVegMode(nextValue)
@@ -202,25 +202,48 @@ export default function Profile() {
 
   const profileCompletion = calculateProfileCompletion()
   const isComplete = profileCompletion === 100
-  const referralCode = userProfile?.referralCode || ""
-  const referralLink = referralCode
-    ? `${window.location.origin}/user/auth/login?mode=signup&ref=${encodeURIComponent(referralCode)}`
+  useEffect(() => {
+    let mounted = true
+    userAPI
+      .getReferralStats()
+      .then((res) => {
+        const reward = res?.data?.data?.stats?.rewardAmount
+        if (mounted) setReferralReward(Number(reward) || 0)
+      })
+      .catch(() => {})
+    return () => {
+      mounted = false
+    }
+  }, [])
+
+  useEffect(() => {
+    let mounted = true
+    userAPI
+      .getWallet()
+      .then((res) => {
+        const w = res?.data?.data?.wallet || res?.data?.wallet
+        const bal = Number(w?.balance)
+        if (mounted) setWalletBalance(Number.isFinite(bal) ? bal : 0)
+      })
+      .catch(() => {})
+    return () => {
+      mounted = false
+    }
+  }, [])
+
+  const refId =
+    userProfile?._id ||
+    userProfile?.id ||
+    userProfile?.referralCode ||
+    ""
+  const referralLink = refId
+    ? `${window.location.origin}/food/user/auth/login?ref=${encodeURIComponent(String(refId))}`
     : ""
 
-  const handleCopyReferral = async () => {
-    if (!referralCode) return
-    try {
-      await navigator.clipboard.writeText(referralCode)
-      setReferralCopied(true)
-      setTimeout(() => setReferralCopied(false), 1500)
-    } catch (error) {
-      debugError("Failed to copy referral code:", error)
-    }
-  }
-
   const handleShareReferral = async () => {
-    if (!referralCode) return
-    const shareText = `Use my referral code ${referralCode} on signup and I get ₹50 in wallet.`
+    if (!referralLink) return
+    const rewardText = referralReward > 0 ? `₹${referralReward}` : "rewards"
+    const shareText = `Join ${companyName} and earn ${rewardText}.`
     try {
       if (navigator.share) {
         await navigator.share({
@@ -378,7 +401,9 @@ export default function Profile() {
                     <span className="text-base font-medium text-gray-900 dark:text-white">{companyName} Money</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="text-base font-semibold text-green-600 dark:text-green-400">₹{userProfile?.wallet?.balance?.toFixed(0) || '0'}</span>
+                    <span className="text-base font-semibold text-green-600 dark:text-green-400">
+                      ₹{Number(walletBalance || 0).toFixed(0)}
+                    </span>
                     <motion.div
                       whileHover={{ x: 4 }}
                       transition={{ duration: 0.2 }}
@@ -462,33 +487,17 @@ export default function Profile() {
                     >
                       <Tag className="h-5 w-5 text-gray-700 dark:text-gray-300" />
                     </motion.div>
-                    <span className="text-base font-medium text-gray-900 dark:text-white">Referral</span>
+                    <span className="text-base font-medium text-gray-900 dark:text-white">Share & Earn</span>
                   </div>
-                  <span className="text-xs font-semibold px-2 py-1 rounded bg-green-100 text-green-700 dark:bg-green-900/20 dark:text-green-300">
-                    Earn ₹50
-                  </span>
-                </div>
-                <div className="flex items-center justify-between gap-2 bg-gray-50 dark:bg-gray-900 rounded-lg px-3 py-2 mb-2">
-                  <span className="text-sm font-semibold tracking-wider text-gray-900 dark:text-white">
-                    {referralCode || "Loading..."}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.preventDefault()
-                      e.stopPropagation()
-                      handleCopyReferral()
-                    }}
-                    className="inline-flex items-center gap-1 text-xs text-[#EB590E] font-medium px-2 py-1 rounded-md"
-                    disabled={!referralCode}
-                  >
-                    <Copy className="h-3.5 w-3.5" />
-                    {referralCopied ? "Copied" : "Copy"}
-                  </button>
+                  {referralReward > 0 && (
+                    <span className="text-xs font-semibold px-2 py-1 rounded bg-green-100 text-green-700 dark:bg-green-900/20 dark:text-green-300">
+                      Earn ₹{referralReward}
+                    </span>
+                  )}
                 </div>
                 <div className="flex items-center justify-between">
                   <p className="text-xs text-gray-500 dark:text-gray-400">
-                    When someone signs up using your code, you get ₹50 in wallet.
+                    Invite a friend. Reward is added to your wallet when they sign up.
                   </p>
                   <button
                     type="button"
@@ -498,7 +507,7 @@ export default function Profile() {
                       handleShareReferral()
                     }}
                     className="inline-flex items-center gap-1 text-xs text-[#EB590E] font-medium ml-2 px-2 py-1 rounded-md"
-                    disabled={!referralCode}
+                    disabled={!referralLink}
                   >
                     <Share2 className="h-3.5 w-3.5" />
                     Share

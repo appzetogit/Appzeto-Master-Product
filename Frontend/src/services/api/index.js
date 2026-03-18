@@ -91,7 +91,7 @@ export const authAPI = {
   ) => {
     if (!phone || !otp)
       return Promise.reject(new Error("Phone and OTP are required"));
-    return authService.verifyUserOtp(phone, otp);
+    return authService.verifyUserOtp(phone, otp, _referralCode);
   },
   getCurrentUser: () => getUserMeOnce(),
   refreshToken: (token) => authService.refreshToken(token),
@@ -551,6 +551,37 @@ export const adminAPI = {
       contextModule: "admin",
     }),
 
+  /** Referral Settings (admin) */
+  getReferralSettings: () =>
+    apiClient.get("/food/admin/referral-settings", { contextModule: "admin" }),
+  createOrUpdateReferralSettings: (body) =>
+    apiClient.put("/food/admin/referral-settings", body ?? {}, {
+      contextModule: "admin",
+    }),
+
+  /** Safety / Emergency Reports (admin) */
+  getSafetyEmergencyReports: (params) =>
+    apiClient.get("/food/admin/safety-emergency-reports", {
+      params: params ?? {},
+      contextModule: "admin",
+    }),
+  updateSafetyEmergencyStatus: (id, status) =>
+    apiClient.put(
+      `/food/admin/safety-emergency-reports/${String(id)}/status`,
+      { status: String(status) },
+      { contextModule: "admin" },
+    ),
+  updateSafetyEmergencyPriority: (id, priority) =>
+    apiClient.put(
+      `/food/admin/safety-emergency-reports/${String(id)}/priority`,
+      { priority: String(priority) },
+      { contextModule: "admin" },
+    ),
+  deleteSafetyEmergencyReport: (id) =>
+    apiClient.delete(`/food/admin/safety-emergency-reports/${String(id)}`, {
+      contextModule: "admin",
+    }),
+
   /** Delivery Cash Limit (admin) */
   getDeliveryCashLimit: () =>
     apiClient.get("/food/admin/delivery-cash-limit", {
@@ -949,6 +980,8 @@ export const deliveryAPI = {
         data: { profile: res.data?.data?.user ?? res.data?.data },
       },
     })),
+  getReferralStats: () =>
+    apiClient.get("/food/delivery/referrals/stats", { contextModule: "delivery" }),
   logout: (refreshToken) => {
     deliveryMeCached = null;
     deliveryMeCacheTime = 0;
@@ -1098,8 +1131,32 @@ export const userAPI = {
       contextModule: "user",
     });
   },
-  /** GET /food/user/wallet (Bearer USER) */
-  getWallet: () => apiClient.get("/food/user/wallet", { contextModule: "user" }),
+  /** GET /food/user/wallet (Bearer USER). Deduped + short-cached. */
+  getWallet: (() => {
+    let inFlight = null;
+    let cached = null;
+    let cacheTime = 0;
+    const CACHE_MS = 3000;
+    return () => {
+      const now = Date.now();
+      if (cached && now - cacheTime < CACHE_MS) return Promise.resolve(cached);
+      if (!inFlight) {
+        inFlight = apiClient
+          .get("/food/user/wallet", { contextModule: "user" })
+          .then((res) => {
+            cached = res;
+            cacheTime = Date.now();
+            return res;
+          })
+          .finally(() => {
+            inFlight = null;
+          });
+      }
+      return inFlight;
+    };
+  })(),
+  /** GET /food/user/referrals/stats (Bearer USER) */
+  getReferralStats: () => apiClient.get("/food/user/referrals/stats", { contextModule: "user" }),
   /** POST /food/user/wallet/topup/order (Bearer USER). Body: { amount } */
   createWalletTopupOrder: (amount) =>
     apiClient.post(
@@ -1147,6 +1204,19 @@ export const userAPI = {
   /** PATCH /food/user/addresses/:id/default (Bearer USER) */
   setDefaultAddress: (id) =>
     apiClient.patch(`/food/user/addresses/${String(id)}/default`, {}, { contextModule: "user" }),
+  /** POST /food/user/safety-emergency-reports (Bearer USER) */
+  createSafetyEmergencyReport: (message) =>
+    apiClient.post(
+      "/food/user/safety-emergency-reports",
+      { message: String(message || "") },
+      { contextModule: "user" },
+    ),
+  /** GET /food/user/safety-emergency-reports (Bearer USER) */
+  getMySafetyEmergencyReports: (params) =>
+    apiClient.get("/food/user/safety-emergency-reports", {
+      params: params ?? {},
+      contextModule: "user",
+    }),
   /**
    * Legacy UI compatibility: update "current user location".
    * We already persist the user's selected location in localStorage in the UI.

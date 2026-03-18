@@ -14,8 +14,35 @@ const ensureWallet = async (userId) => {
     return FoodUserWallet.create({ userId: oid, balance: 0, transactions: [] });
 };
 
-export const getUserWallet = async (userId) => {
+export const creditReferralReward = async (userId, amountInr, metadata = {}) => {
+    const amount = Number(amountInr);
+    if (!Number.isFinite(amount) || amount <= 0) {
+        return { wallet: await getUserWallet(userId) };
+    }
     const wallet = await ensureWallet(userId);
+    wallet.transactions.unshift({
+        type: 'addition',
+        amount,
+        status: 'Completed',
+        description: 'Referral reward',
+        metadata: { source: 'referral_reward', ...(metadata || {}) }
+    });
+    wallet.balance = Number(wallet.balance || 0) + amount;
+    wallet.referralEarnings = Number(wallet.referralEarnings || 0) + amount;
+    await wallet.save();
+    return { wallet: await getUserWallet(userId) };
+};
+
+export const getUserWallet = async (userId) => {
+    const id = String(userId || '');
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+        throw new ValidationError('User not found');
+    }
+    const oid = new mongoose.Types.ObjectId(id);
+    const wallet = await FoodUserWallet.findOne({ userId: oid });
+    if (!wallet) {
+        return { balance: 0, referralEarnings: 0, transactions: [] };
+    }
     // Return newest first (UI expects recent transactions on top)
     const tx = Array.isArray(wallet.transactions) ? [...wallet.transactions].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)) : [];
     return {
@@ -44,22 +71,11 @@ export const createWalletTopupOrder = async (userId, amountInr) => {
         throw new ValidationError('Maximum amount is 50,000');
     }
 
-    const wallet = await ensureWallet(userId);
     const amountPaise = Math.round(amount * 100);
 
     if (!isRazorpayConfigured()) {
-        // Dev fallback: still return a shape compatible with the frontend.
+        // Dev fallback: return a compatible shape without writing to DB.
         const orderId = `order_dev_${Date.now()}`;
-        wallet.transactions.unshift({
-            type: 'addition',
-            amount,
-            status: 'Pending',
-            description: 'Wallet top-up (dev)',
-            metadata: { source: 'wallet_topup', mode: 'dev' },
-            razorpayOrderId: orderId
-        });
-        await wallet.save();
-
         return {
             razorpay: {
                 key: getRazorpayKeyId() || 'rzp_test_dummy',
@@ -72,16 +88,6 @@ export const createWalletTopupOrder = async (userId, amountInr) => {
 
     const receipt = `wallet_topup_${String(userId).slice(-8)}_${Date.now()}`;
     const order = await createRazorpayOrder(amountPaise, 'INR', receipt);
-
-    wallet.transactions.unshift({
-        type: 'addition',
-        amount,
-        status: 'Pending',
-        description: 'Wallet top-up',
-        metadata: { source: 'wallet_topup', mode: 'razorpay' },
-        razorpayOrderId: String(order.id)
-    });
-    await wallet.save();
 
     return {
         razorpay: {
@@ -105,11 +111,8 @@ export const verifyWalletTopupPayment = async (userId, payload) => {
     if (!Number.isFinite(amount) || amount <= 0) throw new ValidationError('amount is required');
 
     const wallet = await ensureWallet(userId);
-    const tx = wallet.transactions.find((t) => String(t.razorpayOrderId || '') === orderId);
-    if (!tx) {
-        throw new ValidationError('Top-up transaction not found');
-    }
-    if (String(tx.status).toLowerCase() === 'completed') {
+    const existing = wallet.transactions.find((t) => String(t.razorpayOrderId || '') === orderId);
+    if (existing && String(existing.status).toLowerCase() === 'completed') {
         return { wallet: await getUserWallet(userId) };
     }
 
@@ -118,17 +121,20 @@ export const verifyWalletTopupPayment = async (userId, payload) => {
         ? verifyPaymentSignature(orderId, paymentId, signature)
         : true;
     if (!ok) {
-        tx.status = 'Failed';
-        tx.razorpayPaymentId = paymentId;
-        tx.razorpaySignature = signature;
-        await wallet.save();
         throw new ValidationError('Payment verification failed');
     }
 
-    tx.status = 'Completed';
-    tx.razorpayPaymentId = paymentId;
-    tx.razorpaySignature = signature;
-    tx.amount = amount;
+    // Store ONLY after payment is verified.
+    wallet.transactions.unshift({
+        type: 'addition',
+        amount,
+        status: 'Completed',
+        description: isRazorpayConfigured() ? 'Wallet top-up' : 'Wallet top-up (dev)',
+        metadata: { source: 'wallet_topup', mode: isRazorpayConfigured() ? 'razorpay' : 'dev' },
+        razorpayOrderId: orderId,
+        razorpayPaymentId: paymentId,
+        razorpaySignature: signature
+    });
 
     wallet.balance = Number(wallet.balance || 0) + amount;
     await wallet.save();

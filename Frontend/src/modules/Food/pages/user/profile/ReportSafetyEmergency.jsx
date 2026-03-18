@@ -4,10 +4,9 @@ import AnimatedPage from "@food/components/user/AnimatedPage"
 import { Button } from "@food/components/ui/button"
 import { Card, CardContent } from "@food/components/ui/card"
 import { Textarea } from "@food/components/ui/textarea"
-import { useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
-import api from "@food/api"
-import { API_ENDPOINTS } from "@food/api/config"
+import { userAPI } from "@food/api"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -17,6 +16,55 @@ export default function ReportSafetyEmergency() {
   const [report, setReport] = useState("")
   const [isSubmitted, setIsSubmitted] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [history, setHistory] = useState([])
+
+  const fetchHistory = async () => {
+    try {
+      setHistoryLoading(true)
+      const res = await userAPI.getMySafetyEmergencyReports({ page: 1, limit: 20 })
+      const list = res?.data?.data?.safetyEmergencies ?? []
+      setHistory(Array.isArray(list) ? list : [])
+    } catch (err) {
+      debugError("Error fetching safety emergency history:", err)
+      setHistory([])
+    } finally {
+      setHistoryLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchHistory()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const historySorted = useMemo(() => {
+    const arr = Array.isArray(history) ? [...history] : []
+    arr.sort((a, b) => new Date(b?.createdAt || 0).getTime() - new Date(a?.createdAt || 0).getTime())
+    return arr
+  }, [history])
+
+  const getStatusPill = (status) => {
+    const map = {
+      unread: "bg-blue-100 text-blue-700",
+      read: "bg-slate-100 text-slate-700",
+      urgent: "bg-red-100 text-red-700",
+      resolved: "bg-green-100 text-green-700",
+    }
+    const cls = map[String(status)] || map.unread
+    const label = String(status || "unread").replace(/^\w/, (c) => c.toUpperCase())
+    return <span className={`px-2.5 py-1 rounded-full text-[11px] font-semibold ${cls}`}>{label}</span>
+  }
+
+  const formatDateTime = (iso) => {
+    try {
+      const d = new Date(iso)
+      if (Number.isNaN(d.getTime())) return ""
+      return d.toLocaleString()
+    } catch {
+      return ""
+    }
+  }
 
   const handleSubmit = async () => {
     if (!report.trim()) {
@@ -26,14 +74,13 @@ export default function ReportSafetyEmergency() {
 
     try {
       setIsSubmitting(true)
-      const response = await api.post(API_ENDPOINTS.ADMIN.SAFETY_EMERGENCY_CREATE, {
-        message: report.trim()
-      })
+      const response = await userAPI.createSafetyEmergencyReport(report.trim())
       
       if (response.data.success) {
         setIsSubmitted(true)
         setReport("")
         toast.success('Safety emergency report submitted successfully!')
+        fetchHistory()
         setTimeout(() => {
           setIsSubmitted(false)
         }, 5000)
@@ -47,7 +94,7 @@ export default function ReportSafetyEmergency() {
   }
 
   return (
-    <AnimatedPage className="min-h-screen bg-[#f5f5f5] dark:bg-[#0a0a0a]">
+    <AnimatedPage className="min-h-screen bg-[#f5f5f5] dark:bg-[#0a0a0a] pb-24 md:pb-0">
       <div className="max-w-5xl mx-auto px-4 md:px-6 lg:px-8 py-4 md:py-6 lg:py-8">
         {/* Header */}
         <div className="flex items-center gap-3 md:gap-4 mb-4 md:mb-6 lg:mb-8">
@@ -146,6 +193,66 @@ export default function ReportSafetyEmergency() {
                 'Report Safety Issue'
               )}
             </Button>
+
+            {/* History */}
+            <Card className="bg-white dark:bg-[#1a1a1a] rounded-xl shadow-sm border-0 dark:border-gray-800 mt-5 md:mt-6">
+              <CardContent className="p-4 md:p-5 lg:p-6">
+                <div className="flex items-center justify-between gap-3">
+                  <h3 className="text-base md:text-lg font-semibold text-gray-900 dark:text-white">
+                    Your report history
+                  </h3>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={fetchHistory}
+                    disabled={historyLoading}
+                    className="h-8"
+                  >
+                    {historyLoading ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Loading
+                      </>
+                    ) : (
+                      "Refresh"
+                    )}
+                  </Button>
+                </div>
+
+                {historyLoading && historySorted.length === 0 ? (
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-4">
+                    Loading your reports...
+                  </p>
+                ) : historySorted.length === 0 ? (
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-4">
+                    No reports yet.
+                  </p>
+                ) : (
+                  <div className="mt-4 space-y-3">
+                    {historySorted.map((item) => (
+                      <div
+                        key={item?._id || item?.id || `${item?.createdAt}-${item?.message?.slice?.(0, 12)}`}
+                        className="rounded-xl border border-gray-200 dark:border-gray-800 p-3 md:p-4 bg-gray-50 dark:bg-[#101010]"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-sm md:text-base font-medium text-gray-900 dark:text-white truncate">
+                              {item?.message || "—"}
+                            </p>
+                            <p className="text-xs md:text-sm text-gray-500 dark:text-gray-400 mt-1">
+                              {formatDateTime(item?.createdAt)}
+                            </p>
+                          </div>
+                          <div className="shrink-0">
+                            {getStatusPill(item?.status)}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           </>
         ) : (
           /* Success State */

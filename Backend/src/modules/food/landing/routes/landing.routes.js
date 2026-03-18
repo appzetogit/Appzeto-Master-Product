@@ -58,11 +58,14 @@ import {
     toggleGourmetStatusAdmin
 } from '../controllers/top10GourmetAdmin.controller.js';
 import { getPublicPageController } from '../../admin/controllers/pageContent.controller.js';
+import { getPublicReferralSettingsController } from '../controllers/publicReferralSettings.controller.js';
 
 const router = express.Router();
 
 // Public CMS pages (About + legal). No auth required.
 router.get('/pages/:key', getPublicPageController);
+// Public referral settings (no auth required).
+router.get('/referral-settings', getPublicReferralSettingsController);
 
 // Admin hero banner management (DEV: auth temporarily disabled for faster integration)
 router.get('/hero-banners', listHeroBannersController);

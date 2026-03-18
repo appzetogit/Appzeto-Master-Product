@@ -175,7 +175,7 @@ export default function OTP() {
       const email = authData?.method === "email" ? authData.email : null
       const purpose = authData?.isSignUp ? "register" : "login"
       const providedName = authData?.isSignUp ? authData?.name || null : null
-      const referralCode = authData?.isSignUp ? authData?.referralCode : null
+      const referralCode = authData?.referralCode || null
 
       const response = await authAPI.verifyOTP(
         phone,
@@ -252,7 +252,7 @@ export default function OTP() {
       const phone = authData?.method === "phone" ? authData.phone : null
       const email = authData?.method === "email" ? authData.email : null
       const purpose = authData?.isSignUp ? "register" : "login"
-      const referralCode = authData?.isSignUp ? authData?.referralCode : null
+      const referralCode = authData?.referralCode || null
 
       // Second call with name to auto-register and login
       const response = await authAPI.verifyOTP(

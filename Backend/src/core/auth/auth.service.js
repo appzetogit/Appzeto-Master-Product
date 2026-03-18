@@ -5,6 +5,8 @@ import { FoodAdmin } from '../admin/admin.model.js';
 import { AdminResetOtp } from '../admin/adminResetOtp.model.js';
 import { FoodRestaurant } from '../../modules/food/restaurant/models/restaurant.model.js';
 import { FoodDeliveryPartner } from '../../modules/food/delivery/models/deliveryPartner.model.js';
+import { FoodReferralSettings } from '../../modules/food/admin/models/referralSettings.model.js';
+import { FoodReferralLog } from '../../modules/food/admin/models/referralLog.model.js';
 import { createOrUpdateOtp, verifyOtp } from '../otp/otp.service.js';
 import { signAccessToken, signRefreshToken } from './token.util.js';
 import { FoodRefreshToken } from '../refreshTokens/refreshToken.model.js';
@@ -12,6 +14,8 @@ import { ValidationError, AuthError } from './errors.js';
 import { config } from '../../config/env.js';
 import { logger } from '../../utils/logger.js';
 import { sendAdminResetOtpEmail } from '../../utils/email.js';
+import mongoose from 'mongoose';
+import { creditReferralReward } from '../../modules/food/user/services/userWallet.service.js';
 
 const ROLES = { USER: 'USER', RESTAURANT: 'RESTAURANT', DELIVERY_PARTNER: 'DELIVERY_PARTNER', ADMIN: 'ADMIN' };
 
@@ -25,7 +29,7 @@ export const requestUserOtp = async (phone) => {
     return { otp }; // for now return OTP (for dev/testing)
 };
 
-export const verifyUserOtpAndLogin = async (phone, otp) => {
+export const verifyUserOtpAndLogin = async (phone, otp, ref) => {
     const result = await verifyOtp(phone, otp);
 
     if (!result.valid) {
@@ -34,11 +38,69 @@ export const verifyUserOtpAndLogin = async (phone, otp) => {
 
     // Ensure user exists and mark as verified on successful OTP.
     let userDoc = await FoodUser.findOne({ phone });
+    const isNewUser = !userDoc;
     if (!userDoc) {
         userDoc = await FoodUser.create({ phone, isVerified: true });
     } else if (!userDoc.isVerified) {
         userDoc.isVerified = true;
         await userDoc.save();
+    }
+
+    // Ensure referralCode exists (used for share links on older accounts).
+    if (!userDoc.referralCode) {
+        userDoc.referralCode = String(userDoc._id);
+        await userDoc.save();
+    }
+
+    // Referral crediting: only for brand new accounts.
+    const refRaw = typeof ref === 'string' ? String(ref).trim() : '';
+    if (isNewUser && refRaw) {
+        try {
+            if (mongoose.Types.ObjectId.isValid(refRaw)) {
+                const referrerId = new mongoose.Types.ObjectId(refRaw);
+                if (String(referrerId) !== String(userDoc._id)) {
+                    const [referrer, settingsDoc] = await Promise.all([
+                        FoodUser.findById(referrerId).select('_id referralCount').lean(),
+                        FoodReferralSettings.findOne({ isActive: true }).sort({ createdAt: -1 }).lean()
+                    ]);
+
+                    if (referrer && settingsDoc) {
+                        const reward = Math.max(0, Number(settingsDoc.referralRewardUser) || 0);
+                        const limit = Math.max(0, Number(settingsDoc.referralLimitUser) || 0);
+
+                        if (reward > 0 && limit > 0 && Number(referrer.referralCount || 0) < limit) {
+                            userDoc.referredBy = referrerId;
+                            await userDoc.save();
+
+                            const log = await FoodReferralLog.create({
+                                referrerId,
+                                refereeId: userDoc._id,
+                                role: 'USER',
+                                rewardAmount: reward,
+                                status: 'credited'
+                            });
+
+                            await Promise.all([
+                                FoodUser.updateOne({ _id: referrerId }, { $inc: { referralCount: 1 } }),
+                                creditReferralReward(referrerId, reward, { role: 'USER', refereeId: String(userDoc._id), referralLogId: String(log._id) })
+                            ]);
+                        } else {
+                            await FoodReferralLog.create({
+                                referrerId,
+                                refereeId: userDoc._id,
+                                role: 'USER',
+                                rewardAmount: reward,
+                                status: 'rejected',
+                                reason: reward <= 0 ? 'reward_disabled' : limit <= 0 ? 'limit_disabled' : 'limit_reached'
+                            });
+                        }
+                    }
+                }
+            }
+        } catch (e) {
+            // Never fail login due to referral errors.
+            logger?.warn?.({ err: e }, 'Referral crediting failed (user)');
+        }
     }
 
     const user = userDoc.toObject();

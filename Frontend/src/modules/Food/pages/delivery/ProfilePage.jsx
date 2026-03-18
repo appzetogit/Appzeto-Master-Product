@@ -17,6 +17,7 @@ import {
   Bell,
   ChevronRight,
   IndianRupee,
+  Share2,
   Sparkles,
   LogOut,
   X,
@@ -42,6 +43,7 @@ export default function ProfilePage() {
   const sectionsRef = useRef(null)
   const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [referralReward, setReferralReward] = useState(0)
   const [showAlertSoundPopup, setShowAlertSoundPopup] = useState(false)
   const [selectedAlertSound, setSelectedAlertSound] = useState(() => {
     // Load from localStorage, default to "zomato_tone"
@@ -140,6 +142,49 @@ export default function ProfilePage() {
 
     fetchProfile()
   }, [])
+
+  useEffect(() => {
+    let mounted = true
+    deliveryAPI
+      .getReferralStats()
+      .then((res) => {
+        const reward = res?.data?.data?.stats?.rewardAmount
+        if (mounted) setReferralReward(Number(reward) || 0)
+      })
+      .catch(() => {})
+    return () => {
+      mounted = false
+    }
+  }, [])
+
+  const refId =
+    profile?._id ||
+    profile?.id ||
+    profile?.referralCode ||
+    ""
+  const referralLink = refId
+    ? `${window.location.origin}/food/delivery/signup?ref=${encodeURIComponent(String(refId))}`
+    : ""
+
+  const handleShareReferral = async () => {
+    if (!referralLink) return
+    const rewardText = referralReward > 0 ? `₹${referralReward}` : "rewards"
+    const shareText = `Join as a delivery partner and earn ${rewardText}.`
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: "Delivery referral",
+          text: shareText,
+          url: referralLink,
+        })
+      } else {
+        const fallbackUrl = `https://wa.me/?text=${encodeURIComponent(`${shareText} ${referralLink}`)}`
+        window.open(fallbackUrl, "_blank", "noopener,noreferrer")
+      }
+    } catch (e) {
+      debugError("Failed to share referral:", e)
+    }
+  }
 
   // Listen for refresh events from bottom navigation
   useEffect(() => {
@@ -303,19 +348,30 @@ export default function ProfilePage() {
 
         {/* Sections */}
         <div ref={sectionsRef} className="space-y-4">
-          {/* Referral bonus */}
-          <Card
-            onClick={() => navigate("/food/delivery/refer-and-earn")}
-            className="py-0 bg-white border-0 shadow-none cursor-pointer hover:bg-gray-200 transition-colors"
-          >
-            <CardContent className="p-4 flex items-center justify-between">
-              <div>
-                <h3 className="text-base font-medium mb-1">₹2000 referral bonus</h3>
-                <p className="text-gray-600 text-sm">Refer your friend and earn</p>
+          {/* Referral (inline, no separate pages) */}
+          <Card className="py-0 bg-white border-0 shadow-none hover:bg-gray-200 transition-colors">
+            <CardContent className="p-4 flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <h3 className="text-base font-medium mb-1">
+                  Share & Earn{referralReward > 0 ? ` ₹${referralReward}` : ""}
+                </h3>
+                <p className="text-gray-600 text-sm truncate">
+                  Invite a friend to join as a delivery partner.
+                </p>
               </div>
-              <div className="flex items-center justify-center w-12 h-12">
-                <IndianRupee className="w-8 h-8 text-yellow-400" />
-              </div>
+              <button
+                type="button"
+                onClick={handleShareReferral}
+                disabled={!referralLink}
+                className={`shrink-0 inline-flex items-center gap-2 px-3 py-2 rounded-lg font-semibold transition-colors ${
+                  referralLink
+                    ? "bg-black text-white hover:bg-gray-800"
+                    : "bg-gray-200 text-gray-500 cursor-not-allowed"
+                }`}
+              >
+                <Share2 className="w-4 h-4" />
+                Share
+              </button>
             </CardContent>
           </Card>
 

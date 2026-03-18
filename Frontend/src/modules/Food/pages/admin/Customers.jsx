@@ -390,8 +390,8 @@ export default function Customers() {
           </div>
 
           {/* Table */}
-          <div className="overflow-x-hidden">
-            <table className="w-full">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[980px]">
               <thead className="bg-slate-50 border-b border-slate-200">
                 <tr>
                   <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">Sl</th>
@@ -425,8 +425,19 @@ export default function Customers() {
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-full bg-slate-200 text-slate-700 flex items-center justify-center flex-shrink-0">
-                            <span className="text-xs font-semibold">{getInitials(customer.name)}</span>
+                          <div className="w-10 h-10 rounded-full bg-slate-200 text-slate-700 flex items-center justify-center shrink-0 overflow-hidden">
+                            {customer.profileImage ? (
+                              <img
+                                src={customer.profileImage}
+                                alt={customer.name}
+                                className="w-full h-full object-cover"
+                                onError={(e) => {
+                                  e.currentTarget.style.display = "none"
+                                }}
+                              />
+                            ) : (
+                              <span className="text-xs font-semibold">{getInitials(customer.name)}</span>
+                            )}
                           </div>
                           <span className="text-sm font-medium text-slate-900">{customer.name}</span>
                         </div>

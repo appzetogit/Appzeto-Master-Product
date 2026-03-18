@@ -20,6 +20,7 @@ const deliveryRegisterSchema = z.object({
     vehicleType: z.string().optional(),
     vehicleName: z.string().optional(),
     vehicleNumber: z.string().optional(),
+    ref: z.string().trim().max(64).optional().or(z.literal('')),
     panNumber: z
         .string()
         .regex(panRegex, 'Invalid PAN format')

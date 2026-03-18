@@ -60,7 +60,7 @@ export function requestUserOtp(phone) {
  * @param {string} phone - Same format as request
  * @param {string} otp - 4-digit OTP only
  */
-export function verifyUserOtp(phone, otp) {
+export function verifyUserOtp(phone, otp, ref) {
   const digits = normalizePhone(phone);
   if (!digits) {
     return Promise.reject(new Error("Phone number is required"));
@@ -76,7 +76,12 @@ export function verifyUserOtp(phone, otp) {
   if (otpStr.length !== 4) {
     return Promise.reject(new Error("OTP must be exactly 4 digits"));
   }
-  return apiClient.post(AUTH.USER_VERIFY_OTP, { phone: normalized, otp: otpStr });
+  const refValue = typeof ref === "string" ? ref.trim() : "";
+  return apiClient.post(AUTH.USER_VERIFY_OTP, {
+    phone: normalized,
+    otp: otpStr,
+    ...(refValue ? { ref: refValue } : {}),
+  });
 }
 
 /**

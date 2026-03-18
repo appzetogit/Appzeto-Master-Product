@@ -3,7 +3,7 @@ import { upload } from '../../../../middleware/upload.js';
 import { authMiddleware } from '../../../../core/auth/auth.middleware.js';
 import { requireRoles } from '../../../../core/roles/role.middleware.js';
 import * as orderController from '../../orders/order.controller.js';
-import { registerDeliveryPartnerController, updateDeliveryPartnerProfileController, updateDeliveryPartnerBankDetailsController, listSupportTicketsController, createSupportTicketController, getSupportTicketByIdController, updateDeliveryPartnerDetailsController, updateDeliveryPartnerProfilePhotoBase64Controller, updateAvailabilityController, getWalletController, getEarningsController, getTripHistoryController, getPocketDetailsController, getEmergencyHelpController, getCashLimitController } from '../controllers/delivery.controller.js';
+import { registerDeliveryPartnerController, updateDeliveryPartnerProfileController, updateDeliveryPartnerBankDetailsController, listSupportTicketsController, createSupportTicketController, getSupportTicketByIdController, updateDeliveryPartnerDetailsController, updateDeliveryPartnerProfilePhotoBase64Controller, updateAvailabilityController, getWalletController, getEarningsController, getTripHistoryController, getPocketDetailsController, getEmergencyHelpController, getCashLimitController, getDeliveryReferralStatsController } from '../controllers/delivery.controller.js';
 
 const router = express.Router();
 
@@ -48,6 +48,7 @@ router.get('/trip-history', authMiddleware, requireRoles('DELIVERY_PARTNER'), ge
 router.get('/pocket-details', authMiddleware, requireRoles('DELIVERY_PARTNER'), getPocketDetailsController);
 router.get('/emergency-help', authMiddleware, requireRoles('DELIVERY_PARTNER'), getEmergencyHelpController);
 router.get('/cash-limit', authMiddleware, requireRoles('DELIVERY_PARTNER'), getCashLimitController);
+router.get('/referrals/stats', authMiddleware, requireRoles('DELIVERY_PARTNER'), getDeliveryReferralStatsController);
 
 export default router;
 

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react"
-import { useNavigate, Link } from "react-router-dom"
+import { useNavigate, Link, useSearchParams } from "react-router-dom"
 import { Phone, User, AlertCircle, Loader2, Truck } from "lucide-react"
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@food/components/ui/card"
 import { Button } from "@food/components/ui/button"
@@ -48,6 +48,7 @@ const countryCodes = [
 export default function DeliverySignup() {
   const companyName = useCompanyName()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const [formData, setFormData] = useState({
     phone: "",
     countryCode: "+91",
@@ -177,6 +178,7 @@ export default function DeliverySignup() {
         name: formData.name.trim(),
         phone: formData.phone.trim(),
         countryCode: formData.countryCode || "+91",
+        ref: String(searchParams.get("ref") || "").trim() || undefined,
       }
       sessionStorage.setItem("deliverySignupDetails", JSON.stringify(signupDetails))
       clearModuleAuth("delivery")

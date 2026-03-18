@@ -102,6 +102,17 @@ const userSchema = new mongoose.Schema(
         referralCode: {
             type: String
         },
+        referredBy: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'FoodUser',
+            default: null,
+            index: true
+        },
+        referralCount: {
+            type: Number,
+            default: 0,
+            min: 0
+        },
         isVerified: {
             type: Boolean,
             default: false

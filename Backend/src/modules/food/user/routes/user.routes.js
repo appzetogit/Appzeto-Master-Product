@@ -17,6 +17,11 @@ import {
     createWalletTopupOrderController,
     verifyWalletTopupPaymentController
 } from '../controllers/userWallet.controller.js';
+import { getUserReferralStatsController } from '../controllers/userReferral.controller.js';
+import {
+    createSafetyEmergencyReportController,
+    listMySafetyEmergencyReportsController
+} from '../controllers/userSafetyEmergency.controller.js';
 
 const router = express.Router();
 
@@ -28,6 +33,13 @@ router.post('/profile/profile-image', upload.single('file'), uploadCurrentUserPr
 router.get('/wallet', getUserWalletController);
 router.post('/wallet/topup/order', createWalletTopupOrderController);
 router.post('/wallet/topup/verify', verifyWalletTopupPaymentController);
+
+// Referral stats (Bearer USER)
+router.get('/referrals/stats', getUserReferralStatsController);
+
+// Safety / Emergency reports (Bearer USER)
+router.post('/safety-emergency-reports', createSafetyEmergencyReportController);
+router.get('/safety-emergency-reports', listMySafetyEmergencyReportsController);
 
 router.get('/addresses', listAddressesController);
 router.post('/addresses', addAddressController);

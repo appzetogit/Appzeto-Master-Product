@@ -11,7 +11,8 @@ const schema = z.object({
     otp: z
         .string()
         .length(4, 'OTP must be exactly 4 digits')
-        .regex(/^\d{4}$/, 'OTP must be numeric and exactly 4 digits')
+        .regex(/^\d{4}$/, 'OTP must be numeric and exactly 4 digits'),
+    ref: z.string().trim().max(64).optional().or(z.literal(''))
 });
 
 export const validateUserOtpVerifyDto = (body) => {

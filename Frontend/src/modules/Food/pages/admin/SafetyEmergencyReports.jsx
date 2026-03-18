@@ -1,8 +1,7 @@
 import { useState, useEffect, useMemo } from "react"
 import { Search, ArrowUpDown, Settings, Folder, ChevronDown, Eye, Trash2, AlertTriangle, Loader2 } from "lucide-react"
 import { toast } from "sonner"
-import apiClient from "@food/api/axios"
-import { API_ENDPOINTS } from "@food/api/config"
+import { adminAPI } from "@food/api"
 import {
   Dialog,
   DialogContent,
@@ -51,7 +50,7 @@ export default function SafetyEmergencyReports() {
       // Remove undefined params
       Object.keys(params).forEach(key => params[key] === undefined && delete params[key])
       
-      const response = await apiClient.get(API_ENDPOINTS.ADMIN.SAFETY_EMERGENCY, { params })
+      const response = await adminAPI.getSafetyEmergencyReports(params)
       
       if (response.data && response.data.success) {
         setReports(response.data.data?.safetyEmergencies || [])
@@ -81,9 +80,7 @@ export default function SafetyEmergencyReports() {
 
   const handleUpdateStatus = async (id, newStatus) => {
     try {
-      const response = await apiClient.put(`${API_ENDPOINTS.ADMIN.SAFETY_EMERGENCY}/${id}/status`, {
-        status: newStatus
-      })
+      const response = await adminAPI.updateSafetyEmergencyStatus(id, newStatus)
       
       if (response.data.success) {
         toast.success('Status updated successfully')
@@ -97,9 +94,7 @@ export default function SafetyEmergencyReports() {
 
   const handleUpdatePriority = async (id, newPriority) => {
     try {
-      const response = await apiClient.put(`${API_ENDPOINTS.ADMIN.SAFETY_EMERGENCY}/${id}/priority`, {
-        priority: newPriority
-      })
+      const response = await adminAPI.updateSafetyEmergencyPriority(id, newPriority)
       
       if (response.data.success) {
         toast.success('Priority updated successfully')
@@ -117,7 +112,7 @@ export default function SafetyEmergencyReports() {
     }
 
     try {
-      const response = await apiClient.delete(`${API_ENDPOINTS.ADMIN.SAFETY_EMERGENCY}/${id}`)
+      const response = await adminAPI.deleteSafetyEmergencyReport(id)
       
       if (response.data.success) {
         toast.success('Safety emergency report deleted successfully')

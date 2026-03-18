@@ -23,6 +23,12 @@ router.get('/customers', adminController.getCustomers);
 router.get('/customers/:id', adminController.getCustomerById);
 router.patch('/customers/:id/status', adminController.updateCustomerStatus);
 
+// ----- Safety / Emergency Reports -----
+router.get('/safety-emergency-reports', adminController.getSafetyEmergencyReports);
+router.put('/safety-emergency-reports/:id/status', adminController.updateSafetyEmergencyStatus);
+router.put('/safety-emergency-reports/:id/priority', adminController.updateSafetyEmergencyPriority);
+router.delete('/safety-emergency-reports/:id', adminController.deleteSafetyEmergencyReport);
+
 // ----- Restaurants -----
 router.get('/restaurants', adminController.getRestaurants);
 router.get('/restaurants/pending', adminController.getPendingRestaurants);
@@ -70,6 +76,10 @@ router.patch('/offers/:id/cart-visibility', adminController.updateAdminOfferCart
 // ----- Fee Settings -----
 router.get('/fee-settings', adminController.getFeeSettings);
 router.put('/fee-settings', adminController.createOrUpdateFeeSettings);
+
+// ----- Referral Settings -----
+router.get('/referral-settings', adminController.getReferralSettings);
+router.put('/referral-settings', adminController.createOrUpdateReferralSettings);
 
 // ----- Delivery Cash Limit -----
 router.get('/delivery-cash-limit', adminController.getDeliveryCashLimit);

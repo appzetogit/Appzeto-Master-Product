@@ -74,7 +74,15 @@ const deliveryPartnerSchema = new mongoose.Schema(
             default: 'offline'
         },
         lastLat: { type: Number },
-        lastLng: { type: Number }
+        lastLng: { type: Number },
+        referralCode: { type: String, index: true },
+        referredBy: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'FoodDeliveryPartner',
+            default: null,
+            index: true
+        },
+        referralCount: { type: Number, default: 0, min: 0 }
     },
     {
         collection: 'food_delivery_partners',

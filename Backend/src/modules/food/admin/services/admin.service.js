@@ -16,6 +16,9 @@ import { FoodFeeSettings } from '../models/feeSettings.model.js';
 import { FoodUser } from '../../../../core/users/user.model.js';
 import { FoodDeliveryCashLimit } from '../models/deliveryCashLimit.model.js';
 import { FoodDeliveryEmergencyHelp } from '../models/deliveryEmergencyHelp.model.js';
+import { FoodReferralSettings } from '../models/referralSettings.model.js';
+import { FoodReferralLog } from '../models/referralLog.model.js';
+import { FoodSafetyEmergencyReport } from '../models/safetyEmergencyReport.model.js';
 
 // ----- Restaurants -----
 export async function getRestaurants(query) {
@@ -85,7 +88,7 @@ export async function getCustomers(query = {}) {
             .sort(sort)
             .skip(skip)
             .limit(limit)
-            .select('name email phone countryCode isVerified isActive createdAt')
+            .select('name email phone countryCode isVerified isActive createdAt profileImage')
             .lean(),
         FoodUser.countDocuments(filter)
     ]);
@@ -96,6 +99,7 @@ export async function getCustomers(query = {}) {
         name: u.name || 'Unnamed',
         email: u.email || '',
         phone: u.phone || '',
+        profileImage: u.profileImage || '',
         countryCode: u.countryCode || '+91',
         status: u.isActive !== false,
         isActive: u.isActive !== false,
@@ -124,6 +128,7 @@ export async function getCustomerById(id) {
         name: u.name || 'Unnamed',
         email: u.email || '',
         phone: u.phone || '',
+        profileImage: u.profileImage || '',
         countryCode: u.countryCode || '+91',
         status: u.isActive !== false,
         isActive: u.isActive !== false,
@@ -354,6 +359,102 @@ export async function upsertFeeSettings(body) {
 
     const created = await FoodFeeSettings.create(payload);
     return created.toObject();
+}
+
+// ----- Referral Settings (admin) -----
+export async function getReferralSettings() {
+    const doc = await FoodReferralSettings.findOne({ isActive: true }).sort({ createdAt: -1 }).lean();
+    return { referralSettings: doc || null };
+}
+
+export async function upsertReferralSettings(body = {}) {
+    const existing = await FoodReferralSettings.findOne({ isActive: true }).sort({ createdAt: -1 });
+    if (existing) {
+        const $set = {};
+
+        if (body.referralRewardUser !== undefined) $set.referralRewardUser = Math.max(0, Number(body.referralRewardUser) || 0);
+        if (body.referralRewardDelivery !== undefined) $set.referralRewardDelivery = Math.max(0, Number(body.referralRewardDelivery) || 0);
+        if (body.referralLimitUser !== undefined) $set.referralLimitUser = Math.max(0, Number(body.referralLimitUser) || 0);
+        if (body.referralLimitDelivery !== undefined) $set.referralLimitDelivery = Math.max(0, Number(body.referralLimitDelivery) || 0);
+        if (body.isActive !== undefined) $set.isActive = Boolean(body.isActive);
+
+        if (!Object.keys($set).length) return existing.toObject();
+        const updated = await FoodReferralSettings.findByIdAndUpdate(existing._id, { $set }, { new: true }).lean();
+        return updated;
+    }
+
+    const created = await FoodReferralSettings.create({
+        referralRewardUser: Math.max(0, Number(body.referralRewardUser) || 0),
+        referralRewardDelivery: Math.max(0, Number(body.referralRewardDelivery) || 0),
+        referralLimitUser: Math.max(0, Number(body.referralLimitUser) || 0),
+        referralLimitDelivery: Math.max(0, Number(body.referralLimitDelivery) || 0),
+        isActive: body.isActive !== false
+    });
+    return created.toObject();
+}
+
+// ----- Safety / Emergency Reports (admin) -----
+export async function getSafetyEmergencyReports(query = {}) {
+    const limit = Math.min(Math.max(parseInt(query.limit, 10) || 10, 1), 100);
+    const page = Math.max(parseInt(query.page, 10) || 1, 1);
+    const skip = (page - 1) * limit;
+
+    const filter = {};
+    if (query.status && ['unread', 'read', 'urgent', 'resolved'].includes(String(query.status))) {
+        filter.status = String(query.status);
+    }
+    if (query.priority && ['low', 'medium', 'high', 'critical'].includes(String(query.priority))) {
+        filter.priority = String(query.priority);
+    }
+    if (query.search && String(query.search).trim()) {
+        const raw = String(query.search).trim().slice(0, 120);
+        const term = raw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        filter.$or = [
+            { userName: { $regex: term, $options: 'i' } },
+            { userEmail: { $regex: term, $options: 'i' } },
+            { message: { $regex: term, $options: 'i' } }
+        ];
+    }
+
+    const [list, total] = await Promise.all([
+        FoodSafetyEmergencyReport.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+        FoodSafetyEmergencyReport.countDocuments(filter)
+    ]);
+
+    return {
+        safetyEmergencies: list || [],
+        pagination: { page, limit, total, pages: Math.ceil(total / limit) || 1 }
+    };
+}
+
+export async function updateSafetyEmergencyStatus(id, status) {
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) throw new ValidationError('Invalid report id');
+    const next = String(status);
+    if (!['unread', 'read', 'urgent', 'resolved'].includes(next)) throw new ValidationError('Invalid status');
+    const updated = await FoodSafetyEmergencyReport.findByIdAndUpdate(
+        id,
+        { $set: { status: next } },
+        { new: true }
+    ).lean();
+    return updated;
+}
+
+export async function updateSafetyEmergencyPriority(id, priority) {
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) throw new ValidationError('Invalid report id');
+    const next = String(priority);
+    if (!['low', 'medium', 'high', 'critical'].includes(next)) throw new ValidationError('Invalid priority');
+    const updated = await FoodSafetyEmergencyReport.findByIdAndUpdate(
+        id,
+        { $set: { priority: next } },
+        { new: true }
+    ).lean();
+    return updated;
+}
+
+export async function deleteSafetyEmergencyReport(id) {
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) throw new ValidationError('Invalid report id');
+    const deleted = await FoodSafetyEmergencyReport.findByIdAndDelete(id).lean();
+    return deleted;
 }
 
 // ----- Delivery Cash Limit (admin) -----
@@ -1403,6 +1504,51 @@ export async function approveDeliveryPartner(id) {
     partner.rejectedAt = undefined;
     partner.rejectionReason = undefined;
     await partner.save();
+
+    // Referral crediting: on approval, credit the referrer partner's pocket balance via DeliveryBonusTransaction.
+    try {
+        const referrerId = partner.referredBy ? String(partner.referredBy) : '';
+        if (referrerId && mongoose.Types.ObjectId.isValid(referrerId)) {
+            const already = await FoodReferralLog.findOne({ refereeId: partner._id, role: 'DELIVERY_PARTNER' }).lean();
+            if (!already) {
+                const settingsDoc = await FoodReferralSettings.findOne({ isActive: true }).sort({ createdAt: -1 }).lean();
+                const reward = Math.max(0, Number(settingsDoc?.referralRewardDelivery) || 0);
+                const limit = Math.max(0, Number(settingsDoc?.referralLimitDelivery) || 0);
+                const referrer = await FoodDeliveryPartner.findById(referrerId).select('_id referralCount status').lean();
+
+                if (referrer && referrer.status === 'approved' && reward > 0 && limit > 0 && Number(referrer.referralCount || 0) < limit) {
+                    const log = await FoodReferralLog.create({
+                        referrerId: referrer._id,
+                        refereeId: partner._id,
+                        role: 'DELIVERY_PARTNER',
+                        rewardAmount: reward,
+                        status: 'credited'
+                    });
+
+                    await Promise.all([
+                        FoodDeliveryPartner.updateOne({ _id: referrer._id }, { $inc: { referralCount: 1 } }),
+                        addDeliveryPartnerBonus(
+                            { deliveryPartnerId: String(referrer._id), amount: reward, reference: 'Referral bonus' },
+                            null
+                        )
+                    ]);
+                } else {
+                    await FoodReferralLog.create({
+                        referrerId: new mongoose.Types.ObjectId(referrerId),
+                        refereeId: partner._id,
+                        role: 'DELIVERY_PARTNER',
+                        rewardAmount: reward,
+                        status: 'rejected',
+                        reason: !referrer ? 'referrer_not_found' : reward <= 0 ? 'reward_disabled' : limit <= 0 ? 'limit_disabled' : 'limit_reached'
+                    });
+                }
+            }
+        }
+    } catch (e) {
+        // Never fail approval due to referral errors.
+        // eslint-disable-next-line no-console
+        console.warn('Referral crediting failed (delivery approval):', e?.message || e);
+    }
     return partner.toObject();
 }
 
