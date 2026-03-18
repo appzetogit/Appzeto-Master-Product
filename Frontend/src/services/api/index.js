@@ -237,6 +237,35 @@ export const adminAPI = {
   /** Categories (admin) */
   getCategories: (params = {}) =>
     apiClient.get("/food/admin/categories", { params, contextModule: "admin" }),
+  /** Dining categories (admin) */
+  getDiningCategories: (params = {}) =>
+    apiClient.get("/food/admin/dining/categories", {
+      params,
+      contextModule: "admin",
+    }),
+  createDiningCategory: (body) =>
+    apiClient.post("/food/admin/dining/categories", body ?? {}, {
+      contextModule: "admin",
+    }),
+  updateDiningCategory: (id, body) =>
+    apiClient.patch(`/food/admin/dining/categories/${String(id)}`, body ?? {}, {
+      contextModule: "admin",
+    }),
+  deleteDiningCategory: (id) =>
+    apiClient.delete(`/food/admin/dining/categories/${String(id)}`, {
+      contextModule: "admin",
+    }),
+  getDiningRestaurants: (params = {}) =>
+    apiClient.get("/food/admin/dining/restaurants", {
+      params,
+      contextModule: "admin",
+    }),
+  updateRestaurantDiningSettings: (restaurantId, body) =>
+    apiClient.patch(
+      `/food/admin/dining/restaurants/${String(restaurantId)}`,
+      body ?? {},
+      { contextModule: "admin" },
+    ),
   createCategory: (body) =>
     apiClient.post("/food/admin/categories", body ?? {}, {
       contextModule: "admin",
@@ -1174,6 +1203,33 @@ export const orderAPI = {
   cancelOrder: (orderId, body = {}) =>
     apiClient.patch(`/food/orders/${String(orderId)}/cancel`, body ?? {}, { contextModule: "user" }),
 };
-export const diningAPI = createStubAPI();
+export const diningAPI = {
+  getCategories: (params = {}) =>
+    apiClient.get("/food/dining/categories/public", { params }),
+  getRestaurants: (params = {}) =>
+    apiClient.get("/food/dining/restaurants/public", { params }),
+  getHeroBanners: () =>
+    apiClient.get("/food/hero-banners/dining/public"),
+  getRestaurantBySlug: (slug) =>
+    apiClient.get(`/food/restaurant/restaurants/${String(slug)}`),
+  getOfferBanners: () =>
+    Promise.resolve({ data: { success: true, data: [] } }),
+  getStories: () =>
+    Promise.resolve({ data: { success: true, data: [] } }),
+  getBankOffers: () =>
+    Promise.resolve({ data: { success: true, data: [] } }),
+  getBookings: () =>
+    Promise.resolve({ data: { success: true, data: [] } }),
+  createReview: () =>
+    Promise.resolve({ data: { success: true, data: null } }),
+  createBooking: () =>
+    Promise.resolve({
+      data: {
+        success: false,
+        message: "Booking backend not connected",
+        data: null,
+      },
+    }),
+};
 export const heroBannerAPI = createStubAPI();
 export const publicAPI = createStubAPI();

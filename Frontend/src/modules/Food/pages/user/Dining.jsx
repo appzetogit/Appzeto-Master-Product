@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from "react"
 import { Link, useNavigate } from "react-router-dom"
-import { motion, AnimatePresence } from "framer-motion"
-import { MapPin, Search, Mic, SlidersHorizontal, Star, X, ArrowDownUp, Timer, IndianRupee, UtensilsCrossed, BadgePercent, ShieldCheck, Clock, Bookmark, Check } from "lucide-react"
+import { motion } from "framer-motion"
+import { MapPin, Search, Mic, SlidersHorizontal, Star, X, ArrowDownUp, Timer, IndianRupee, Clock, Bookmark } from "lucide-react"
 import { Button } from "@food/components/ui/button"
 import { Input } from "@food/components/ui/input"
 import { Card, CardContent } from "@food/components/ui/card"
@@ -10,63 +10,68 @@ import { useSearchOverlay, useLocationSelector } from "@food/components/user/Use
 import { useLocation as useLocationHook } from "@food/hooks/useLocation"
 import { useProfile } from "@food/context/ProfileContext"
 import { diningAPI } from "@food/api"
-import api from "@food/api"
 import PageNavbar from "@food/components/user/PageNavbar"
 import OptimizedImage from "@food/components/OptimizedImage"
-import quickSpicyLogo from "@food/assets/quicky-spicy-logo.png"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
 
-// Using placeholders for dining card images
-const diningCard1 = "https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=400&h=300&fit=crop"
-const diningCard2 = "https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=400&h=300&fit=crop"
-const diningCard3 = "https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=400&h=300&fit=crop"
-const diningCard4 = "https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=400&h=300&fit=crop"
-const diningCard5 = "https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=400&h=300&fit=crop"
-const diningCard6 = "https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=400&h=300&fit=crop"
+const slugifyValue = (value) =>
+  String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "")
 
-// Using placeholder for dining banner
-const diningBanner = "https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=1200&h=400&fit=crop"
-// Using placeholders for dining page images
-const upto50off = "https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=400&h=200&fit=crop"
-const nearAndTopRated = "https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=400&h=200&fit=crop"
-// Using placeholder for coffee banner
-const coffeeBanner = "https://images.unsplash.com/photo-1509042239860-f550ce710b93?w=1200&h=400&fit=crop"
-// Using placeholders for bank logos
-const axisLogo = "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=200&h=100&fit=crop"
-const barodaLogo = "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=200&h=100&fit=crop"
-const hdfcLogo = "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=200&h=100&fit=crop"
-const iciciLogo = "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=200&h=100&fit=crop"
-const pnbLogo = "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=200&h=100&fit=crop"
-const sbiLogo = "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=200&h=100&fit=crop"
+const getCoordinates = (restaurant) => {
+  const latitude = restaurant?.location?.latitude
+  const longitude = restaurant?.location?.longitude
+  if (typeof latitude === "number" && typeof longitude === "number") {
+    return { latitude, longitude }
+  }
 
-// Mock data removed in favor of dynamic fetching
-const diningCategories = []
+  const coords = restaurant?.location?.coordinates
+  if (Array.isArray(coords) && coords.length === 2) {
+    return { latitude: coords[1], longitude: coords[0] }
+  }
 
-const limelightRestaurants = []
+  return null
+}
 
-const bankOffers = []
+const getDistanceKm = (userLocation, restaurant) => {
+  const userLat = Number(userLocation?.latitude)
+  const userLng = Number(userLocation?.longitude)
+  const restaurantCoords = getCoordinates(restaurant)
 
-const MOCK_BANK_OFFERS = bankOffers
+  if (!Number.isFinite(userLat) || !Number.isFinite(userLng) || !restaurantCoords) {
+    return Number.POSITIVE_INFINITY
+  }
 
-const popularRestaurants = []
-// Static data removed in favor of dynamic fetching
-const MOCK_CATEGORIES = diningCategories
-const MOCK_LIMELIGHT = limelightRestaurants
-const MOCK_MUST_TRIES = []
-const MOCK_RESTAURANTS = popularRestaurants
+  const toRadians = (value) => (value * Math.PI) / 180
+  const earthRadiusKm = 6371
+  const dLat = toRadians(restaurantCoords.latitude - userLat)
+  const dLng = toRadians(restaurantCoords.longitude - userLng)
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRadians(userLat)) *
+      Math.cos(toRadians(restaurantCoords.latitude)) *
+      Math.sin(dLng / 2) *
+      Math.sin(dLng / 2)
+
+  return earthRadiusKm * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+}
+
+const shimmerClassName =
+  "before:absolute before:inset-0 before:-translate-x-full before:bg-gradient-to-r before:from-transparent before:via-white/30 before:to-transparent before:animate-[shimmer_2.2s_infinite]"
 
 export default function Dining() {
   const navigate = useNavigate()
   const [heroSearch, setHeroSearch] = useState("")
-  const [currentRestaurantIndex, setCurrentRestaurantIndex] = useState(0)
   const [activeFilters, setActiveFilters] = useState(new Set())
   const [isFilterOpen, setIsFilterOpen] = useState(false)
   const [activeFilterTab, setActiveFilterTab] = useState('sort')
   const [sortBy, setSortBy] = useState(null)
   const [selectedCuisine, setSelectedCuisine] = useState(null)
-  const [selectedBankOffer, setSelectedBankOffer] = useState(null)
   const filterSectionRefs = useRef({})
   const rightContentRef = useRef(null)
   const { openSearch, closeSearch, setSearchValue } = useSearchOverlay()
@@ -75,54 +80,29 @@ export default function Dining() {
   const { addFavorite, removeFavorite, isFavorite } = useProfile()
 
   const [categories, setCategories] = useState([])
-  const [limelightItems, setLimelightItems] = useState([])
-  const [mustTryItems, setMustTryItems] = useState([])
   const [restaurantList, setRestaurantList] = useState([])
-  const [bankOfferItems, setBankOfferItems] = useState([])
   const [loading, setLoading] = useState(true)
   const [diningHeroBanner, setDiningHeroBanner] = useState(null)
-  const fallbackDiningCategoryImages = useMemo(
-    () => [diningCard1, diningCard2, diningCard3, diningCard4, diningCard5, diningCard6],
-    []
-  )
-
-  useEffect(() => {
-    const fetchDiningHeroBanner = async () => {
-      try {
-        const response = await api.get('/food/hero-banners/dining/public')
-        if (response.data.success && response.data.data.banners && response.data.data.banners.length > 0) {
-          setDiningHeroBanner(response.data.data.banners[0])
-        } else {
-          setDiningHeroBanner(diningBanner)
-        }
-      } catch (error) {
-        debugError("Failed to fetch dining hero banner", error)
-        setDiningHeroBanner(diningBanner)
-      }
-    }
-    fetchDiningHeroBanner()
-  }, [])
 
   useEffect(() => {
     const fetchDiningData = async () => {
       try {
-        const [cats, limes, tries, rests, offers] = await Promise.all([
+        setLoading(true)
+        const [bannerResponse, cats, rests] = await Promise.all([
+          diningAPI.getHeroBanners().catch(() => ({ data: { success: false, data: { banners: [] } } })),
           diningAPI.getCategories(),
-          diningAPI.getOfferBanners(),
-          diningAPI.getStories(),
           diningAPI.getRestaurants(location?.city ? { city: location.city } : {}),
-          diningAPI.getBankOffers()
         ])
 
-        if (cats.data.success && cats.data.data.length > 0) setCategories(cats.data.data)
-        if (limes.data.success && limes.data.data.length > 0) {
-          setLimelightItems(limes.data.data)
-        }
-        if (tries.data.success && tries.data.data.length > 0) setMustTryItems(tries.data.data)
-        if (rests.data.success && rests.data.data.length > 0) setRestaurantList(rests.data.data)
-        if (offers.data.success && offers.data.data.length > 0) setBankOfferItems(offers.data.data)
+        const heroImage = String(bannerResponse?.data?.data?.banners?.[0]?.imageUrl || "").trim()
+        setDiningHeroBanner(heroImage || null)
+        setCategories(cats?.data?.success ? (cats.data.data || []) : [])
+        setRestaurantList(rests?.data?.success ? (rests.data.data || []) : [])
       } catch (error) {
         debugError("Failed to fetch dining data", error)
+        setDiningHeroBanner(null)
+        setCategories([])
+        setRestaurantList([])
       } finally {
         setLoading(false)
       }
@@ -139,30 +119,59 @@ export default function Dining() {
       .map((category, index) => ({
         ...category,
         name: String(category?.name || "").trim(),
-        imageUrl: String(category?.imageUrl || "").trim() || fallbackDiningCategoryImages[index % fallbackDiningCategoryImages.length]
+        slug: String(category?.slug || category?.name || "")
+          .trim()
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/(^-|-$)/g, ""),
+        imageUrl: String(category?.imageUrl || "").trim()
       }))
-  }, [categories, fallbackDiningCategoryImages])
+  }, [categories])
 
-  const safeLimelightItems = useMemo(() => {
-    return (Array.isArray(limelightItems) ? limelightItems : [])
-      .filter((item) => item?.restaurant?.name || item?.tagline)
-      .map((item) => ({
-        ...item,
-        imageUrl: String(item?.imageUrl || "").trim() || diningCard1,
-        tagline: String(item?.tagline || item?.restaurant?.name || "Featured restaurant").trim(),
-        percentageOff: item?.percentageOff || "Special Offer"
-      }))
-  }, [limelightItems])
+  const normalizedRestaurantList = useMemo(() => {
+    return (Array.isArray(restaurantList) ? restaurantList : [])
+      .filter((restaurant) => String(restaurant?.restaurantName || restaurant?.name || "").trim().length > 0)
+      .map((restaurant, index) => {
+        const distanceKm = getDistanceKm(location, restaurant)
+        const restaurantName = String(restaurant?.restaurantName || restaurant?.name || "").trim()
+        return {
+          ...restaurant,
+          id: restaurant?._id || restaurant?.id || `restaurant-${index}`,
+          name: restaurantName,
+          slug: String(restaurant?.restaurantNameNormalized || "").trim() || slugifyValue(restaurantName),
+          cuisine: Array.isArray(restaurant?.cuisines) && restaurant.cuisines.length > 0
+            ? restaurant.cuisines.join(", ")
+            : "Multi-cuisine",
+          image: String(
+            restaurant?.coverImage ||
+            restaurant?.menuImages?.[0] ||
+            restaurant?.profileImage?.url ||
+            restaurant?.profileImage ||
+            ""
+          ).trim(),
+          offer: String(restaurant?.offer || "Pre-book table").trim(),
+          featuredDish: String(restaurant?.featuredDish || "Chef's special").trim(),
+          featuredPrice: Number(restaurant?.featuredPrice || 0),
+          rating: Number(restaurant?.rating || restaurant?.avgRating || 0),
+          deliveryTime: String(
+            restaurant?.estimatedDeliveryTime ||
+            restaurant?.deliveryTime ||
+            (restaurant?.estimatedDeliveryTimeMinutes ? `${restaurant.estimatedDeliveryTimeMinutes} mins` : "30-40 mins")
+          ).trim(),
+          distanceValue: distanceKm,
+          distance: Number.isFinite(distanceKm) ? `${distanceKm.toFixed(1)} km` : "Distance unavailable",
+          diningType: restaurant?.diningSettings?.diningType || restaurant?.categories?.[0]?.slug || "dining",
+        }
+      })
+  }, [restaurantList, location])
 
-  const safeMustTryItems = useMemo(() => {
-    return (Array.isArray(mustTryItems) ? mustTryItems : [])
-      .filter((item) => String(item?.name || "").trim().length > 0)
-      .map((item, index) => ({
-        ...item,
-        name: String(item?.name || "").trim(),
-        imageUrl: String(item?.imageUrl || "").trim() || fallbackDiningCategoryImages[index % fallbackDiningCategoryImages.length]
-      }))
-  }, [mustTryItems, fallbackDiningCategoryImages])
+  const nearbyPopularRestaurants = useMemo(() => {
+    const within10Km = normalizedRestaurantList
+      .filter((restaurant) => Number.isFinite(restaurant.distanceValue) && restaurant.distanceValue <= 10)
+      .sort((a, b) => a.distanceValue - b.distanceValue)
+
+    return within10Km.length > 0 ? within10Km : normalizedRestaurantList
+  }, [normalizedRestaurantList])
 
   const toggleFilter = (filterId) => {
     setActiveFilters(prev => {
@@ -177,7 +186,7 @@ export default function Dining() {
   }
 
   const filteredRestaurants = useMemo(() => {
-    let filtered = [...restaurantList]
+    let filtered = [...nearbyPopularRestaurants]
 
     if (activeFilters.has('delivery-under-30')) {
       filtered = filtered.filter(r => {
@@ -226,7 +235,7 @@ export default function Dining() {
     }
 
     return filtered
-  }, [activeFilters, selectedCuisine, sortBy])
+  }, [nearbyPopularRestaurants, activeFilters, selectedCuisine, sortBy])
 
 
   const handleSearchFocus = useCallback(() => {
@@ -235,21 +244,15 @@ export default function Dining() {
     }
     openSearch()
   }, [heroSearch, openSearch, setSearchValue])
-
-  // Auto-play carousel
-  useEffect(() => {
-    if (safeLimelightItems.length === 0) return
-
-    const interval = setInterval(() => {
-      setCurrentRestaurantIndex((prev) => (prev + 1) % safeLimelightItems.length)
-    }, 2000) // Change every 2 seconds
-
-    return () => clearInterval(interval)
-  }, [safeLimelightItems.length])
-
-
   return (
     <AnimatedPage className="bg-white dark:bg-[#0a0a0a]" style={{ minHeight: '100vh', paddingBottom: '80px', overflow: 'visible' }}>
+      <style>{`
+        @keyframes shimmer {
+          100% {
+            transform: translateX(200%);
+          }
+        }
+      `}</style>
       {/* Sticky Header Wrapper */}
       <div className="sticky top-0 z-40 w-full bg-white dark:bg-[#0a0a0a] shadow-sm md:hidden">
         {/* Navbar Section */}
@@ -310,8 +313,13 @@ export default function Dining() {
         className="relative w-full px-3 sm:px-4 md:px-6 lg:px-8 pb-4 sm:pb-6 cursor-pointer"
         onClick={() => navigate('/user/dining/restaurants')}
       >
-        <div className="relative w-full h-[30vh] sm:h-[35vh] lg:h-[40vh] rounded-2xl overflow-hidden shadow-lg">
-          {diningHeroBanner && (
+        <motion.div
+          initial={{ opacity: 0, y: 24, scale: 0.98 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={{ duration: 0.6, ease: "easeOut" }}
+          className="relative w-full h-[30vh] sm:h-[35vh] lg:h-[40vh] rounded-2xl overflow-hidden shadow-lg"
+        >
+          {diningHeroBanner ? (
             <OptimizedImage
               src={diningHeroBanner}
               alt="Dining Banner"
@@ -320,55 +328,69 @@ export default function Dining() {
               priority={true}
               sizes="100vw"
             />
+          ) : (
+            <div className={`relative h-full w-full bg-[radial-gradient(circle_at_top_left,_rgba(235,89,14,0.22),_transparent_35%),linear-gradient(135deg,#fff5e8_0%,#fffdf9_55%,#ffe3cf_100%)] ${shimmerClassName}`}>
+              <div className="absolute inset-0 bg-[linear-gradient(120deg,transparent_0%,rgba(235,89,14,0.05)_35%,transparent_70%)]" />
+              <div className="absolute bottom-6 left-6 max-w-[70%]">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.34em] text-[#b46f37]">Dining</p>
+                <h2 className="mt-2 text-2xl font-black text-[#2e1d11] sm:text-3xl">Fresh dining picks near you</h2>
+                <p className="mt-2 text-sm font-medium text-[#6d5744]">Banner will appear here as soon as a dining hero banner is available from the new API.</p>
+              </div>
+            </div>
           )}
-        </div>
+        </motion.div>
       </div>
 
       {/* Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 md:px-8 lg:px-10 xl:px-12 pt-6 sm:pt-8 md:pt-10 lg:pt-12 pb-6 md:pb-8 lg:pb-10">
         {/* Categories Section */}
         <div className="mb-6">
-          <div className="mb-6">
-            <div className="flex items-center justify-between mb-4 px-1">
-              <h3 className="text-lg sm:text-xl font-bold text-gray-900 dark:text-white tracking-tight">
+          <div className="mb-4 sm:mb-5">
+            <div className="flex items-center gap-3 sm:gap-4">
+              <div className="h-px flex-1 bg-[#ece5dc]" />
+              <h3 className="font-['Poppins',_'Nunito_Sans',sans-serif] text-[10px] sm:text-[11px] font-medium uppercase tracking-[0.38em] text-[#8f8478] text-center whitespace-nowrap">
                 What are you looking for?
               </h3>
+              <div className="h-px flex-1 bg-[#ece5dc]" />
             </div>
           </div>
 
-          {/* Light blue-grey background container */}
-          {/* Modern Grid Layout */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3 sm:gap-4">
+          <div className="grid grid-cols-3 gap-2.5 sm:gap-3 md:gap-4">
             {safeCategories.map((category, index) => (
               <Link
                 key={category._id || category.id}
-                to={`/user/dining/${category.name.toLowerCase().replace(/\s+/g, '-')}`}
+                to={`/user/dining/${category.slug}`}
               >
                 <motion.div
-                  className="relative rounded-2xl overflow-hidden shadow-sm cursor-pointer group h-[120px] sm:h-[140px] md:h-[160px]"
+                  className="relative h-[138px] sm:h-[154px] md:h-[166px] overflow-hidden rounded-[18px] border border-[#e9e1d8] bg-white shadow-[0_1px_2px_rgba(35,24,12,0.05)] cursor-pointer group"
                   initial={{ opacity: 0, y: 20 }}
                   whileInView={{ opacity: 1, y: 0 }}
                   viewport={{ once: true, margin: "-50px" }}
                   transition={{ duration: 0.4, delay: index * 0.05 }}
-                  whileHover={{ y: -5, boxShadow: "0 10px 20px -5px rgba(0, 0, 0, 0.15)" }}
+                  whileHover={{ y: -2, boxShadow: "0 10px 24px -18px rgba(63, 38, 18, 0.24)" }}
                 >
-                  <div className="absolute inset-0">
-                    <OptimizedImage
-                      src={category.imageUrl}
-                      alt={category.name}
-                      className="w-full h-full transition-transform duration-700 group-hover:scale-110"
-                      objectFit="cover"
-                      sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 16vw"
-                      placeholder="blur"
-                      priority={index < 4}
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-80 group-hover:opacity-90 transition-opacity" />
-                  </div>
-
-                  <div className="absolute bottom-0 left-0 right-0 p-3 sm:p-4 flex flex-col justify-end h-full">
-                    <p className="text-sm sm:text-base font-bold text-white leading-tight drop-shadow-md group-hover:text-[#EB590E] transition-colors">
+                  <div className="absolute inset-x-0 top-0 z-10 px-3 pt-3 sm:px-4 sm:pt-4">
+                    <p className="font-['Poppins',_'Nunito_Sans',sans-serif] max-w-[74%] text-[13px] sm:text-[15px] md:text-[16px] font-semibold leading-[1.02] tracking-[-0.02em] text-[#2d2722]">
                       {category.name}
                     </p>
+                  </div>
+
+                  <div className="absolute inset-x-0 bottom-0 h-[64%] overflow-hidden rounded-b-[18px]">
+                    {category.imageUrl ? (
+                      <OptimizedImage
+                        src={category.imageUrl}
+                        alt={category.name}
+                        className="w-full h-full transition-transform duration-500 group-hover:scale-[1.03]"
+                        objectFit="cover"
+                        sizes="(max-width: 640px) 31vw, (max-width: 768px) 180px, 220px"
+                        placeholder="blur"
+                        priority={index < 6}
+                      />
+                    ) : (
+                      <div className={`relative h-full w-full bg-[radial-gradient(circle_at_20%_20%,rgba(235,89,14,0.22),transparent_35%),linear-gradient(180deg,#fff7ee_0%,#fff1e1_100%)] ${shimmerClassName}`}>
+                        <div className="absolute inset-x-0 bottom-0 h-[70%] rounded-t-[60%] bg-white/55" />
+                      </div>
+                    )}
                   </div>
                 </motion.div>
               </Link>
@@ -376,184 +398,16 @@ export default function Dining() {
           </div>
         </div>
 
-        {/* In the Limelight Section */}
-        <div className="mb-6 mt-8 sm:mt-12">
-          <div className="mb-6">
-            <div className="flex items-center justify-between mb-4 px-1">
-              <h3 className="text-lg sm:text-xl font-bold text-gray-900 dark:text-white tracking-tight">
-                In the Limelight
-              </h3>
-            </div>
-          </div>
-
-          {/* Landscape Carousel */}
-          <div className="relative w-full h-[200px] sm:h-[280px] md:h-[350px] lg:h-[400px] rounded-2xl overflow-hidden shadow-lg">
-            {/* Carousel Container */}
-            <div
-              className="flex h-full transition-transform duration-700 ease-in-out"
-              style={{ transform: `translateX(-${currentRestaurantIndex * 100}%)` }}
-            >
-              {safeLimelightItems.map((restaurant, index) => (
-                <div
-                  key={restaurant._id || restaurant.id}
-                  className="min-w-full h-full relative flex-shrink-0 w-full"
-                >
-                  {/* Restaurant Image */}
-                  <OptimizedImage
-                    src={restaurant.imageUrl}
-                    alt={restaurant.tagline}
-                    className="w-full h-full"
-                    objectFit="cover"
-                    sizes="100vw"
-                    placeholder="blur"
-                    priority={index === 0}
-                  />
-
-                  {/* Gradient Overlay */}
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent opacity-90" />
-
-                  {/* Content Container */}
-                  <div className="absolute bottom-0 left-0 right-0 p-5 sm:p-6 z-10 flex flex-col items-start gap-2">
-                    {/* Discount Badge */}
-                    <motion.div
-                      initial={{ opacity: 0, x: -20 }}
-                      whileInView={{ opacity: 1, x: 0 }}
-                      transition={{ delay: 0.2 }}
-                      className="bg-[#EB590E] text-white px-3 py-1 rounded-full shadow-lg mb-1"
-                    >
-                      <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider">
-                        {restaurant.percentageOff}
-                      </span>
-                    </motion.div>
-
-                    {/* Restaurant Name */}
-                    <motion.h4
-                      initial={{ opacity: 0, y: 10 }}
-                      whileInView={{ opacity: 1, y: 0 }}
-                      transition={{ delay: 0.3 }}
-                      className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight drop-shadow-lg"
-                    >
-                      {restaurant.restaurant?.name}
-                    </motion.h4>
-
-                    {/* Tagline */}
-                    <motion.p
-                      initial={{ opacity: 0 }}
-                      whileInView={{ opacity: 1 }}
-                      transition={{ delay: 0.4 }}
-                      className="text-sm sm:text-base font-medium text-gray-200 line-clamp-1 max-w-[90%]"
-                    >
-                      {restaurant.tagline}
-                    </motion.p>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {/* Carousel Indicators */}
-            <div className="absolute bottom-4 right-4 sm:bottom-6 sm:right-6 z-10 flex gap-2">
-              {safeLimelightItems.map((_, index) => (
-                <button
-                  key={index}
-                  onClick={() => setCurrentRestaurantIndex(index)}
-                  className={`h-2 w-2 sm:h-2.5 sm:w-2.5 rounded-full transition-all ${index === currentRestaurantIndex
-                    ? "bg-white w-6 sm:w-8"
-                    : "bg-white/50"
-                    }`}
-                  aria-label={`Go to slide ${index + 1}`}
-                />
-              ))}
-            </div>
-          </div>
-        </div>
-
-
-
-        {/* Must Tries in Indore Section */}
-        <div className="mb-6 mt-8 sm:mt-12">
-          <div className="mb-6">
-            <div className="flex items-center justify-between mb-4 px-1">
-              <h3 className="text-lg sm:text-xl font-bold text-gray-900 dark:text-white tracking-tight">
-                Must Tries
-              </h3>
-            </div>
-          </div>
-
-          {/* Horizontal Scroll Container */}
-          <div
-            className="overflow-x-auto -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:px-8"
-            style={{
-              scrollbarWidth: 'none',
-              msOverflowStyle: 'none',
-              WebkitOverflowScrolling: 'touch'
-            }}
-          >
-            <style>{`
-              .must-tries-scroll::-webkit-scrollbar {
-                display: none;
-              }
-            `}</style>
-            <div className="flex gap-4 pb-4 must-tries-scroll" style={{ width: 'max-content' }}>
-              {safeMustTryItems.map((item, index) => (
-                <motion.div
-                  key={item._id || item.id}
-                  className="relative flex-shrink-0 rounded-xl overflow-hidden shadow-sm cursor-pointer"
-                  style={{
-                    width: 'calc((100vw - 3rem) / 2.5)',
-                    minWidth: '140px',
-                    maxWidth: '200px'
-                  }}
-                  initial={{ opacity: 0, y: 20 }}
-                  whileInView={{ opacity: 1, y: 0 }}
-                  viewport={{ once: true, margin: "-50px" }}
-                  transition={{ duration: 0.4, delay: index * 0.05 }}
-                  whileHover={{ y: -8, scale: 1.05 }}
-                >
-                  <div className="relative h-48 sm:h-56 md:h-64 overflow-hidden">
-                    <motion.div
-                      className="absolute inset-0"
-                      whileHover={{ scale: 1.15 }}
-                      transition={{ duration: 0.5, ease: "easeOut" }}
-                    >
-                      <OptimizedImage
-                        src={item.imageUrl}
-                        alt={item.name}
-                        className="w-full h-full"
-                        objectFit="cover"
-                        sizes="(max-width: 640px) 40vw, 200px"
-                        placeholder="blur"
-                      />
-                    </motion.div>
-                    {/* White Subheading Overlay */}
-                    <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 via-black/50 to-transparent p-3 sm:p-2 z-10">
-                      <h4 className="text-white text-md sm:text-md font-bold text-start">
-                        {item.name}
-                      </h4>
-                    </div>
-                  </div>
-                </motion.div>
-              ))}
-            </div>
-          </div>
-
-          {/* Explore More Button */}
-          {/* <div className="flex justify-center mt-6">
-            <Button
-              variant="ghost"
-              className="px-6 py-2 text-sm font-semibold"
-            >
-              Explore More
-            </Button>
-          </div> */}
-        </div>
-
         {/* Popular Restaurants Around You Section */}
         <div className="mb-6 mt-8 sm:mt-12">
           <div className="mb-6">
             <div className="flex items-center justify-between mb-4 px-1">
               <h3 className="text-lg sm:text-xl font-bold text-gray-900 dark:text-white tracking-tight">
-                Popular Restaurants Around You
+                Popular Restaurants Within 10km
               </h3>
+              <p className="text-xs sm:text-sm font-medium text-gray-500 dark:text-gray-400">
+                {filteredRestaurants.length} nearby places
+              </p>
             </div>
           </div>
 
@@ -607,6 +461,11 @@ export default function Dining() {
           </section>
 
           {/* Restaurant Cards */}
+          {filteredRestaurants.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-[#eadfce] bg-[#fffaf4] px-6 py-12 text-center text-sm font-medium text-gray-500">
+              No popular dining restaurants were found within 10 km for the current location.
+            </div>
+          ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5 md:gap-6 lg:gap-8">
             {/* First 2 Restaurants */}
             {filteredRestaurants.slice(0, 2).map((restaurant, index) => {
@@ -681,15 +540,19 @@ export default function Dining() {
                             }}
                             transition={{ duration: 0.6, ease: "easeOut" }}
                           >
-                            <OptimizedImage
-                              src={restaurant.image}
-                              alt={restaurant.name}
-                              className="w-full h-full"
-                              sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
-                              objectFit="cover"
-                              placeholder="blur"
-                              priority={index < 3}
-                            />
+                            {restaurant.image ? (
+                              <OptimizedImage
+                                src={restaurant.image}
+                                alt={restaurant.name}
+                                className="w-full h-full"
+                                sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
+                                objectFit="cover"
+                                placeholder="blur"
+                                priority={index < 3}
+                              />
+                            ) : (
+                              <div className={`relative h-full w-full bg-[radial-gradient(circle_at_top_left,rgba(235,89,14,0.24),transparent_30%),linear-gradient(135deg,#fff5e8_0%,#fffaf4_55%,#ffe5d0_100%)] ${shimmerClassName}`} />
+                            )}
                           </motion.div>
 
                           {/* Gradient Overlay on Hover */}
@@ -814,7 +677,9 @@ export default function Dining() {
                             {/* Offer Badge */}
                             {restaurant.offer && (
                               <div className="flex items-center gap-2 text-sm">
-                                <BadgePercent className="h-4 w-4 text-[#EB590E]" strokeWidth={2} />
+                                <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[#FFF1E8] px-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-[#EB590E]">
+                                  Off
+                                </span>
                                 <span className="text-gray-700 dark:text-gray-300 font-medium">{restaurant.offer}</span>
                               </div>
                             )}
@@ -900,14 +765,18 @@ export default function Dining() {
                             }}
                             transition={{ duration: 0.6, ease: "easeOut" }}
                           >
-                            <OptimizedImage
-                              src={restaurant.image}
-                              alt={restaurant.name}
-                              className="w-full h-full"
-                              sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
-                              objectFit="cover"
-                              placeholder="blur"
-                            />
+                            {restaurant.image ? (
+                              <OptimizedImage
+                                src={restaurant.image}
+                                alt={restaurant.name}
+                                className="w-full h-full"
+                                sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
+                                objectFit="cover"
+                                placeholder="blur"
+                              />
+                            ) : (
+                              <div className={`relative h-full w-full bg-[radial-gradient(circle_at_top_left,rgba(235,89,14,0.24),transparent_30%),linear-gradient(135deg,#fff5e8_0%,#fffaf4_55%,#ffe5d0_100%)] ${shimmerClassName}`} />
+                            )}
                           </motion.div>
 
                           {/* Gradient Overlay on Hover */}
@@ -995,7 +864,9 @@ export default function Dining() {
                           {/* Offer Badge */}
                           {restaurant.offer && (
                             <div className="flex items-center gap-2 text-sm">
-                              <BadgePercent className="h-4 w-4 text-[#EB590E]" strokeWidth={2} />
+                              <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[#FFF1E8] px-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-[#EB590E]">
+                                Off
+                              </span>
                               <span className="text-gray-700 dark:text-gray-300 font-medium">{restaurant.offer}</span>
                             </div>
                           )}
@@ -1007,6 +878,7 @@ export default function Dining() {
               )
             })}
           </div>
+          )}
         </div>
       </div>
 
