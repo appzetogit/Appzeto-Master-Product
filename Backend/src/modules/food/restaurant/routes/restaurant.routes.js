@@ -12,11 +12,6 @@ import {
     uploadRestaurantMenuImageController
 } from '../controllers/restaurant.controller.js';
 import {
-    addRestaurantStaffController,
-    listRestaurantStaffController,
-    deleteRestaurantStaffController
-} from '../controllers/restaurantStaff.controller.js';
-import {
     listCategoriesController,
     createCategoryController,
     updateCategoryController,
@@ -84,11 +79,6 @@ router.post(
     upload.single('file'),
     uploadRestaurantMenuImageController
 );
-
-// Staff/manager invites (restaurant dashboard)
-router.post('/staff', authMiddleware, requireRestaurant, upload.single('photo'), addRestaurantStaffController);
-router.get('/staff', authMiddleware, requireRestaurant, listRestaurantStaffController);
-router.delete('/staff/:id', authMiddleware, requireRestaurant, deleteRestaurantStaffController);
 
 // Categories (restaurant dashboard). Read-only for item creation, CRUD for Menu Categories page.
 router.get('/categories', authMiddleware, requireRestaurant, listCategoriesController);
