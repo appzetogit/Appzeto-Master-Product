@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react"
-import { Upload, Trash2, Image as ImageIcon, Loader2, AlertCircle, CheckCircle2, ArrowUp, ArrowDown, Layout, Link as LinkIcon, Tag, UtensilsCrossed, FileText, Edit, X } from "lucide-react"
+import { Upload, Trash2, Image as ImageIcon, Loader2, AlertCircle, CheckCircle2, ArrowUp, ArrowDown, Layout, Tag, UtensilsCrossed, FileText, Edit, X } from "lucide-react"
 import api, { adminAPI, uploadAPI } from "@food/api"
 import { getModuleToken } from "@food/utils/auth"
 import { Input } from "@food/components/ui/input"
@@ -44,12 +44,6 @@ export default function DiningManagement() {
     const [editingStoryId, setEditingStoryId] = useState(null)
     const storyFileInputRef = useRef(null)
 
-    // Restaurants
-    const [restaurants, setRestaurants] = useState([])
-    const [restaurantsLoading, setRestaurantsLoading] = useState(true)
-    const [restaurantSearch, setRestaurantSearch] = useState("")
-    const [savingRestaurantId, setSavingRestaurantId] = useState(null)
-
     // Common
     const [error, setError] = useState(null)
     const [success, setSuccess] = useState(null)
@@ -68,7 +62,6 @@ export default function DiningManagement() {
 
     useEffect(() => {
         fetchCategories()
-        fetchDiningRestaurants()
     }, [])
 
     useEffect(() => {
@@ -152,55 +145,9 @@ export default function DiningManagement() {
             setCategoriesDeleting(id)
             await adminAPI.deleteDiningCategory(id)
             fetchCategories()
-            fetchDiningRestaurants()
             setSuccess("Category deleted")
         } catch (err) { setError("Failed to delete category") }
         finally { setCategoriesDeleting(null) }
-    }
-
-    // ==================== RESTAURANTS ====================
-    const fetchDiningRestaurants = async () => {
-        try {
-            setRestaurantsLoading(true)
-            const response = await adminAPI.getDiningRestaurants()
-            if (response.data.success) {
-                setRestaurants(response.data.data.restaurants || [])
-            }
-        } catch (err) {
-            debugError(err)
-            setRestaurants([])
-        } finally {
-            setRestaurantsLoading(false)
-        }
-    }
-
-    const handleRestaurantDiningUpdate = async (restaurantId, updates) => {
-        try {
-            setSavingRestaurantId(restaurantId)
-            setError(null)
-
-            const currentRestaurant = restaurants.find((item) => item._id === restaurantId)
-            const nextPayload = {
-                isEnabled: updates.isEnabled ?? currentRestaurant?.diningSettings?.isEnabled ?? false,
-                maxGuests: updates.maxGuests ?? currentRestaurant?.diningSettings?.maxGuests ?? 6,
-                categoryIds: updates.categoryIds ?? currentRestaurant?.categoryIds ?? [],
-                primaryCategoryId: updates.primaryCategoryId ?? currentRestaurant?.primaryCategoryId ?? currentRestaurant?.categoryIds?.[0] ?? null,
-            }
-
-            const response = await adminAPI.updateRestaurantDiningSettings(restaurantId, nextPayload)
-            if (response.data.success) {
-                const updatedRestaurant = response.data.data.restaurant
-                setRestaurants((prev) =>
-                    prev.map((item) => (item._id === restaurantId ? updatedRestaurant : item))
-                )
-                setSuccess("Dining restaurant updated successfully")
-            }
-        } catch (err) {
-            debugError(err)
-            setError(err.response?.data?.message || "Failed to update dining restaurant")
-        } finally {
-            setSavingRestaurantId(null)
-        }
     }
 
     // ==================== BANNERS ====================
@@ -339,20 +286,9 @@ export default function DiningManagement() {
 
     const tabs = [
         { id: 'categories', label: 'Dining Categories', icon: Layout },
-        { id: 'restaurants', label: 'Dining Restaurants', icon: LinkIcon },
         { id: 'banners', label: 'Dining Banners', icon: ImageIcon },
         { id: 'stories', label: 'Dining Stories', icon: FileText },
     ]
-
-    const filteredRestaurants = restaurants.filter((restaurant) => {
-        const query = restaurantSearch.trim().toLowerCase()
-        if (!query) return true
-        return (
-            String(restaurant.name || restaurant.restaurantName || "").toLowerCase().includes(query) ||
-            String(restaurant.ownerName || "").toLowerCase().includes(query) ||
-            String(restaurant.zone || "").toLowerCase().includes(query)
-        )
-    })
 
     return (
         <div className="p-4 lg:p-6 bg-slate-50 min-h-screen">
@@ -455,120 +391,6 @@ export default function DiningManagement() {
                                 )}
                             </div>
                         </div>
-                    </div>
-                )}
-
-                {activeTab === 'restaurants' && (
-                    <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-                            <div>
-                                <h2 className="text-lg font-bold text-slate-900">Dining Restaurants</h2>
-                                <p className="text-sm text-slate-500 mt-1">Link restaurants to dining categories from this page.</p>
-                            </div>
-                            <div className="relative w-full sm:w-80">
-                                <Input
-                                    value={restaurantSearch}
-                                    onChange={(e) => setRestaurantSearch(e.target.value)}
-                                    placeholder="Search restaurants..."
-                                    className="pl-10"
-                                />
-                                <Tag className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                            </div>
-                        </div>
-
-                        {restaurantsLoading ? (
-                            <div className="flex justify-center py-10">
-                                <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
-                            </div>
-                        ) : (
-                            <div className="overflow-x-auto">
-                                <table className="w-full min-w-[900px]">
-                                    <thead className="bg-slate-50 border-b border-slate-200">
-                                        <tr>
-                                            <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase">Restaurant</th>
-                                            <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase">Zone</th>
-                                            <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase">Dining</th>
-                                            <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase">Category</th>
-                                            <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase">Max Guests</th>
-                                            <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase">Status</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {filteredRestaurants.map((restaurant) => (
-                                            <tr key={restaurant._id} className="border-b border-slate-100">
-                                                <td className="px-4 py-4">
-                                                    <div className="flex flex-col">
-                                                        <span className="font-medium text-slate-900">{restaurant.name || restaurant.restaurantName}</span>
-                                                        <span className="text-xs text-slate-500">{restaurant.ownerName || "No owner name"}</span>
-                                                    </div>
-                                                </td>
-                                                <td className="px-4 py-4 text-sm text-slate-600">{restaurant.zone || "N/A"}</td>
-                                                <td className="px-4 py-4">
-                                                    <input
-                                                        type="checkbox"
-                                                        checked={restaurant.diningSettings?.isEnabled === true}
-                                                        onChange={(e) => handleRestaurantDiningUpdate(restaurant._id, {
-                                                            isEnabled: e.target.checked,
-                                                        })}
-                                                        disabled={savingRestaurantId === restaurant._id}
-                                                    />
-                                                </td>
-                                                <td className="px-4 py-4">
-                                                    <select
-                                                        value={restaurant.primaryCategoryId || restaurant.categoryIds?.[0] || ""}
-                                                        onChange={(e) => handleRestaurantDiningUpdate(restaurant._id, {
-                                                            categoryIds: e.target.value ? [e.target.value] : [],
-                                                            primaryCategoryId: e.target.value || null,
-                                                        })}
-                                                        disabled={savingRestaurantId === restaurant._id}
-                                                        className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
-                                                    >
-                                                        <option value="">Select category</option>
-                                                        {categories.map((category) => (
-                                                            <option key={category._id} value={category._id}>
-                                                                {category.name}
-                                                            </option>
-                                                        ))}
-                                                    </select>
-                                                </td>
-                                                <td className="px-4 py-4">
-                                                    <Input
-                                                        type="number"
-                                                        min="1"
-                                                        max="100"
-                                                        defaultValue={restaurant.diningSettings?.maxGuests || 6}
-                                                        onBlur={(e) => handleRestaurantDiningUpdate(restaurant._id, {
-                                                            maxGuests: parseInt(e.target.value, 10) || 6,
-                                                        })}
-                                                        disabled={savingRestaurantId === restaurant._id}
-                                                        className="w-24"
-                                                    />
-                                                </td>
-                                                <td className="px-4 py-4">
-                                                    {savingRestaurantId === restaurant._id ? (
-                                                        <span className="inline-flex items-center gap-2 text-sm text-blue-600">
-                                                            <Loader2 className="w-4 h-4 animate-spin" />
-                                                            Saving
-                                                        </span>
-                                                    ) : (
-                                                        <span className="text-sm text-slate-500">
-                                                            {restaurant.diningSettings?.isEnabled ? "Connected" : "Not enabled"}
-                                                        </span>
-                                                    )}
-                                                </td>
-                                            </tr>
-                                        ))}
-                                        {filteredRestaurants.length === 0 && (
-                                            <tr>
-                                                <td colSpan={6} className="px-4 py-10 text-center text-slate-500">
-                                                    No dining restaurants found.
-                                                </td>
-                                            </tr>
-                                        )}
-                                    </tbody>
-                                </table>
-                            </div>
-                        )}
                     </div>
                 )}
 
