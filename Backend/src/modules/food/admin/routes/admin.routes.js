@@ -2,6 +2,7 @@ import express from 'express';
 import { AuthError } from '../../../../core/auth/errors.js';
 import * as adminController from '../controllers/admin.controller.js';
 import * as foodApprovalController from '../controllers/foodApproval.controller.js';
+import * as addonsApprovalController from '../controllers/addonsApproval.controller.js';
 import * as diningAdminController from '../../dining/controllers/diningAdmin.controller.js';
 import * as orderController from '../../orders/order.controller.js';
 import { getAdminPageController, upsertAdminPageController } from '../controllers/pageContent.controller.js';
@@ -57,6 +58,12 @@ router.post('/categories', adminController.createCategory);
 router.patch('/categories/:id', adminController.updateCategory);
 router.delete('/categories/:id', adminController.deleteCategory);
 router.patch('/categories/:id/toggle', adminController.toggleCategoryStatus);
+router.patch('/categories/:id/approve', adminController.approveCategory);
+
+// ----- Restaurant Add-ons Approval -----
+router.get('/addons', addonsApprovalController.getRestaurantAddons);
+router.patch('/addons/:id/approve', addonsApprovalController.approveRestaurantAddon);
+router.patch('/addons/:id/reject', addonsApprovalController.rejectRestaurantAddon);
 
 // ----- Foods -----
 router.get('/foods', adminController.getFoods);

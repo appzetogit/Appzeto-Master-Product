@@ -19,6 +19,7 @@ import { FoodDeliveryEmergencyHelp } from '../models/deliveryEmergencyHelp.model
 import { FoodReferralSettings } from '../models/referralSettings.model.js';
 import { FoodReferralLog } from '../models/referralLog.model.js';
 import { FoodSafetyEmergencyReport } from '../models/safetyEmergencyReport.model.js';
+import { FoodAddon } from '../../restaurant/models/foodAddon.model.js';
 
 // ----- Restaurants -----
 export async function getRestaurants(query) {
@@ -593,6 +594,10 @@ export async function getCategories(query) {
             filter.zoneId = new mongoose.Types.ObjectId(zid);
         }
     }
+    if (query.isApproved !== undefined) {
+        // Backward compatible: treat missing isApproved as approved.
+        filter.isApproved = query.isApproved === true ? { $ne: false } : false;
+    }
 
     const [list, total] = await Promise.all([
         FoodCategory.find(filter)
@@ -600,6 +605,7 @@ export async function getCategories(query) {
             .skip(skip)
             .limit(limit)
             .populate('zoneId', 'name zoneName isActive')
+            .populate('restaurantId', 'restaurantName ownerName ownerPhone')
             .lean(),
         FoodCategory.countDocuments(filter)
     ]);
@@ -611,6 +617,16 @@ export async function getCategories(query) {
         type: c.type || '',
         status: c.isActive !== false,
         isActive: c.isActive !== false,
+        isApproved: c.isApproved !== false,
+        restaurantId: c.restaurantId?._id ? String(c.restaurantId._id) : (c.restaurantId ? String(c.restaurantId) : null),
+        restaurant: c.restaurantId?._id
+            ? {
+                _id: c.restaurantId._id,
+                name: c.restaurantId.restaurantName || '',
+                ownerName: c.restaurantId.ownerName || '',
+                ownerPhone: c.restaurantId.ownerPhone || ''
+            }
+            : null,
         zoneId: c.zoneId || null,
         sortOrder: c.sortOrder || 0,
         createdAt: c.createdAt,
@@ -637,10 +653,23 @@ export async function createCategory(body) {
                 })()
                 : undefined,
         isActive: body.isActive !== false,
-        sortOrder: Number.isFinite(Number(body.sortOrder)) ? Number(body.sortOrder) : 0
+        sortOrder: Number.isFinite(Number(body.sortOrder)) ? Number(body.sortOrder) : 0,
+        // Admin-created categories are globally available immediately.
+        isApproved: true,
+        restaurantId: undefined
     });
     await doc.save();
     return doc.toObject();
+}
+
+export async function approveCategory(id) {
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
+    const updated = await FoodCategory.findOneAndUpdate(
+        { _id: id, isApproved: { $ne: true } },
+        { $set: { isApproved: true } },
+        { new: true }
+    ).lean();
+    return updated || null;
 }
 
 export async function updateCategory(id, body) {
@@ -678,6 +707,111 @@ export async function toggleCategoryStatus(id) {
     doc.isActive = !doc.isActive;
     await doc.save();
     return doc.toObject();
+}
+
+// ----- Restaurant Add-ons approval (admin) -----
+export async function getRestaurantAddonsAdmin(query = {}) {
+    const limit = Math.min(Math.max(parseInt(query.limit, 10) || 50, 1), 200);
+    const page = Math.max(parseInt(query.page, 10) || 1, 1);
+    const skip = (page - 1) * limit;
+
+    const filter = { isDeleted: { $ne: true } };
+
+    const approvalStatus = String(query.approvalStatus || '').trim();
+    if (approvalStatus && ['pending', 'approved', 'rejected'].includes(approvalStatus)) {
+        filter.approvalStatus = approvalStatus;
+    }
+
+    if (query.restaurantId && mongoose.Types.ObjectId.isValid(String(query.restaurantId))) {
+        filter.restaurantId = new mongoose.Types.ObjectId(String(query.restaurantId));
+    }
+
+    if (query.search && String(query.search).trim()) {
+        const raw = String(query.search).trim().slice(0, 80);
+        const term = raw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        filter.$or = [{ 'draft.name': { $regex: term, $options: 'i' } }];
+    }
+
+    const [list, total] = await Promise.all([
+        FoodAddon.find(filter)
+            .sort({ requestedAt: -1, createdAt: -1 })
+            .skip(skip)
+            .limit(limit)
+            .populate('restaurantId', 'restaurantName ownerName ownerPhone')
+            .lean(),
+        FoodAddon.countDocuments(filter)
+    ]);
+
+    const addons = list.map((a) => ({
+        id: a._id,
+        _id: a._id,
+        restaurantId: a.restaurantId?._id ? String(a.restaurantId._id) : String(a.restaurantId),
+        restaurant: a.restaurantId?._id
+            ? {
+                _id: a.restaurantId._id,
+                name: a.restaurantId.restaurantName || '',
+                ownerName: a.restaurantId.ownerName || '',
+                ownerPhone: a.restaurantId.ownerPhone || ''
+            }
+            : null,
+        approvalStatus: a.approvalStatus || 'pending',
+        rejectionReason: a.rejectionReason || '',
+        requestedAt: a.requestedAt,
+        approvedAt: a.approvedAt,
+        rejectedAt: a.rejectedAt,
+        isAvailable: a.isAvailable !== false,
+        draft: a.draft || null,
+        published: a.published || null,
+        createdAt: a.createdAt,
+        updatedAt: a.updatedAt
+    }));
+
+    return { addons, total, page, limit };
+}
+
+export async function approveRestaurantAddon(addonId) {
+    if (!addonId || !mongoose.Types.ObjectId.isValid(String(addonId))) return null;
+    const _id = new mongoose.Types.ObjectId(String(addonId));
+
+    // Use update pipeline to copy draft -> published atomically.
+    const updated = await FoodAddon.findOneAndUpdate(
+        { _id, isDeleted: { $ne: true } },
+        [
+            {
+                $set: {
+                    published: '$draft',
+                    approvalStatus: 'approved',
+                    approvedAt: '$$NOW',
+                    rejectedAt: null,
+                    rejectionReason: ''
+                }
+            }
+        ],
+        { new: true }
+    ).lean();
+
+    return updated || null;
+}
+
+export async function rejectRestaurantAddon(addonId, reason) {
+    if (!addonId || !mongoose.Types.ObjectId.isValid(String(addonId))) return null;
+    const _id = new mongoose.Types.ObjectId(String(addonId));
+    const rejectionReason = String(reason || '').trim();
+    if (!rejectionReason) {
+        throw new ValidationError('Rejection reason is required');
+    }
+    const updated = await FoodAddon.findOneAndUpdate(
+        { _id, isDeleted: { $ne: true } },
+        {
+            $set: {
+                approvalStatus: 'rejected',
+                rejectionReason,
+                rejectedAt: new Date()
+            }
+        },
+        { new: true }
+    ).lean();
+    return updated || null;
 }
 
 // ----- Foods (separate collection) -----

@@ -278,6 +278,8 @@ export const adminAPI = {
     apiClient.delete(`/food/admin/categories/${id}`, {
       contextModule: "admin",
     }),
+  approveCategory: (id) =>
+    apiClient.patch(`/food/admin/categories/${String(id)}/approve`, {}, { contextModule: "admin" }),
   toggleCategoryStatus: (id) =>
     apiClient.patch(
       `/food/admin/categories/${id}/toggle`,
@@ -601,6 +603,18 @@ export const adminAPI = {
     apiClient.put("/food/admin/delivery-emergency-help", body ?? {}, {
       contextModule: "admin",
     }),
+
+  /** Restaurant add-ons approval (admin) */
+  getRestaurantAddons: (params = {}) =>
+    apiClient.get("/food/admin/addons", { params: params ?? {}, contextModule: "admin" }),
+  approveRestaurantAddon: (id) =>
+    apiClient.patch(`/food/admin/addons/${String(id)}/approve`, {}, { contextModule: "admin" }),
+  rejectRestaurantAddon: (id, reason) =>
+    apiClient.patch(
+      `/food/admin/addons/${String(id)}/reject`,
+      { reason: String(reason || "").trim() },
+      { contextModule: "admin" },
+    ),
 };
 
 /** Restaurant API - OTP login via new backend; no email/password. */
@@ -617,6 +631,67 @@ export const restaurantAPI = {
   getMe: () => authService.getMe("restaurant"),
   /** Restaurant dashboard: fetch current restaurant profile (deduped + short-cached). */
   getCurrentRestaurant: () => getRestaurantCurrentOnce(),
+  /** Restaurant hub dashboard bootstrap. */
+  getToHubData: (config = {}) =>
+    apiClient.get("/food/restaurant/to-hub", {
+      contextModule: "restaurant",
+      ...config,
+    }),
+  /** Finance dashboard (stubbed if backend doesn't provide endpoint). */
+  getFinance: (params = {}) => {
+    // NOTE: Backend may not have a /food/restaurant/finance endpoint.
+    // This stub provides a consistent response shape so the UI can render.
+    // Replace with a real endpoint if/when available.
+    const fakeData = {
+      success: true,
+      data: {
+        restaurant: {
+          name: "Your Restaurant",
+          restaurantId: "REST000001",
+          address: "Your address",
+        },
+        currentCycle: {
+          estimatedPayout: 0,
+          totalOrders: 0,
+          orders: [],
+          payoutDate: null,
+          start: "15",
+          end: "21",
+          month: "Dec",
+          year: "25",
+        },
+        pastCycles: {
+          orders: [],
+          totalOrders: 0,
+        },
+      },
+    };
+
+    return Promise.resolve({ data: fakeData });
+  },
+  /** Fetch restaurant by owner (stub for missing backend endpoint). */
+  getRestaurantByOwner: () =>
+    Promise.resolve({
+      data: {
+        success: true,
+        data: {
+          restaurant: {
+            name: "Your Restaurant",
+            restaurantId: "REST000001",
+            address: "Your address",
+          },
+        },
+      },
+    }),
+  /** Submit a withdrawal request (stubbed). */
+  createWithdrawalRequest: (amount) => {
+    return Promise.resolve({
+      data: {
+        success: true,
+        message: `Withdrawal request for ₹${Number(amount).toFixed(2)} received.`,
+      },
+    });
+  },
   /** Update restaurant profile fields (name/cuisines/location/menuImages). */
   updateProfile: (body) =>
     apiClient
@@ -697,6 +772,16 @@ export const restaurantAPI = {
       params,
       contextModule: "restaurant",
     }),
+  /** Orders (restaurant dashboard) */
+  getOrders: (params = {}) =>
+    apiClient.get("/food/restaurant/orders", {
+      params: { limit: 50, page: 1, ...params },
+      contextModule: "restaurant",
+    }),
+  getOrderById: (orderId) =>
+    apiClient.get(`/food/restaurant/orders/${String(orderId)}`, {
+      contextModule: "restaurant",
+    }),
   updateMenu: (body) =>
     apiClient.patch("/food/restaurant/menu", body ?? {}, {
       contextModule: "restaurant",
@@ -717,6 +802,23 @@ export const restaurantAPI = {
     }),
   updateFood: (id, body) =>
     apiClient.patch(`/food/restaurant/foods/${String(id)}`, body ?? {}, {
+      contextModule: "restaurant",
+    }),
+  /** Add-ons (restaurant) - approval handled by admin */
+  getAddons: (params = {}) =>
+    apiClient.get("/food/restaurant/addons", {
+      // Backend validator enforces limit <= 100
+      params: { limit: 100, page: 1, ...params },
+      contextModule: "restaurant",
+    }),
+  addAddon: (body) =>
+    apiClient.post("/food/restaurant/addons", body ?? {}, { contextModule: "restaurant" }),
+  updateAddon: (id, body) =>
+    apiClient.patch(`/food/restaurant/addons/${String(id)}`, body ?? {}, {
+      contextModule: "restaurant",
+    }),
+  deleteAddon: (id) =>
+    apiClient.delete(`/food/restaurant/addons/${String(id)}`, {
       contextModule: "restaurant",
     }),
   logout: (refreshToken) => {
@@ -755,6 +857,9 @@ export const restaurantAPI = {
   /** Public: get outlet timings by restaurant id */
   getOutletTimingsByRestaurantId: (id, config = {}) =>
     getPublicRestaurantOutletTimingsOnce(id, config),
+  /** Public (user app): approved add-ons by restaurant id/slug */
+  getAddonsByRestaurantId: (id, config = {}) =>
+    apiClient.get(`/food/restaurant/restaurants/${String(id)}/addons`, { ...config }),
   /** Public: list coupons/offers created by admin */
   getPublicOffers: (params = {}, config = {}) =>
     apiClient.get("/food/restaurant/offers", { params, ...config }),

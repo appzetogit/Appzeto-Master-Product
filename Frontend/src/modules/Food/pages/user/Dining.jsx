@@ -64,6 +64,70 @@ const getDistanceKm = (userLocation, restaurant) => {
 const shimmerClassName =
   "before:absolute before:inset-0 before:-translate-x-full before:bg-gradient-to-r before:from-transparent before:via-white/30 before:to-transparent before:animate-[shimmer_2.2s_infinite]"
 
+const loadingCategoryCards = Array.from({ length: 6 }, (_, index) => `category-skeleton-${index}`)
+const loadingRestaurantCards = Array.from({ length: 6 }, (_, index) => `restaurant-skeleton-${index}`)
+
+function DiningCategorySkeleton({ index }) {
+  return (
+    <motion.div
+      className={`relative h-[138px] overflow-hidden rounded-[18px] border border-[#e9e1d8] bg-[linear-gradient(180deg,#fff9f2_0%,#fff2e6_100%)] shadow-[0_1px_2px_rgba(35,24,12,0.05)] sm:h-[154px] md:h-[166px] ${shimmerClassName}`}
+      initial={{ opacity: 0, y: 14 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.35, delay: index * 0.04 }}
+    >
+      <div className="absolute inset-x-0 top-0 z-10 px-3 pt-3 sm:px-4 sm:pt-4">
+        <div className="h-3 w-16 rounded-full bg-[#f0dcca]" />
+        <div className="mt-3 h-4 w-24 rounded-full bg-[#ead2bc]" />
+        <div className="mt-2 h-4 w-20 rounded-full bg-[#f3e3d4]" />
+      </div>
+      <div className="absolute inset-x-0 bottom-0 h-[64%] rounded-b-[18px] bg-[radial-gradient(circle_at_25%_20%,rgba(235,89,14,0.2),transparent_30%),linear-gradient(180deg,#fff0e0_0%,#ffe5ca_100%)]">
+        <div className="absolute bottom-3 left-3 h-14 w-14 rounded-full bg-white/45 blur-md" />
+      </div>
+    </motion.div>
+  )
+}
+
+function DiningRestaurantSkeleton({ index }) {
+  return (
+    <motion.div
+      className="h-full"
+      initial={{ opacity: 0, y: 18 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.4, delay: index * 0.06 }}
+    >
+      <div className="h-full overflow-hidden rounded-2xl bg-white shadow-md ring-1 ring-[#efe2d3]">
+        <div className={`relative h-48 overflow-hidden bg-[radial-gradient(circle_at_top_left,rgba(235,89,14,0.24),transparent_28%),linear-gradient(135deg,#fff4e8_0%,#ffe9d5_100%)] sm:h-56 md:h-60 lg:h-64 xl:h-72 ${shimmerClassName}`}>
+          <div className="absolute left-4 top-4 h-8 w-28 rounded-lg bg-black/10" />
+          <div className="absolute right-4 top-4 h-9 w-9 rounded-lg bg-white/60" />
+          <div className="absolute bottom-0 left-0 right-0 h-[40%] bg-gradient-to-r from-[#EB590E] to-transparent/20">
+            <div className="flex h-full flex-col justify-end pl-4 pb-4 sm:pl-5 sm:pb-5">
+              <div className="h-2.5 w-24 rounded-full bg-white/35" />
+              <div className="mt-2 h-px w-24 bg-white/25" />
+              <div className="mt-3 h-4 w-40 rounded-full bg-white/55" />
+            </div>
+          </div>
+        </div>
+        <div className="space-y-4 p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex-1">
+              <div className="h-5 w-40 rounded-full bg-[#ead8c8]" />
+              <div className="mt-2 h-4 w-24 rounded-full bg-[#f2e7dd]" />
+            </div>
+            <div className="h-8 w-12 rounded-lg bg-[#d7efe0]" />
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="h-4 w-4 rounded-full bg-[#efe2d7]" />
+            <div className="h-4 w-24 rounded-full bg-[#efe2d7]" />
+            <div className="h-4 w-4 rounded-full bg-[#f5ece4]" />
+            <div className="h-4 w-20 rounded-full bg-[#f5ece4]" />
+          </div>
+          <div className="h-4 w-48 rounded-full bg-[#f0e1d3]" />
+        </div>
+      </div>
+    </motion.div>
+  )
+}
+
 export default function Dining() {
   const navigate = useNavigate()
   const [heroSearch, setHeroSearch] = useState("")
@@ -244,6 +308,7 @@ export default function Dining() {
     }
     openSearch()
   }, [heroSearch, openSearch, setSearchValue])
+
   return (
     <AnimatedPage className="bg-white dark:bg-[#0a0a0a]" style={{ minHeight: '100vh', paddingBottom: '80px', overflow: 'visible' }}>
       <style>{`
@@ -333,9 +398,20 @@ export default function Dining() {
               <div className="absolute inset-0 bg-[linear-gradient(120deg,transparent_0%,rgba(235,89,14,0.05)_35%,transparent_70%)]" />
               <div className="absolute bottom-6 left-6 max-w-[70%]">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.34em] text-[#b46f37]">Dining</p>
-                <h2 className="mt-2 text-2xl font-black text-[#2e1d11] sm:text-3xl">Fresh dining picks near you</h2>
-                <p className="mt-2 text-sm font-medium text-[#6d5744]">Banner will appear here as soon as a dining hero banner is available from the new API.</p>
+                <h2 className="mt-2 text-2xl font-black text-[#2e1d11] sm:text-3xl">
+                  {loading ? "Curating dining picks near you" : "Fresh dining picks near you"}
+                </h2>
+                <p className="mt-2 text-sm font-medium text-[#6d5744]">
+                  {loading
+                    ? "Hold tight while we load categories, offers, and the best tables around you."
+                    : "Banner will appear here as soon as a dining hero banner is available from the new API."}
+                </p>
               </div>
+              {loading && (
+                <div className="absolute right-5 top-5 rounded-full border border-white/50 bg-white/55 px-3 py-1.5 text-[11px] font-semibold tracking-[0.18em] text-[#8d5324] backdrop-blur-sm">
+                  Loading
+                </div>
+              )}
             </div>
           )}
         </motion.div>
@@ -356,7 +432,11 @@ export default function Dining() {
           </div>
 
           <div className="grid grid-cols-3 gap-2.5 sm:gap-3 md:gap-4">
-            {safeCategories.map((category, index) => (
+            {loading
+              ? loadingCategoryCards.map((key, index) => (
+                <DiningCategorySkeleton key={key} index={index} />
+              ))
+              : safeCategories.map((category, index) => (
               <Link
                 key={category._id || category.id}
                 to={`/user/dining/${category.slug}`}
@@ -394,7 +474,7 @@ export default function Dining() {
                   </div>
                 </motion.div>
               </Link>
-            ))}
+              ))}
           </div>
         </div>
 
@@ -411,57 +491,76 @@ export default function Dining() {
             </div>
           </div>
 
-          {/* Filters */}
-          <section className="py-1 mb-4">
-            <div
-              className="flex items-center gap-1.5 sm:gap-2 overflow-x-auto scrollbar-hide pb-1"
-              style={{
-                scrollbarWidth: "none",
-                msOverflowStyle: "none",
-              }}
-            >
-              {/* Filter Button - Opens Modal */}
-              <Button
-                variant="outline"
-                onClick={() => setIsFilterOpen(true)}
-                className="h-7 sm:h-8 px-2 sm:px-3 rounded-md flex items-center gap-1.5 whitespace-nowrap flex-shrink-0 font-medium transition-all bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300"
+          {loading ? (
+            <section className="mb-4 py-1">
+              <div className="flex items-center gap-2 overflow-hidden pb-1">
+                {Array.from({ length: 6 }, (_, index) => (
+                  <div
+                    key={`filter-skeleton-${index}`}
+                    className={`relative h-8 rounded-md border border-[#efe3d7] bg-[#fff7f1] ${shimmerClassName}`}
+                    style={{ width: index === 0 ? 90 : index % 2 === 0 ? 122 : 108 }}
+                  />
+                ))}
+              </div>
+            </section>
+          ) : (
+            <section className="py-1 mb-4">
+              <div
+                className="flex items-center gap-1.5 sm:gap-2 overflow-x-auto scrollbar-hide pb-1"
+                style={{
+                  scrollbarWidth: "none",
+                  msOverflowStyle: "none",
+                }}
               >
-                <SlidersHorizontal className="h-3 w-3 sm:h-4 sm:w-4" />
-                <span className="text-xs sm:text-sm font-bold text-black dark:text-white">Filters</span>
-              </Button>
+                {/* Filter Button - Opens Modal */}
+                <Button
+                  variant="outline"
+                  onClick={() => setIsFilterOpen(true)}
+                  className="h-7 sm:h-8 px-2 sm:px-3 rounded-md flex items-center gap-1.5 whitespace-nowrap flex-shrink-0 font-medium transition-all bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300"
+                >
+                  <SlidersHorizontal className="h-3 w-3 sm:h-4 sm:w-4" />
+                  <span className="text-xs sm:text-sm font-bold text-black dark:text-white">Filters</span>
+                </Button>
 
-              {/* Filter Buttons */}
-              {[
-                { id: 'delivery-under-30', label: 'Under 30 mins' },
-                { id: 'delivery-under-45', label: 'Under 45 mins' },
-                { id: 'distance-under-1km', label: 'Under 1km', icon: MapPin },
-                { id: 'distance-under-2km', label: 'Under 2km', icon: MapPin },
-                { id: 'rating-35-plus', label: '3.5+ Rating' },
-                { id: 'rating-4-plus', label: '4.0+ Rating' },
-                { id: 'rating-45-plus', label: '4.5+ Rating' },
-              ].map((filter) => {
-                const Icon = filter.icon
-                const isActive = activeFilters.has(filter.id)
-                return (
-                  <Button
-                    key={filter.id}
-                    variant="outline"
-                    onClick={() => toggleFilter(filter.id)}
-                    className={`h-7 sm:h-8 px-2 sm:px-3 rounded-md flex items-center gap-1.5 whitespace-nowrap flex-shrink-0 transition-all font-medium ${isActive
-                      ? 'bg-[#EB590E] text-white border border-[#EB590E] hover:bg-[#D94F0C]'
-                      : 'bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-300'
-                      }`}
-                  >
-                    {Icon && <Icon className={`h-3 w-3 sm:h-4 sm:w-4 ${isActive ? 'fill-white' : ''}`} />}
-                    <span className="text-xs sm:text-sm font-bold text-black dark:text-white">{filter.label}</span>
-                  </Button>
-                )
-              })}
-            </div>
-          </section>
+                {/* Filter Buttons */}
+                {[
+                  { id: 'delivery-under-30', label: 'Under 30 mins' },
+                  { id: 'delivery-under-45', label: 'Under 45 mins' },
+                  { id: 'distance-under-1km', label: 'Under 1km', icon: MapPin },
+                  { id: 'distance-under-2km', label: 'Under 2km', icon: MapPin },
+                  { id: 'rating-35-plus', label: '3.5+ Rating' },
+                  { id: 'rating-4-plus', label: '4.0+ Rating' },
+                  { id: 'rating-45-plus', label: '4.5+ Rating' },
+                ].map((filter) => {
+                  const Icon = filter.icon
+                  const isActive = activeFilters.has(filter.id)
+                  return (
+                    <Button
+                      key={filter.id}
+                      variant="outline"
+                      onClick={() => toggleFilter(filter.id)}
+                      className={`h-7 sm:h-8 px-2 sm:px-3 rounded-md flex items-center gap-1.5 whitespace-nowrap flex-shrink-0 transition-all font-medium ${isActive
+                        ? 'bg-[#EB590E] text-white border border-[#EB590E] hover:bg-[#D94F0C]'
+                        : 'bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-300'
+                        }`}
+                    >
+                      {Icon && <Icon className={`h-3 w-3 sm:h-4 sm:w-4 ${isActive ? 'fill-white' : ''}`} />}
+                      <span className="text-xs sm:text-sm font-bold text-black dark:text-white">{filter.label}</span>
+                    </Button>
+                  )
+                })}
+              </div>
+            </section>
+          )}
 
           {/* Restaurant Cards */}
-          {filteredRestaurants.length === 0 ? (
+          {loading ? (
+            <div className="grid grid-cols-1 gap-4 sm:gap-5 md:grid-cols-2 md:gap-6 lg:grid-cols-3 lg:gap-8">
+              {loadingRestaurantCards.map((key, index) => (
+                <DiningRestaurantSkeleton key={key} index={index} />
+              ))}
+            </div>
+          ) : filteredRestaurants.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-[#eadfce] bg-[#fffaf4] px-6 py-12 text-center text-sm font-medium text-gray-500">
               No popular dining restaurants were found within 10 km for the current location.
             </div>
@@ -470,6 +569,7 @@ export default function Dining() {
             {/* First 2 Restaurants */}
             {filteredRestaurants.slice(0, 2).map((restaurant, index) => {
               const restaurantSlug = restaurant.slug || restaurant.name.toLowerCase().replace(/\s+/g, "-")
+              const diningDetailPath = `/food/user/dining/${restaurant.diningType || "dining"}/${restaurantSlug}`
               const favorite = isFavorite(restaurantSlug)
 
               const handleToggleFavorite = (e) => {
@@ -528,7 +628,11 @@ export default function Dining() {
                       }
                     }}
                   >
-                    <Link to={`/user/restaurants/${restaurantSlug}`} className="h-full flex">
+                    <Link
+                      to={diningDetailPath}
+                      state={{ restaurant }}
+                      className="h-full flex"
+                    >
                       <Card className="overflow-hidden gap-0 cursor-pointer border-0 dark:border-gray-800 group bg-white dark:bg-[#1a1a1a] shadow-md transition-all duration-500 py-0 rounded-2xl h-full flex flex-col w-full relative">
                         {/* Image Section */}
                         <div className="relative h-48 sm:h-56 md:h-60 lg:h-64 xl:h-72 w-full overflow-hidden rounded-t-2xl flex-shrink-0">
@@ -695,6 +799,7 @@ export default function Dining() {
             {/* Remaining Restaurants */}
             {filteredRestaurants.slice(2).map((restaurant, index) => {
               const restaurantSlug = restaurant.slug || restaurant.name.toLowerCase().replace(/\s+/g, "-")
+              const diningDetailPath = `/food/user/dining/${restaurant.diningType || "dining"}/${restaurantSlug}`
               const favorite = isFavorite(restaurantSlug)
 
               const handleToggleFavorite = (e) => {
@@ -753,7 +858,11 @@ export default function Dining() {
                       }
                     }}
                   >
-                    <Link to={`/user/restaurants/${restaurantSlug}`} className="h-full flex">
+                    <Link
+                      to={diningDetailPath}
+                      state={{ restaurant }}
+                      className="h-full flex"
+                    >
                       <Card className="overflow-hidden cursor-pointer border-0 dark:border-gray-800 group bg-white dark:bg-[#1a1a1a] shadow-md transition-all duration-500 py-0 rounded-2xl h-full flex flex-col w-full relative">
                         {/* Image Section */}
                         <div className="relative h-48 sm:h-56 md:h-60 lg:h-64 xl:h-72 w-full overflow-hidden rounded-t-2xl flex-shrink-0">
