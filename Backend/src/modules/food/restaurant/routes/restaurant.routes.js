@@ -32,6 +32,7 @@ import {
     createRestaurantFoodController,
     updateRestaurantFoodController
 } from '../controllers/restaurantFood.controller.js';
+import * as orderController from '../../orders/order.controller.js';
 import { authMiddleware } from '../../../../core/auth/auth.middleware.js';
 import { sendError } from '../../../../utils/response.js';
 
@@ -60,6 +61,8 @@ router.get('/restaurants/:id', getApprovedRestaurantController);
 router.get('/restaurants/:id/menu', getPublicRestaurantMenuController);
 router.get('/restaurants/:id/outlet-timings', getOutletTimingsByRestaurantIdController);
 router.get('/offers', listPublicOffersController);
+// Public: categories list (zone-aware; returns zone categories + global)
+router.get('/categories/public', listCategoriesController);
 
 // Restaurant dashboard/profile (Bearer token + RESTAURANT role)
 router.get('/current', authMiddleware, requireRestaurant, getCurrentRestaurantController);
@@ -100,6 +103,10 @@ router.patch('/menu', authMiddleware, requireRestaurant, updateMenuController);
 // Foods (restaurant creates/updates items -> stored in food_items collection)
 router.post('/foods', authMiddleware, requireRestaurant, createRestaurantFoodController);
 router.patch('/foods/:id', authMiddleware, requireRestaurant, updateRestaurantFoodController);
+
+// Orders (restaurant dashboard)
+router.get('/orders', authMiddleware, requireRestaurant, orderController.listOrdersRestaurantController);
+router.patch('/orders/:orderId/status', authMiddleware, requireRestaurant, orderController.updateOrderStatusRestaurantController);
 
 export default router;
 

@@ -81,7 +81,7 @@ import { useLocation } from "@food/hooks/useLocation";
 import { useZone } from "@food/hooks/useZone";
 import quickSpicyLogo from "@food/assets/quicky-spicy-logo.png";
 import offerImage from "@food/assets/offerimage.png";
-import api, { publicGetOnce, restaurantAPI } from "@food/api";
+import api, { publicGetOnce, restaurantAPI, adminAPI } from "@food/api";
 import { API_BASE_URL } from "@food/api/config";
 import OptimizedImage from "@food/components/OptimizedImage";
 import { getRestaurantAvailabilityStatus } from "@food/utils/restaurantAvailability";
@@ -1064,6 +1064,40 @@ export default function Home() {
   const [showManageCollections, setShowManageCollections] = useState(false);
   const [selectedRestaurantSlug, setSelectedRestaurantSlug] = useState(null);
 
+  // Fetch categories (zone-aware) for the homepage category rail.
+  useEffect(() => {
+    let cancelled = false
+    const run = async () => {
+      try {
+        setLoadingRealCategories(true)
+        const res = await adminAPI.getPublicCategories(zoneId ? { zoneId } : {})
+        const list =
+          res?.data?.data?.categories ||
+          res?.data?.categories ||
+          []
+        const categories = Array.isArray(list)
+          ? list.map((cat, idx) => ({
+              id: String(cat?.id || cat?._id || cat?.slug || idx),
+              name: cat?.name || "",
+              slug: cat?.slug || String(cat?.name || "").toLowerCase().replace(/\s+/g, "-"),
+              image: cat?.image || foodImages[idx % foodImages.length] || foodImages[0],
+              type: cat?.type || "",
+            }))
+          : []
+        if (!cancelled) setRealCategories(categories)
+      } catch (err) {
+        debugWarn("Failed to fetch categories:", err)
+        if (!cancelled) setRealCategories([])
+      } finally {
+        if (!cancelled) setLoadingRealCategories(false)
+      }
+    }
+    run()
+    return () => {
+      cancelled = true
+    }
+  }, [zoneId])
+
   // Memoize cartCount to prevent recalculation on every render - use cart directly
   const cartCount = useMemo(
     () => cart.reduce((total, item) => total + (item.quantity || 0), 0),
@@ -1670,7 +1704,13 @@ export default function Home() {
     );
   }, [location?.latitude, location?.longitude]);
 
-  // Build a union of menu categories across all restaurants.
+  // IMPORTANT:
+  // Homepage must NOT call /food/restaurant/restaurants/:id/menu for every restaurant (N+1 requests).
+  // That is expensive and triggers 429 rate limiting. Menus should load only on the restaurant details screen.
+  //
+  // For homepage filters (veg mode / categories), we fall back gracefully:
+  // - Menu categories: empty (UI can still show explore sections)
+  // - Veg mode: if we don't have per-restaurant diet meta, don't hide restaurants.
   useEffect(() => {
     const restaurantIds = menuUnionRestaurantIdsKey
       ? menuUnionRestaurantIdsKey.split(",").filter(Boolean)

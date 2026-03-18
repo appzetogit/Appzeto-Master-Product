@@ -293,6 +293,18 @@ export const adminAPI = {
       { isActive: isActive !== false },
       { contextModule: "admin" },
     ),
+  /** Orders (admin) – list, get by id, assign delivery partner */
+  getOrders: (params = {}) =>
+    apiClient.get("/food/admin/orders", { params: { limit: 50, page: 1, ...params }, contextModule: "admin" }),
+  getOrderById: (orderId) =>
+    apiClient.get(`/food/admin/orders/${String(orderId)}`, { contextModule: "admin" }),
+  assignDeliveryPartner: (orderId, deliveryPartnerId) =>
+    apiClient.patch(`/food/admin/orders/${String(orderId)}/assign-delivery`, { deliveryPartnerId: String(deliveryPartnerId) }, { contextModule: "admin" }),
+  /** Dispatch settings – auto vs manual assign (global) */
+  getDispatchSettings: () =>
+    apiClient.get("/food/admin/settings/dispatch", { contextModule: "admin" }),
+  updateDispatchSettings: (dispatchMode) =>
+    apiClient.patch("/food/admin/settings/dispatch", { dispatchMode }, { contextModule: "admin" }),
   /** Create restaurant (admin). Single API: POST /food/admin/restaurants. Body: JSON with image URLs. */
   createRestaurant: (body) =>
     apiClient.post("/food/admin/restaurants", body ?? {}, {
@@ -321,6 +333,10 @@ export const adminAPI = {
 
   /** Public env variables (safe subset). Used for runtime keys like Google Maps. */
   // getPublicEnvVariables removed: rely on import.meta.env instead.
+
+  /** Public categories (user app) - zone-aware */
+  getPublicCategories: (params = {}, config = {}) =>
+    apiClient.get("/food/restaurant/categories/public", { params: params ?? {}, ...config }),
 
   /** Offers & Coupons (admin) */
   getAllOffers: (params = {}) =>
@@ -980,9 +996,72 @@ export const deliveryAPI = {
       { status: isOnline ? "online" : "offline", latitude, longitude },
       { contextModule: "delivery" },
     ),
+  /** GET /food/delivery/wallet - wallet for Pocket/requests page (backend) */
+  getWallet: () =>
+    apiClient.get("/food/delivery/wallet", { contextModule: "delivery" }),
+  /** GET /food/delivery/earnings - earnings summary for Pocket/requests page */
+  getEarnings: (params) =>
+    apiClient.get("/food/delivery/earnings", {
+      params: params ?? {},
+      contextModule: "delivery",
+    }),
+  /** GET /food/delivery/trip-history - completed/cancelled/pending trips for delivery partner */
+  getTripHistory: (params) =>
+    apiClient.get("/food/delivery/trip-history", {
+      params: params ?? {},
+      contextModule: "delivery",
+    }),
+  /** GET /food/delivery/pocket-details - single-call week details (trips + transactions) */
+  getPocketDetails: (params) =>
+    apiClient.get("/food/delivery/pocket-details", {
+      params: params ?? {},
+      contextModule: "delivery",
+    }),
+  /** GET /food/delivery/emergency-help - admin-set emergency numbers for delivery partner */
+  getEmergencyHelp: () =>
+    apiClient.get("/food/delivery/emergency-help", {
+      contextModule: "delivery",
+    }),
+  /** GET /food/delivery/cash-limit - admin-set cash limit for delivery partner */
+  getCashLimit: () =>
+    apiClient.get("/food/delivery/cash-limit", {
+      contextModule: "delivery",
+    }),
+  /** Wallet transactions - from wallet response (no separate backend endpoint) */
+  getWalletTransactions: (params) =>
+    apiClient.get("/food/delivery/wallet", { params: params ?? {}, contextModule: "delivery" }).then((res) => ({
+      ...res,
+      data: {
+        ...res.data,
+        data: {
+          transactions: res?.data?.data?.wallet?.transactions ?? [],
+        },
+      },
+    })),
 };
 
-export const userAPI = createStubAPI();
+export const userAPI = {
+  /** GET /food/user/addresses (Bearer USER) */
+  getAddresses: () => apiClient.get("/food/user/addresses", { contextModule: "user" }),
+  /** POST /food/user/addresses (Bearer USER) */
+  addAddress: (body) => apiClient.post("/food/user/addresses", body ?? {}, { contextModule: "user" }),
+  /** PATCH /food/user/addresses/:id (Bearer USER) */
+  updateAddress: (id, body) =>
+    apiClient.patch(`/food/user/addresses/${String(id)}`, body ?? {}, { contextModule: "user" }),
+  /** DELETE /food/user/addresses/:id (Bearer USER) */
+  deleteAddress: (id) =>
+    apiClient.delete(`/food/user/addresses/${String(id)}`, { contextModule: "user" }),
+  /** PATCH /food/user/addresses/:id/default (Bearer USER) */
+  setDefaultAddress: (id) =>
+    apiClient.patch(`/food/user/addresses/${String(id)}/default`, {}, { contextModule: "user" }),
+  /**
+   * Legacy UI compatibility: update "current user location".
+   * We already persist the user's selected location in localStorage in the UI.
+   * Keep this as a no-op success so existing flows don't break.
+   */
+  updateLocation: (_payload) =>
+    Promise.resolve({ data: { success: true, message: "Location saved (client)", data: null } }),
+};
 export const locationAPI = createStubAPI();
 export const zoneAPI = {
   /** Public: detect active service zone for a lat/lng point. */
@@ -990,6 +1069,9 @@ export const zoneAPI = {
     apiClient.get("/food/zones/detect", {
       params: { lat, lng },
     }),
+  /** Public: list active zones (for onboarding dropdowns). */
+  getPublicZones: (params = {}, config = {}) =>
+    apiClient.get("/food/zones/public", { params: params ?? {}, ...config }),
 };
 export const uploadAPI = {
   /**
@@ -1013,7 +1095,21 @@ export const uploadAPI = {
     });
   },
 };
-export const orderAPI = createStubAPI();
+/** Order API (user app – Bearer USER token). Minimal calls: single create/verify, list/details cached by caller. */
+export const orderAPI = {
+  calculateOrder: (payload) =>
+    apiClient.post("/food/orders/calculate", payload ?? {}, { contextModule: "user" }),
+  createOrder: (payload) =>
+    apiClient.post("/food/orders", payload ?? {}, { contextModule: "user" }),
+  verifyPayment: (body) =>
+    apiClient.post("/food/orders/verify-payment", body ?? {}, { contextModule: "user" }),
+  getOrders: (params = {}) =>
+    apiClient.get("/food/orders", { params: { limit: 20, page: 1, ...params }, contextModule: "user" }),
+  getOrderDetails: (orderId) =>
+    apiClient.get(`/food/orders/${String(orderId)}`, { contextModule: "user" }),
+  cancelOrder: (orderId, body = {}) =>
+    apiClient.patch(`/food/orders/${String(orderId)}/cancel`, body ?? {}, { contextModule: "user" }),
+};
 export const diningAPI = createStubAPI();
 export const heroBannerAPI = createStubAPI();
 export const publicAPI = createStubAPI();
