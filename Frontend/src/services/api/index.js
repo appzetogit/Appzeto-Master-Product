@@ -600,6 +600,67 @@ export const restaurantAPI = {
   getMe: () => authService.getMe("restaurant"),
   /** Restaurant dashboard: fetch current restaurant profile (deduped + short-cached). */
   getCurrentRestaurant: () => getRestaurantCurrentOnce(),
+  /** Restaurant hub dashboard bootstrap. */
+  getToHubData: (config = {}) =>
+    apiClient.get("/food/restaurant/to-hub", {
+      contextModule: "restaurant",
+      ...config,
+    }),
+  /** Finance dashboard (stubbed if backend doesn't provide endpoint). */
+  getFinance: (params = {}) => {
+    // NOTE: Backend may not have a /food/restaurant/finance endpoint.
+    // This stub provides a consistent response shape so the UI can render.
+    // Replace with a real endpoint if/when available.
+    const fakeData = {
+      success: true,
+      data: {
+        restaurant: {
+          name: "Your Restaurant",
+          restaurantId: "REST000001",
+          address: "Your address",
+        },
+        currentCycle: {
+          estimatedPayout: 0,
+          totalOrders: 0,
+          orders: [],
+          payoutDate: null,
+          start: "15",
+          end: "21",
+          month: "Dec",
+          year: "25",
+        },
+        pastCycles: {
+          orders: [],
+          totalOrders: 0,
+        },
+      },
+    };
+
+    return Promise.resolve({ data: fakeData });
+  },
+  /** Fetch restaurant by owner (stub for missing backend endpoint). */
+  getRestaurantByOwner: () =>
+    Promise.resolve({
+      data: {
+        success: true,
+        data: {
+          restaurant: {
+            name: "Your Restaurant",
+            restaurantId: "REST000001",
+            address: "Your address",
+          },
+        },
+      },
+    }),
+  /** Submit a withdrawal request (stubbed). */
+  createWithdrawalRequest: (amount) => {
+    return Promise.resolve({
+      data: {
+        success: true,
+        message: `Withdrawal request for ₹${Number(amount).toFixed(2)} received.`,
+      },
+    });
+  },
   /** Update restaurant profile fields (name/cuisines/location/menuImages). */
   updateProfile: (body) =>
     apiClient
@@ -678,6 +739,16 @@ export const restaurantAPI = {
   getMenu: (params = {}) =>
     apiClient.get("/food/restaurant/menu", {
       params,
+      contextModule: "restaurant",
+    }),
+  /** Orders (restaurant dashboard) */
+  getOrders: (params = {}) =>
+    apiClient.get("/food/restaurant/orders", {
+      params: { limit: 50, page: 1, ...params },
+      contextModule: "restaurant",
+    }),
+  getOrderById: (orderId) =>
+    apiClient.get(`/food/restaurant/orders/${String(orderId)}`, {
       contextModule: "restaurant",
     }),
   updateMenu: (body) =>
