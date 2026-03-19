@@ -1453,6 +1453,21 @@ const getCurrentUserForBookings = async () => {
   }
 };
 
+const normalizeBookingUser = (candidate) => {
+  if (!candidate || typeof candidate !== "object") return null;
+  const name = String(candidate?.name || candidate?.fullName || "").trim();
+  const phone = String(candidate?.phone || candidate?.mobile || candidate?.phoneNumber || "").trim();
+  const email = String(candidate?.email || "").trim();
+
+  return {
+    _id: candidate?._id || candidate?.id || null,
+    id: candidate?.id || candidate?._id || null,
+    name,
+    phone,
+    email,
+  };
+};
+
 const byLatest = (a, b) =>
   new Date(b?.createdAt || b?.date || 0).getTime() -
   new Date(a?.createdAt || a?.date || 0).getTime();
@@ -1623,7 +1638,8 @@ export const diningAPI = {
       }
     }
 
-    const user = await getCurrentUserForBookings();
+    const payloadUser = normalizeBookingUser(payload?.userRef || payload?.user);
+    const resolvedUser = payloadUser || normalizeBookingUser(await getCurrentUserForBookings()) || null;
     const nowIso = new Date().toISOString();
     const localBookingId = buildLocalBookingId();
 
@@ -1633,13 +1649,13 @@ export const diningAPI = {
       bookingId: buildDisplayBookingId(),
       restaurantId,
       restaurant: restaurantData,
-      userId: user?._id || user?.id || null,
+      userId: resolvedUser?._id || resolvedUser?.id || null,
       user: {
-        _id: user?._id || user?.id || null,
-        id: user?.id || user?._id || null,
-        name: user?.name || "Guest",
-        phone: user?.phone || "",
-        email: user?.email || "",
+        _id: resolvedUser?._id || resolvedUser?.id || null,
+        id: resolvedUser?.id || resolvedUser?._id || null,
+        name: resolvedUser?.name || "Guest",
+        phone: resolvedUser?.phone || "",
+        email: resolvedUser?.email || "",
       },
       guests: Math.max(1, Number(payload?.guests) || 1),
       date: new Date(payload?.date || nowIso).toISOString(),

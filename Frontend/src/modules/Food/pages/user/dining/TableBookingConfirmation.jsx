@@ -78,6 +78,7 @@ export default function TableBookingConfirmation() {
             const response = await diningAPI.createBooking({
                 restaurant: restaurantId,
                 restaurantRef: restaurant,
+                userRef: user,
                 guests,
                 date,
                 timeSlot,
