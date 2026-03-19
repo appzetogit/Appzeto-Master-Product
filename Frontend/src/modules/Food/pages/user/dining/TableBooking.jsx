@@ -5,6 +5,9 @@ import { Button } from "@food/components/ui/button"
 import AnimatedPage from "@food/components/user/AnimatedPage"
 import { diningAPI, restaurantAPI } from "@food/api"
 import Loader from "@food/components/Loader"
+import { toast } from "sonner"
+
+const BOOKING_DRAFT_KEY = "food_dining_booking_draft_v1"
 
 const buildDates = (count = 7) =>
   Array.from({ length: count }, (_, index) => {
@@ -23,9 +26,24 @@ const formatTimeValue = (value) => {
 
 const parseTimeToMinutes = (value) => {
   if (!value) return null
-  const match = String(value).match(/^(\d{1,2}):(\d{2})$/)
-  if (!match) return null
-  return Number(match[1]) * 60 + Number(match[2])
+  const raw = String(value).trim()
+
+  const hhmmMatch = raw.match(/^(\d{1,2}):(\d{2})$/)
+  if (hhmmMatch) {
+    return Number(hhmmMatch[1]) * 60 + Number(hhmmMatch[2])
+  }
+
+  const meridiemMatch = raw.match(/^(\d{1,2})(?::(\d{2}))?\s*(AM|PM)$/i)
+  if (!meridiemMatch) return null
+
+  let hour = Number(meridiemMatch[1])
+  const minute = Number(meridiemMatch[2] || 0)
+  const meridiem = meridiemMatch[3].toUpperCase()
+
+  if (meridiem === "PM" && hour !== 12) hour += 12
+  if (meridiem === "AM" && hour === 12) hour = 0
+
+  return hour * 60 + minute
 }
 
 const getDayName = (date) => date.toLocaleDateString("en-US", { weekday: "long" })
@@ -48,6 +66,25 @@ const buildSlots = (timing) => {
   }
 
   return slots
+}
+
+const buildFallbackTiming = (restaurant) => {
+  const openingTime = String(
+    restaurant?.openingTime ||
+      restaurant?.diningSettings?.openingTime ||
+      "12:00",
+  ).trim()
+  const closingTime = String(
+    restaurant?.closingTime ||
+      restaurant?.diningSettings?.closingTime ||
+      "23:00",
+  ).trim()
+
+  return {
+    isOpen: true,
+    openingTime,
+    closingTime,
+  }
 }
 
 const getMealPeriod = (slot) => {
@@ -123,7 +160,13 @@ export default function TableBooking() {
   }, [location.state?.restaurant, slug])
 
   const dates = useMemo(() => buildDates(7), [])
-  const selectedDayTiming = useMemo(() => outletTimings?.[getDayName(selectedDate)] || null, [outletTimings, selectedDate])
+  const selectedDayTiming = useMemo(() => {
+    const fromOutletTimings = outletTimings?.[getDayName(selectedDate)] || null
+    if (fromOutletTimings && fromOutletTimings.isOpen !== false) {
+      return fromOutletTimings
+    }
+    return buildFallbackTiming(restaurant)
+  }, [outletTimings, selectedDate, restaurant])
   const allSlots = useMemo(() => buildSlots(selectedDayTiming), [selectedDayTiming])
   const filteredSlots = useMemo(
     () => allSlots.filter((slot) => getMealPeriod(slot) === selectedMealPeriod),
@@ -162,21 +205,41 @@ export default function TableBooking() {
   if (loading) return <Loader />
   if (!restaurant) return <div className="p-6 text-center">Restaurant not found</div>
 
+  const canProceed = Boolean(restaurant && selectedSlot && selectedDate && selectedGuests)
+
   const handleProceed = () => {
-    if (!selectedSlot) return
-    navigate("/food/user/dining/book-confirmation", {
-      state: {
-        restaurant,
-        guests: selectedGuests,
-        date: selectedDate,
-        timeSlot: selectedSlot,
-        discount: selectedSlot,
+    if (!canProceed) {
+      toast.error("Please select date, time, and guests to continue.")
+      return
+    }
+
+    const bookingDraft = {
+      restaurant: {
+        _id: restaurant?._id || restaurant?.id || restaurant?.restaurant?._id || restaurant?.restaurant?.id || null,
+        id: restaurant?.id || restaurant?._id || restaurant?.restaurant?.id || restaurant?.restaurant?._id || null,
+        name: restaurant?.name || restaurant?.restaurantName || "Restaurant",
+        restaurantName: restaurant?.restaurantName || restaurant?.name || "Restaurant",
+        profileImage: restaurant?.profileImage || restaurant?.restaurant?.profileImage || null,
+        image: restaurant?.image || restaurant?.restaurant?.image || restaurant?.profileImage?.url || "",
+        location: restaurant?.location || restaurant?.restaurant?.location || null,
+        slug: restaurant?.slug || slug || "",
+        diningSettings: restaurant?.diningSettings || restaurant?.restaurant?.diningSettings || null,
       },
-    })
+      guests: selectedGuests,
+      date: selectedDate,
+      timeSlot: selectedSlot,
+      discount: selectedSlot,
+    }
+
+    try {
+      sessionStorage.setItem(BOOKING_DRAFT_KEY, JSON.stringify(bookingDraft))
+    } catch {}
+
+    navigate("/food/user/dining/book-confirmation", { state: bookingDraft })
   }
 
   return (
-    <AnimatedPage className="min-h-screen bg-[#f5f6fb] pb-28">
+    <AnimatedPage className="min-h-screen bg-[#f5f6fb] pb-40">
       <div className="relative overflow-hidden bg-gradient-to-b from-[#ffe7c6] via-[#fff1d7] to-[#f5f6fb] px-4 pb-10 pt-5">
         <div className="absolute inset-x-0 top-0 h-24 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.65),transparent_65%)]" />
 
@@ -195,7 +258,7 @@ export default function TableBooking() {
         </div>
       </div>
 
-      <div className="-mt-4 space-y-4 px-4">
+      <div className="mx-auto -mt-4 max-w-md space-y-4 px-4">
         <section className="rounded-[22px] bg-white p-4 shadow-[0_8px_24px_rgba(15,23,42,0.06)]">
           <div className="flex items-center justify-between gap-3">
             <span className="text-sm font-medium text-[#2f3545]">Select number of guests</span>
@@ -305,18 +368,20 @@ export default function TableBooking() {
         </section>
       </div>
 
-      <div className="fixed bottom-0 left-0 right-0 border-t border-[#e6e7ef] bg-[#f5f6fb]/95 p-4 backdrop-blur-xl">
-        <Button
-          disabled={!selectedSlot}
-          onClick={handleProceed}
-          className={`h-14 w-full rounded-2xl text-lg font-bold ${
-            selectedSlot
-              ? "bg-[#8f97ae] text-white hover:bg-[#7f879f]"
-              : "bg-[#a4abba] text-white/95"
-          }`}
-        >
-          Proceed
-        </Button>
+      <div className="fixed bottom-0 left-0 right-0 z-[70] border-t border-[#e6e7ef] bg-[#f5f6fb]/95 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] backdrop-blur-xl">
+        <div className="mx-auto max-w-md">
+          <Button
+            disabled={!canProceed}
+            onClick={handleProceed}
+            className={`h-14 w-full rounded-2xl text-lg font-bold ${
+              canProceed
+                ? "bg-[#eb4d60] text-white hover:bg-[#d73f52]"
+                : "bg-[#a4abba] text-white/95"
+            }`}
+          >
+            {canProceed ? "Proceed to confirmation" : "Select a time slot to proceed"}
+          </Button>
+        </div>
       </div>
     </AnimatedPage>
   )

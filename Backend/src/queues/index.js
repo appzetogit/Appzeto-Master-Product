@@ -56,6 +56,9 @@ export const getQueue = (queueName) => {
     if (!config.bullmqEnabled) {
         return null;
     }
+    if (!config.redisEnabled) {
+        return null;
+    }
     if (queueInstances.has(queueName)) {
         return queueInstances.get(queueName);
     }
@@ -70,6 +73,11 @@ export const getQueue = (queueName) => {
 export const initializeQueues = () => {
     if (!config.bullmqEnabled) {
         logger.info('BullMQ is disabled (BULLMQ_ENABLED is not true). Queues will not be initialized.');
+        return { initialized: false, queues: [] };
+    }
+
+    if (!config.redisEnabled) {
+        logger.warn('BullMQ is enabled but Redis is disabled. Queues will not be initialized.');
         return { initialized: false, queues: [] };
     }
 

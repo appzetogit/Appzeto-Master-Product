@@ -57,13 +57,16 @@ const startServer = async () => {
             await connectRedis();
         }
 
-        // 5. Conditionally initialize BullMQ queues (only if BULLMQ_ENABLED=true). Workers run separately.
-        if (config.bullmqEnabled) {
+        // 5. Conditionally initialize BullMQ queues.
+        // BullMQ requires Redis; skip queue bootstrap when Redis is disabled.
+        if (config.bullmqEnabled && config.redisEnabled) {
             try {
                 initializeQueues();
             } catch (err) {
                 logger.error(`BullMQ initialization error (server continues): ${err.message}`);
             }
+        } else if (config.bullmqEnabled && !config.redisEnabled) {
+            logger.warn('BullMQ is enabled but Redis is disabled. Queue initialization skipped.');
         }
 
         // 6. Start the HTTP server

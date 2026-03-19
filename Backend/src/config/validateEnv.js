@@ -20,6 +20,9 @@ export const validateConfig = () => {
     if (config.redisEnabled && !config.redisUrl) {
         missing.push('REDIS_URL (required when REDIS_ENABLED=true)');
     }
+    if (config.bullmqEnabled && !config.redisEnabled) {
+        missing.push('REDIS_ENABLED=true (required when BULLMQ_ENABLED=true)');
+    }
 
     if (missing.length > 0) {
         logger.error(`Missing required environment variables: ${missing.join(', ')}`);

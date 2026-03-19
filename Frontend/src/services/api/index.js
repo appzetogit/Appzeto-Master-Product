@@ -1382,6 +1382,85 @@ export const orderAPI = {
   cancelOrder: (orderId, body = {}) =>
     apiClient.patch(`/food/orders/${String(orderId)}/cancel`, body ?? {}, { contextModule: "user" }),
 };
+
+const DINING_BOOKINGS_STORAGE_KEY = "food_dining_bookings_v1";
+
+const safeJsonParse = (value, fallback) => {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallback;
+  }
+};
+
+const getStoredBookings = () => {
+  if (typeof localStorage === "undefined") return [];
+  const parsed = safeJsonParse(
+    localStorage.getItem(DINING_BOOKINGS_STORAGE_KEY) || "[]",
+    [],
+  );
+  return Array.isArray(parsed) ? parsed : [];
+};
+
+const saveStoredBookings = (bookings) => {
+  if (typeof localStorage === "undefined") return;
+  localStorage.setItem(
+    DINING_BOOKINGS_STORAGE_KEY,
+    JSON.stringify(Array.isArray(bookings) ? bookings : []),
+  );
+};
+
+const getStoredModuleUser = (module) => {
+  if (typeof localStorage === "undefined") return null;
+  const parsed = safeJsonParse(localStorage.getItem(`${module}_user`) || "null", null);
+  return parsed && typeof parsed === "object" ? parsed : null;
+};
+
+const normalizeName = (restaurant) =>
+  restaurant?.name || restaurant?.restaurantName || "Restaurant";
+
+const normalizeRestaurantShape = (restaurant) => {
+  if (!restaurant || typeof restaurant !== "object") return null;
+  return {
+    _id: restaurant?._id || restaurant?.id || null,
+    id: restaurant?.id || restaurant?._id || null,
+    slug: restaurant?.slug || "",
+    name: normalizeName(restaurant),
+    restaurantName: restaurant?.restaurantName || normalizeName(restaurant),
+    profileImage: restaurant?.profileImage || null,
+    image:
+      restaurant?.image ||
+      restaurant?.profileImage?.url ||
+      (typeof restaurant?.profileImage === "string" ? restaurant.profileImage : ""),
+    location: restaurant?.location || null,
+  };
+};
+
+const buildLocalBookingId = () => `dbook_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+const buildDisplayBookingId = () => `TB${Date.now().toString().slice(-8)}`;
+
+const getCurrentUserForBookings = async () => {
+  const storedUser = getStoredModuleUser("user");
+  if (storedUser) return storedUser;
+
+  try {
+    const me = await getUserMeOnce();
+    return (
+      me?.data?.data?.user ||
+      me?.data?.user ||
+      me?.data?.data ||
+      null
+    );
+  } catch {
+    return null;
+  }
+};
+
+const byLatest = (a, b) =>
+  new Date(b?.createdAt || b?.date || 0).getTime() -
+  new Date(a?.createdAt || a?.date || 0).getTime();
+
 export const diningAPI = {
   getCategories: (params = {}) =>
     apiClient.get("/food/dining/categories/public", { params }),
@@ -1397,18 +1476,196 @@ export const diningAPI = {
     Promise.resolve({ data: { success: true, data: [] } }),
   getBankOffers: () =>
     Promise.resolve({ data: { success: true, data: [] } }),
-  getBookings: () =>
-    Promise.resolve({ data: { success: true, data: [] } }),
-  createReview: () =>
-    Promise.resolve({ data: { success: true, data: null } }),
-  createBooking: () =>
-    Promise.resolve({
-      data: {
-        success: false,
-        message: "Booking backend not connected",
-        data: null,
+  getBookings: async () => {
+    const bookings = getStoredBookings();
+    const user = await getCurrentUserForBookings();
+
+    const userId = user?._id || user?.id || null;
+    const userPhone = String(user?.phone || "").trim();
+    const userEmail = String(user?.email || "").trim().toLowerCase();
+
+    const filtered = bookings
+      .filter((booking) => {
+        if (userId) {
+          return (
+            String(booking?.userId || "") === String(userId) ||
+            String(booking?.user?._id || booking?.user?.id || "") === String(userId)
+          );
+        }
+
+        if (userPhone) {
+          return String(booking?.user?.phone || "").trim() === userPhone;
+        }
+
+        if (userEmail) {
+          return String(booking?.user?.email || "").trim().toLowerCase() === userEmail;
+        }
+
+        return false;
+      })
+      .sort(byLatest);
+
+    return Promise.resolve({ data: { success: true, data: filtered } });
+  },
+  getRestaurantBookings: (restaurantId) => {
+    const id = String(restaurantId || "").trim();
+    const bookings = getStoredBookings();
+
+    const filtered = bookings
+      .filter((booking) => {
+        if (!id) return false;
+        return (
+          String(booking?.restaurantId || "") === id ||
+          String(
+            booking?.restaurant?._id ||
+              booking?.restaurant?.id ||
+              booking?.restaurant?.restaurantId ||
+              booking?.restaurant?.restaurant?._id ||
+              booking?.restaurant?.restaurant?.id ||
+              "",
+          ) === id
+        );
+      })
+      .sort(byLatest);
+
+    return Promise.resolve({ data: { success: true, data: filtered } });
+  },
+  updateBookingStatusRestaurant: (bookingId, status) => {
+    const id = String(bookingId || "").trim();
+    const nextStatus = String(status || "").trim().toLowerCase();
+    const bookings = getStoredBookings();
+
+    const next = bookings.map((booking) => {
+      const bookingKey = String(booking?._id || booking?.id || "");
+      if (bookingKey !== id) return booking;
+      return {
+        ...booking,
+        status: nextStatus || booking?.status || "confirmed",
+        updatedAt: new Date().toISOString(),
+      };
+    });
+
+    saveStoredBookings(next);
+    const updated = next.find((booking) => String(booking?._id || booking?.id || "") === id) || null;
+
+    return Promise.resolve({ data: { success: Boolean(updated), data: updated } });
+  },
+  createReview: (payload = {}) => {
+    const bookingId = String(payload?.bookingId || "").trim();
+    if (!bookingId) {
+      return Promise.resolve({
+        data: { success: false, message: "bookingId is required", data: null },
+      });
+    }
+
+    const bookings = getStoredBookings();
+    const next = bookings.map((booking) => {
+      const bookingKey = String(booking?._id || booking?.id || "");
+      if (bookingKey !== bookingId) return booking;
+      return {
+        ...booking,
+        review: {
+          rating: Number(payload?.rating || 0),
+          comment: String(payload?.comment || "").trim(),
+          createdAt: new Date().toISOString(),
+        },
+        updatedAt: new Date().toISOString(),
+      };
+    });
+
+    saveStoredBookings(next);
+    const updated = next.find((booking) => String(booking?._id || booking?.id || "") === bookingId) || null;
+
+    return Promise.resolve({ data: { success: Boolean(updated), data: updated } });
+  },
+  createBooking: async (payload = {}) => {
+    const restaurantId = String(
+      payload?.restaurant ||
+        payload?.restaurantId ||
+        payload?.restaurantRef?._id ||
+        payload?.restaurantRef?.id ||
+        payload?.restaurantRef?.restaurant?._id ||
+        payload?.restaurantRef?.restaurant?.id ||
+        payload?.restaurant?._id ||
+        payload?.restaurant?.id ||
+        "",
+    ).trim();
+
+    if (!restaurantId) {
+      return Promise.resolve({
+        data: {
+          success: false,
+          message: "Restaurant is required",
+          data: null,
+        },
+      });
+    }
+
+    let restaurantData =
+      normalizeRestaurantShape(payload?.restaurantRef) ||
+      normalizeRestaurantShape(payload?.restaurant?.restaurant) ||
+      normalizeRestaurantShape(payload?.restaurant);
+    if (!restaurantData) {
+      try {
+        const restaurantRes = await apiClient.get(
+          `/food/restaurant/restaurants/${String(restaurantId)}`,
+        );
+        const rawRestaurant =
+          restaurantRes?.data?.data?.restaurant || restaurantRes?.data?.data || null;
+        restaurantData = normalizeRestaurantShape(rawRestaurant);
+      } catch {
+        restaurantData = {
+          _id: restaurantId,
+          id: restaurantId,
+          name: "Restaurant",
+          restaurantName: "Restaurant",
+          profileImage: null,
+          image: "",
+          location: null,
+          slug: "",
+        };
+      }
+    }
+
+    const user = await getCurrentUserForBookings();
+    const nowIso = new Date().toISOString();
+    const localBookingId = buildLocalBookingId();
+
+    const booking = {
+      _id: localBookingId,
+      id: localBookingId,
+      bookingId: buildDisplayBookingId(),
+      restaurantId,
+      restaurant: restaurantData,
+      userId: user?._id || user?.id || null,
+      user: {
+        _id: user?._id || user?.id || null,
+        id: user?.id || user?._id || null,
+        name: user?.name || "Guest",
+        phone: user?.phone || "",
+        email: user?.email || "",
       },
-    }),
+      guests: Math.max(1, Number(payload?.guests) || 1),
+      date: new Date(payload?.date || nowIso).toISOString(),
+      timeSlot: String(payload?.timeSlot || "").trim(),
+      specialRequest: String(payload?.specialRequest || "").trim(),
+      status: "confirmed",
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    };
+
+    const bookings = getStoredBookings();
+    const next = [booking, ...bookings].sort(byLatest);
+    saveStoredBookings(next);
+
+    return Promise.resolve({
+      data: {
+        success: true,
+        message: "Booking created successfully",
+        data: booking,
+      },
+    });
+  },
 };
 export const heroBannerAPI = createStubAPI();
 export const publicAPI = createStubAPI();
