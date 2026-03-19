@@ -208,7 +208,6 @@ export default function Dining() {
             : "Multi-cuisine",
           image: String(
             restaurant?.coverImage ||
-            restaurant?.menuImages?.[0] ||
             restaurant?.profileImage?.url ||
             restaurant?.profileImage ||
             ""

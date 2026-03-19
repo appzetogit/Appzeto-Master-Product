@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import { useLocation, useNavigate } from "react-router-dom"
 import { ArrowLeft, Calendar, Users, MapPin, Ticket, ChevronRight, Edit2, ShieldCheck, Info } from "lucide-react"
 import { Button } from "@food/components/ui/button"
@@ -11,11 +11,21 @@ const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
 
+const BOOKING_DRAFT_KEY = "food_dining_booking_draft_v1"
 
 export default function TableBookingConfirmation() {
     const location = useLocation()
     const navigate = useNavigate()
-    const { restaurant, guests, date, timeSlot, discount } = location.state || {}
+    const fallbackDraft = useMemo(() => {
+        try {
+            const raw = sessionStorage.getItem(BOOKING_DRAFT_KEY)
+            return raw ? JSON.parse(raw) : null
+        } catch {
+            return null
+        }
+    }, [])
+    const resolvedState = location.state || fallbackDraft || {}
+    const { restaurant, guests, date, timeSlot, discount } = resolvedState
 
     const [specialRequest, setSpecialRequest] = useState("")
     const [user, setUser] = useState(null)
@@ -55,6 +65,8 @@ export default function TableBookingConfirmation() {
             const restaurantId =
                 restaurant?._id ||
                 restaurant?.id ||
+                restaurant?.restaurant?._id ||
+                restaurant?.restaurant?.id ||
                 restaurant?.restaurantId ||
                 null
 
@@ -65,6 +77,7 @@ export default function TableBookingConfirmation() {
 
             const response = await diningAPI.createBooking({
                 restaurant: restaurantId,
+                restaurantRef: restaurant,
                 guests,
                 date,
                 timeSlot,
@@ -73,6 +86,9 @@ export default function TableBookingConfirmation() {
 
             if (response.data.success) {
                 toast.success("Table booked successfully!")
+                try {
+                    sessionStorage.removeItem(BOOKING_DRAFT_KEY)
+                } catch {}
                 // Navigate to success page with booking details
                 navigate("/food/user/dining/book-success", { state: { booking: response.data.data } })
             }
@@ -86,7 +102,10 @@ export default function TableBookingConfirmation() {
 
     if (loading) return <Loader />
 
-    const formattedDate = new Date(date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })
+    const bookingDate = new Date(date)
+    const formattedDate = Number.isNaN(bookingDate.getTime())
+        ? "Today"
+        : bookingDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })
 
     return (
         <AnimatedPage className="bg-slate-50 min-h-screen pb-24">
@@ -234,7 +253,7 @@ export default function TableBookingConfirmation() {
             </div>
 
             {/* Sticky Action Button */}
-            <div className="fixed bottom-0 left-0 w-full bg-white border-t border-slate-100 p-4 shadow-[0_-10px_30px_rgba(0,0,0,0.05)] z-50">
+            <div className="fixed bottom-0 left-0 w-full bg-white border-t border-slate-100 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-[0_-10px_30px_rgba(0,0,0,0.05)] z-50">
                 <Button
                     onClick={handleBooking}
                     disabled={bookingInProgress}
