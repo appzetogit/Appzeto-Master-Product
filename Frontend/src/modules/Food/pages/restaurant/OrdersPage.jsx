@@ -20,6 +20,8 @@ import { getOrderStatus, normalizeStatus, matchesOrdersPageFilter, ORDER_STATUS 
 import { getTransactionsByType, getOrderPaymentAmount } from "@food/utils/walletState"
 import { formatCurrency, usdToInr } from "@food/utils/currency"
 import { restaurantAPI } from "@food/api"
+import { RestaurantGridSkeleton } from "@food/components/ui/loading-skeletons"
+import { useDelayedLoading } from "@food/hooks/useDelayedLoading"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -33,6 +35,7 @@ export default function OrdersPage() {
   const [orders, setOrders] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const showOrdersSkeleton = useDelayedLoading(loading, { delay: 120, minDuration: 360 })
 
   // Restaurant notifications hook
   const { newOrder, clearNewOrder, isConnected } = useRestaurantNotifications()
@@ -460,11 +463,12 @@ export default function OrdersPage() {
 
         {/* Orders List */}
         <div className="space-y-3 md:space-y-4">
-          {loading ? (
-            <div className="text-center py-12">
-              <Loader2 className="w-16 h-16 text-gray-400 mx-auto mb-4 animate-spin" />
-              <p className="text-gray-600 text-base md:text-lg">Loading orders...</p>
-            </div>
+          {showOrdersSkeleton ? (
+            <RestaurantGridSkeleton
+              count={4}
+              className="grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-2"
+              compact
+            />
           ) : error ? (
             <div className="text-center py-12">
               <p className="text-red-600 text-base md:text-lg mb-2">Error: {error}</p>

@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useEffect } from "react"
+import { useState, useMemo, useRef, useEffect, startTransition, useDeferredValue } from "react"
 import { useParams, Link, useNavigate } from "react-router-dom"
 import { createPortal } from "react-dom"
 import { motion, AnimatePresence } from "framer-motion"
@@ -6,6 +6,11 @@ import { ArrowLeft, Star, Clock, Search, SlidersHorizontal, ChevronDown, Bookmar
 import { Card, CardContent } from "@food/components/ui/card"
 import { Button } from "@food/components/ui/button"
 import { Input } from "@food/components/ui/input"
+import {
+  CategoryChipRowSkeleton,
+  LoadingSkeletonRegion,
+  RestaurantGridSkeleton,
+} from "@food/components/ui/loading-skeletons"
 
 // Import shared food images - prevents duplication
 import { foodImages } from "@food/constants/images"
@@ -15,6 +20,7 @@ import { API_BASE_URL } from "@food/api/config"
 import { useProfile } from "@food/context/ProfileContext"
 import { useLocation } from "@food/hooks/useLocation"
 import { useZone } from "@food/hooks/useZone"
+import { useDelayedLoading } from "@food/hooks/useDelayedLoading"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -50,6 +56,7 @@ export default function CategoryPage() {
   const filterSectionRefs = useRef({})
   const rightContentRef = useRef(null)
   const categoryScrollRef = useRef(null)
+  const menuEnrichmentRequestRef = useRef(0)
 
   // State for categories from admin
   const [categories, setCategories] = useState([])
@@ -59,6 +66,12 @@ export default function CategoryPage() {
   const [restaurantsData, setRestaurantsData] = useState([])
   const [loadingRestaurants, setLoadingRestaurants] = useState(true)
   const [categoryKeywords, setCategoryKeywords] = useState({})
+  const showCategorySkeleton = useDelayedLoading(loadingCategories)
+  const showRestaurantSkeleton = useDelayedLoading(
+    isLoadingFilterResults || loadingRestaurants,
+    { delay: 140, minDuration: 360 }
+  )
+  const deferredSearchQuery = useDeferredValue(searchQuery)
   const BACKEND_ORIGIN = useMemo(() => API_BASE_URL.replace(/\/api\/?$/, ""), [])
   const slugify = (value) => String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "")
   const uniqueByRestaurant = (list) => {
@@ -457,84 +470,96 @@ export default function CategoryPage() {
               }
             })
 
-          // Fetch menus for all restaurants
-          const menuPromises = restaurantsWithIds.map(async (restaurant) => {
-            try {
-              const menuResponse = await restaurantAPI.getMenuByRestaurantId(restaurant.restaurantId)
-              if (menuResponse.data && menuResponse.data.success && menuResponse.data.data && menuResponse.data.data.menu) {
-                const menu = menuResponse.data.data.menu
-                const hasPaneer = checkCategoryInMenu(menu, 'paneer-tikka')
+          startTransition(() => {
+            setRestaurantsData(restaurantsWithIds)
+          })
 
-                let featuredDish = restaurant.featuredDish
-                let featuredPrice = restaurant.featuredPrice
+          const enrichmentRequestId = ++menuEnrichmentRequestRef.current
 
-                if (!featuredDish || !featuredPrice) {
-                  for (const section of (menu.sections || [])) {
-                    if (section.items && section.items.length > 0) {
-                      const firstItem = section.items[0]
-                      if (!featuredDish) featuredDish = firstItem.name
-                      if (!featuredPrice) {
-                        const originalPrice = firstItem.originalPrice || firstItem.price || 0
-                        const discountPercent = firstItem.discountPercent || 0
-                        featuredPrice = discountPercent > 0
-                          ? Math.round(originalPrice * (1 - discountPercent / 100))
-                          : originalPrice
+          void (async () => {
+            const transformedRestaurants = []
+
+            for (let index = 0; index < restaurantsWithIds.length; index += 4) {
+              const batchRestaurants = restaurantsWithIds.slice(index, index + 4)
+              const batchResults = await Promise.all(
+                batchRestaurants.map(async (restaurant) => {
+                  try {
+                    const menuResponse = await restaurantAPI.getMenuByRestaurantId(restaurant.restaurantId)
+                    if (menuResponse.data && menuResponse.data.success && menuResponse.data.data && menuResponse.data.data.menu) {
+                      const menu = menuResponse.data.data.menu
+                      const hasPaneer = checkCategoryInMenu(menu, 'paneer-tikka')
+
+                      let featuredDish = restaurant.featuredDish
+                      let featuredPrice = restaurant.featuredPrice
+
+                      if (!featuredDish || !featuredPrice) {
+                        for (const section of (menu.sections || [])) {
+                          if (section.items && section.items.length > 0) {
+                            const firstItem = section.items[0]
+                            if (!featuredDish) featuredDish = firstItem.name
+                            if (!featuredPrice) {
+                              const originalPrice = firstItem.originalPrice || firstItem.price || 0
+                              const discountPercent = firstItem.discountPercent || 0
+                              featuredPrice = discountPercent > 0
+                                ? Math.round(originalPrice * (1 - discountPercent / 100))
+                                : originalPrice
+                            }
+                            break
+                          }
+                        }
                       }
-                      break
+
+                      return {
+                        ...restaurant,
+                        menu: menu,
+                        hasPaneer: hasPaneer,
+                        featuredDish: featuredDish || null,
+                        featuredPrice: featuredPrice || null,
+                        categoryMatches: {},
+                      }
                     }
+                  } catch (error) {
+                    debugWarn(`Failed to fetch menu for restaurant ${restaurant.restaurantId}:`, error)
                   }
-                }
 
-                return {
-                  ...restaurant,
-                  menu: menu,
-                  hasPaneer: hasPaneer,
-                  featuredDish: featuredDish || null,
-                  featuredPrice: featuredPrice || null,
-                  categoryMatches: {},
-                }
-              }
-              return {
-                ...restaurant,
-                menu: null,
-                hasPaneer: false,
-                categoryMatches: {},
-              }
-            } catch (error) {
-              debugWarn(`Failed to fetch menu for restaurant ${restaurant.restaurantId}:`, error)
-              return {
-                ...restaurant,
-                menu: null,
-                hasPaneer: false,
-                categoryMatches: {},
-              }
+                  return {
+                    ...restaurant,
+                    menu: null,
+                    hasPaneer: false,
+                    categoryMatches: {},
+                  }
+                })
+              )
+
+              if (enrichmentRequestId !== menuEnrichmentRequestRef.current) return
+              transformedRestaurants.push(...batchResults)
             }
-          })
 
-          const transformedRestaurants = await Promise.all(menuPromises)
-          setRestaurantsData(transformedRestaurants)
-
-          // Prefer real categories derived from menu sections that are common across restaurants.
-          const sectionStatsMap = new Map()
-          transformedRestaurants.forEach((restaurant) => {
-            const sections = restaurant?.menu?.sections
-            if (!Array.isArray(sections)) return
-            const seenInRestaurant = new Set()
-            sections.forEach((section) => {
-              const rawName = String(section?.name || "").trim()
-              if (!rawName) return
-              const key = slugify(rawName)
-              if (!key || seenInRestaurant.has(key)) return
-              seenInRestaurant.add(key)
-
-              const existing = sectionStatsMap.get(key) || { name: rawName, count: 0 }
-              existing.count += 1
-              sectionStatsMap.set(key, existing)
+            startTransition(() => {
+              setRestaurantsData(transformedRestaurants)
             })
-          })
 
-          // Keep category list coming from admin categories API.
-          // Do not generate "fake" category images from local assets.
+            const sectionStatsMap = new Map()
+            transformedRestaurants.forEach((restaurant) => {
+              const sections = restaurant?.menu?.sections
+              if (!Array.isArray(sections)) return
+              const seenInRestaurant = new Set()
+              sections.forEach((section) => {
+                const rawName = String(section?.name || "").trim()
+                if (!rawName) return
+                const key = slugify(rawName)
+                if (!key || seenInRestaurant.has(key)) return
+                seenInRestaurant.add(key)
+
+                const existing = sectionStatsMap.get(key) || { name: rawName, count: 0 }
+                existing.count += 1
+                sectionStatsMap.set(key, existing)
+              })
+            })
+
+            // Keep category list coming from admin categories API.
+            // Do not generate "fake" category images from local assets.
+          })()
         } else {
           setRestaurantsData([])
         }
@@ -708,8 +733,8 @@ export default function CategoryPage() {
     }
 
     // Filter by search
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase()
+    if (deferredSearchQuery.trim()) {
+      const query = deferredSearchQuery.toLowerCase()
       filtered = filtered.filter(r =>
         r.name?.toLowerCase().includes(query) ||
         r.cuisine?.toLowerCase().includes(query) ||
@@ -718,7 +743,7 @@ export default function CategoryPage() {
     }
 
     return uniqueByRestaurant(filtered)
-  }, [selectedCategory, activeFilters, searchQuery, restaurantsData, categoryKeywords, vegMode])
+  }, [selectedCategory, activeFilters, deferredSearchQuery, restaurantsData, categoryKeywords, vegMode])
 
   const filteredAllRestaurants = useMemo(() => {
     const sourceData = restaurantsData.length > 0 ? restaurantsData : []
@@ -802,8 +827,8 @@ export default function CategoryPage() {
     }
 
     // Filter by search
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase()
+    if (deferredSearchQuery.trim()) {
+      const query = deferredSearchQuery.toLowerCase()
       filtered = filtered.filter(r =>
         r.name?.toLowerCase().includes(query) ||
         r.cuisine?.toLowerCase().includes(query) ||
@@ -812,7 +837,7 @@ export default function CategoryPage() {
     }
 
     return uniqueByRestaurant(filtered)
-  }, [selectedCategory, activeFilters, searchQuery, restaurantsData, categoryKeywords, vegMode])
+  }, [selectedCategory, activeFilters, deferredSearchQuery, restaurantsData, categoryKeywords, vegMode])
 
   const handleCategorySelect = (category) => {
     const categorySlug = category.slug || category.id
@@ -865,11 +890,8 @@ export default function CategoryPage() {
               msOverflowStyle: "none",
             }}
           >
-            {loadingCategories ? (
-              <div className="flex items-center justify-center gap-2 py-4">
-                <Loader2 className="h-5 w-5 animate-spin text-[#EB590E]" />
-                <span className="text-sm text-gray-600 dark:text-gray-400">Loading categories...</span>
-              </div>
+            {showCategorySkeleton ? (
+              <CategoryChipRowSkeleton className="py-3" />
             ) : (
               categories && categories.length > 0 ? categories.map((cat) => {
                 const categorySlug = cat.slug || cat.id
@@ -1107,17 +1129,16 @@ export default function CategoryPage() {
             </h2>
 
             {/* Loading Overlay */}
-            {isLoadingFilterResults && (
-              <div className="absolute inset-0 bg-white/80 dark:bg-[#1a1a1a]/80 backdrop-blur-sm z-10 flex items-center justify-center rounded-lg min-h-[400px]">
-                <div className="flex flex-col items-center gap-3">
-                  <Loader2 className="h-8 w-8 text-[#EB590E] animate-spin" strokeWidth={2.5} />
-                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Loading restaurants...</span>
-                </div>
+            {showRestaurantSkeleton && (
+              <div className="absolute inset-0 z-10 rounded-lg bg-white/92 backdrop-blur-sm dark:bg-[#1a1a1a]/92">
+                <LoadingSkeletonRegion label="Loading restaurants" className="h-full p-1 sm:p-2">
+                  <RestaurantGridSkeleton count={4} compact />
+                </LoadingSkeletonRegion>
               </div>
             )}
 
             {/* Large Restaurant Cards */}
-            <div className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-5 lg:gap-6 xl:gap-7 items-stretch ${isLoadingFilterResults ? 'opacity-50' : 'opacity-100'} transition-opacity duration-300`}>
+            <div className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-5 lg:gap-6 xl:gap-7 items-stretch ${showRestaurantSkeleton ? 'opacity-50' : 'opacity-100'} transition-opacity duration-300`}>
               {filteredAllRestaurants.map((restaurant) => {
                 const restaurantSlug = restaurant.name.toLowerCase().replace(/\s+/g, "-")
                 const isFavorite = favorites.has(restaurant.id)

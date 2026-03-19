@@ -1,14 +1,16 @@
-import { useState, useMemo, useRef, useEffect } from "react"
+import { useState, useMemo, useRef, useEffect, startTransition, useDeferredValue } from "react"
 import { useSearchParams, Link, useNavigate } from "react-router-dom"
-import { ArrowLeft, Star, Clock, Search, SlidersHorizontal, ChevronDown, Bookmark, BadgePercent, Mic, Loader2, Grid2x2 } from "lucide-react"
+import { ArrowLeft, Star, Clock, Search, SlidersHorizontal, ChevronDown, Bookmark, BadgePercent, Mic, Grid2x2 } from "lucide-react"
 import { Card, CardContent } from "@food/components/ui/card"
 import { Button } from "@food/components/ui/button"
 import { Input } from "@food/components/ui/input"
+import { RestaurantGridSkeleton } from "@food/components/ui/loading-skeletons"
 import StickyCartCard from "@food/components/user/StickyCartCard"
 import { useProfile } from "@food/context/ProfileContext"
 import { useLocation } from "@food/hooks/useLocation"
 import { useZone } from "@food/hooks/useZone"
 import { restaurantAPI, adminAPI } from "@food/api"
+import { useDelayedLoading } from "@food/hooks/useDelayedLoading"
 
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
@@ -36,6 +38,7 @@ export default function SearchResults() {
   const [activeFilters, setActiveFilters] = useState(new Set())
   const [favorites, setFavorites] = useState(new Set())
   const categoryScrollRef = useRef(null)
+  const menuEnrichmentRequestRef = useRef(0)
   const [restaurantsData, setRestaurantsData] = useState([])
   const [loadingRestaurants, setLoadingRestaurants] = useState(true)
   const [categories, setCategories] = useState([
@@ -43,6 +46,8 @@ export default function SearchResults() {
   ])
   const [loadingCategories, setLoadingCategories] = useState(true)
   const [categoryKeywords, setCategoryKeywords] = useState({})
+  const showRestaurantSkeleton = useDelayedLoading(loadingRestaurants)
+  const deferredQuery = useDeferredValue(query)
   const slugify = (value) => String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "")
   const uniqueRestaurants = (list) => {
     const seen = new Set()
@@ -315,144 +320,150 @@ export default function SearchResults() {
               }
             })
 
-          // Fetch menus for all restaurants in parallel
-          const menuPromises = restaurantsWithIds.map(async (restaurant) => {
-            try {
-              const menuResponse = await restaurantAPI.getMenuByRestaurantId(restaurant.restaurantId)
-              if (menuResponse.data && menuResponse.data.success && menuResponse.data.data && menuResponse.data.data.menu) {
-                const menu = menuResponse.data.data.menu
+          startTransition(() => {
+            setRestaurantsData(restaurantsWithIds)
+          })
 
-                // Store menu data for dynamic filtering
-                const hasPaneer = checkCategoryInMenu(menu, 'paneer-tikka')
+          const enrichmentRequestId = ++menuEnrichmentRequestRef.current
 
-                // Get featured dish and price from menu if not set in restaurant
-                let featuredDish = restaurant.featuredDish
-                let featuredPrice = restaurant.featuredPrice
+          void (async () => {
+            const transformedRestaurants = []
 
-                // If featured dish/price not set, get from first available menu item
-                if (!featuredDish || !featuredPrice) {
-                  for (const section of (menu.sections || [])) {
-                    if (section.items && section.items.length > 0) {
-                      const firstItem = section.items[0]
-                      if (!featuredDish) featuredDish = firstItem.name
-                      if (!featuredPrice) {
-                        // Calculate final price considering discounts
-                        const originalPrice = firstItem.originalPrice || firstItem.price || 0
-                        const discountPercent = firstItem.discountPercent || 0
-                        featuredPrice = discountPercent > 0
-                          ? Math.round(originalPrice * (1 - discountPercent / 100))
-                          : originalPrice
+            for (let index = 0; index < restaurantsWithIds.length; index += 4) {
+              const batchRestaurants = restaurantsWithIds.slice(index, index + 4)
+              const batchResults = await Promise.all(
+                batchRestaurants.map(async (restaurant) => {
+                  try {
+                    const menuResponse = await restaurantAPI.getMenuByRestaurantId(restaurant.restaurantId)
+                    if (menuResponse.data && menuResponse.data.success && menuResponse.data.data && menuResponse.data.data.menu) {
+                      const menu = menuResponse.data.data.menu
+                      const hasPaneer = checkCategoryInMenu(menu, 'paneer-tikka')
+
+                      let featuredDish = restaurant.featuredDish
+                      let featuredPrice = restaurant.featuredPrice
+
+                      if (!featuredDish || !featuredPrice) {
+                        for (const section of (menu.sections || [])) {
+                          if (section.items && section.items.length > 0) {
+                            const firstItem = section.items[0]
+                            if (!featuredDish) featuredDish = firstItem.name
+                            if (!featuredPrice) {
+                              const originalPrice = firstItem.originalPrice || firstItem.price || 0
+                              const discountPercent = firstItem.discountPercent || 0
+                              featuredPrice = discountPercent > 0
+                                ? Math.round(originalPrice * (1 - discountPercent / 100))
+                                : originalPrice
+                            }
+                            break
+                          }
+                        }
                       }
-                      break
+
+                      return {
+                        ...restaurant,
+                        menu: menu,
+                        hasPaneer: hasPaneer,
+                        featuredDish: featuredDish || null,
+                        featuredPrice: featuredPrice || null,
+                        categoryMatches: {},
+                      }
+                    }
+                  } catch (error) {
+                    debugWarn(`Failed to fetch menu for restaurant ${restaurant.restaurantId}:`, error)
+                  }
+
+                  return {
+                    ...restaurant,
+                    menu: null,
+                    hasPaneer: false,
+                    categoryMatches: {},
+                  }
+                })
+              )
+
+              if (enrichmentRequestId !== menuEnrichmentRequestRef.current) return
+              transformedRestaurants.push(...batchResults)
+            }
+
+            debugLog(`? Final transformed restaurants: ${transformedRestaurants.length}`)
+            startTransition(() => {
+              setRestaurantsData(transformedRestaurants)
+            })
+
+            const sectionStatsMap = new Map()
+            transformedRestaurants.forEach((restaurant) => {
+              const sections = restaurant?.menu?.sections
+              if (!Array.isArray(sections)) return
+              const seenInRestaurant = new Set()
+              sections.forEach((section) => {
+                const rawName = String(section?.name || '').trim()
+                if (!rawName) return
+                const key = slugify(rawName)
+                if (!key || seenInRestaurant.has(key)) return
+                seenInRestaurant.add(key)
+
+                const existing = sectionStatsMap.get(key) || { name: rawName, count: 0 }
+                existing.count += 1
+                sectionStatsMap.set(key, existing)
+              })
+            })
+
+            if (sectionStatsMap.size > 0) {
+              const sourceEntries = Array.from(sectionStatsMap.entries())
+                .map(([slug, stats]) => [slug, stats.name])
+
+              const getCategoryImageFromMenus = (slug, categoryName) => {
+                for (const restaurant of transformedRestaurants) {
+                  const menuSections = Array.isArray(restaurant?.menu?.sections) ? restaurant.menu.sections : []
+                  for (const section of menuSections) {
+                    const sectionSlug = slugify(section?.name || "")
+                    if (sectionSlug !== slug && String(section?.name || "").trim().toLowerCase() !== String(categoryName || "").trim().toLowerCase()) {
+                      continue
+                    }
+
+                    const directItems = Array.isArray(section?.items) ? section.items : []
+                    const directImageItem = directItems.find((item) => item?.image)
+                    if (directImageItem?.image) return directImageItem.image
+
+                    const subsections = Array.isArray(section?.subsections) ? section.subsections : []
+                    for (const subsection of subsections) {
+                      const subItems = Array.isArray(subsection?.items) ? subsection.items : []
+                      const subImageItem = subItems.find((item) => item?.image)
+                      if (subImageItem?.image) return subImageItem.image
+                    }
+
+                    if (restaurant?.image) return restaurant.image
+                    if (Array.isArray(restaurant?.images) && restaurant.images.length > 0) {
+                      return restaurant.images[0]
                     }
                   }
                 }
+                return ""
+              }
 
-                return {
-                  ...restaurant,
-                  menu: menu,
-                  hasPaneer: hasPaneer,
-                  featuredDish: featuredDish || null,
-                  featuredPrice: featuredPrice || null,
-                  categoryMatches: {},
-                }
-              }
-              return {
-                ...restaurant,
-                menu: null,
-                hasPaneer: false,
-                categoryMatches: {},
-              }
-            } catch (error) {
-              // If menu fetch fails, keep restaurant without menu data
-              debugWarn(`Failed to fetch menu for restaurant ${restaurant.restaurantId}:`, error)
-              return {
-                ...restaurant,
-                menu: null,
-                hasPaneer: false,
-                categoryMatches: {},
-              }
+              const dynamicCategories = [
+                { id: 'all', name: "All", image: "" },
+                ...sourceEntries.map(([slug, name]) => ({
+                  id: slug,
+                  name,
+                  image: getCategoryImageFromMenus(slug, name),
+                  type: 'menu-section',
+                })),
+              ]
+
+              const dynamicKeywords = {}
+              sourceEntries.forEach(([slug, name]) => {
+                const lowered = name.toLowerCase()
+                const words = lowered.split(/[\s-]+/).filter((w) => w.length > 0)
+                dynamicKeywords[slug] = [lowered, ...words]
+              })
+
+              startTransition(() => {
+                setCategories(dynamicCategories)
+                setCategoryKeywords(dynamicKeywords)
+              })
             }
-          })
-
-          // Wait for all menu fetches to complete
-          const transformedRestaurants = await Promise.all(menuPromises)
-
-          debugLog(`? Final transformed restaurants: ${transformedRestaurants.length}`)
-          setRestaurantsData(transformedRestaurants)
-
-          // Prefer real categories derived from menu sections that are common across restaurants.
-          const sectionStatsMap = new Map()
-          transformedRestaurants.forEach((restaurant) => {
-            const sections = restaurant?.menu?.sections
-            if (!Array.isArray(sections)) return
-            const seenInRestaurant = new Set()
-            sections.forEach((section) => {
-              const rawName = String(section?.name || '').trim()
-              if (!rawName) return
-              const key = slugify(rawName)
-              if (!key || seenInRestaurant.has(key)) return
-              seenInRestaurant.add(key)
-
-              const existing = sectionStatsMap.get(key) || { name: rawName, count: 0 }
-              existing.count += 1
-              sectionStatsMap.set(key, existing)
-            })
-          })
-
-          if (sectionStatsMap.size > 0) {
-            const sourceEntries = Array.from(sectionStatsMap.entries())
-              .map(([slug, stats]) => [slug, stats.name])
-
-            const getCategoryImageFromMenus = (slug, categoryName) => {
-              for (const restaurant of transformedRestaurants) {
-                const menuSections = Array.isArray(restaurant?.menu?.sections) ? restaurant.menu.sections : []
-                for (const section of menuSections) {
-                  const sectionSlug = slugify(section?.name || "")
-                  if (sectionSlug !== slug && String(section?.name || "").trim().toLowerCase() !== String(categoryName || "").trim().toLowerCase()) {
-                    continue
-                  }
-
-                  const directItems = Array.isArray(section?.items) ? section.items : []
-                  const directImageItem = directItems.find((item) => item?.image)
-                  if (directImageItem?.image) return directImageItem.image
-
-                  const subsections = Array.isArray(section?.subsections) ? section.subsections : []
-                  for (const subsection of subsections) {
-                    const subItems = Array.isArray(subsection?.items) ? subsection.items : []
-                    const subImageItem = subItems.find((item) => item?.image)
-                    if (subImageItem?.image) return subImageItem.image
-                  }
-
-                  if (restaurant?.image) return restaurant.image
-                  if (Array.isArray(restaurant?.images) && restaurant.images.length > 0) {
-                    return restaurant.images[0]
-                  }
-                }
-              }
-              return ""
-            }
-
-            const dynamicCategories = [
-              { id: 'all', name: "All", image: "" },
-              ...sourceEntries.map(([slug, name], idx) => ({
-                id: slug,
-                name,
-                image: getCategoryImageFromMenus(slug, name),
-                type: 'menu-section',
-              })),
-            ]
-
-            const dynamicKeywords = {}
-            sourceEntries.forEach(([slug, name]) => {
-              const lowered = name.toLowerCase()
-              const words = lowered.split(/[\s-]+/).filter((w) => w.length > 0)
-              dynamicKeywords[slug] = [lowered, ...words]
-            })
-
-            setCategories(dynamicCategories)
-            setCategoryKeywords(dynamicKeywords)
-          }
+          })()
         } else {
           debugWarn('?? No restaurants in API response. Response structure:', {
             hasData: !!response.data,
@@ -541,8 +552,8 @@ export default function SearchResults() {
     let filtered = [...sourceData]
 
     // Filter by search query
-    if (query.trim()) {
-      const lowerQuery = query.toLowerCase()
+    if (deferredQuery.trim()) {
+      const lowerQuery = deferredQuery.toLowerCase()
       filtered = filtered.filter(r =>
         r.name?.toLowerCase().includes(lowerQuery) ||
         r.cuisine?.toLowerCase().includes(lowerQuery) ||
@@ -599,7 +610,7 @@ export default function SearchResults() {
         // If no match found, don't show restaurant for this category
         return false
       })
-    } else if (!query.trim()) {
+    } else if (!deferredQuery.trim()) {
       // Show all restaurants when no category selected (category is 'all')
       // Don't filter - show all restaurants
     }
@@ -620,7 +631,7 @@ export default function SearchResults() {
     }
 
     return uniqueRestaurants(filtered)
-  }, [query, selectedCategory, activeFilters, restaurantsData, categoryKeywords, loadingCategories])
+  }, [deferredQuery, selectedCategory, activeFilters, restaurantsData, categoryKeywords, loadingCategories])
 
   const filteredAllRestaurants = useMemo(() => {
     // Use ONLY backend data - no hardcoded fallback
@@ -628,8 +639,8 @@ export default function SearchResults() {
     let filtered = [...sourceData]
 
     // Filter by search query - Search in name, cuisine, featured dish
-    if (query.trim()) {
-      const lowerQuery = query.toLowerCase()
+    if (deferredQuery.trim()) {
+      const lowerQuery = deferredQuery.toLowerCase()
       filtered = filtered.filter(r => {
         const nameMatch = r.name?.toLowerCase().includes(lowerQuery)
         const cuisineMatch = r.cuisine?.toLowerCase().includes(lowerQuery)
@@ -704,7 +715,7 @@ export default function SearchResults() {
         // If no match found, don't show restaurant for this category
         return false
       })
-    } else if (!query.trim()) {
+    } else if (!deferredQuery.trim()) {
       // Show all restaurants when no category selected (category is 'all')
       // Don't filter - show all restaurants
     }
@@ -728,7 +739,7 @@ export default function SearchResults() {
     }
 
     return uniqueRestaurants(filtered)
-  }, [query, selectedCategory, activeFilters, restaurantsData, categoryKeywords, loadingCategories])
+  }, [deferredQuery, selectedCategory, activeFilters, restaurantsData, categoryKeywords, loadingCategories])
 
   const recommendedIds = useMemo(
     () => new Set(filteredRecommended.slice(0, 6).map((restaurant) => restaurant.id)),
@@ -865,15 +876,10 @@ export default function SearchResults() {
       {/* Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 md:px-8 lg:px-10 xl:px-12 py-4 sm:py-6 md:py-8 lg:py-10 space-y-6 md:space-y-8 lg:space-y-10">
         {/* Loading State */}
-        {loadingRestaurants && (
-          <div className="flex items-center justify-center py-20">
-            <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
-            <span className="ml-3 text-gray-600">Loading restaurants...</span>
-          </div>
-        )}
+        {showRestaurantSkeleton && <RestaurantGridSkeleton count={4} compact />}
 
         {/* RECOMMENDED FOR YOU Section */}
-        {!loadingRestaurants && filteredRecommended.length > 0 && (
+        {!showRestaurantSkeleton && filteredRecommended.length > 0 && (
           <section>
             <h2 className="text-xs sm:text-sm font-semibold text-gray-400 dark:text-gray-500 tracking-widest uppercase mb-4">
               RECOMMENDED FOR YOU
