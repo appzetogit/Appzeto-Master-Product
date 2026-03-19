@@ -78,9 +78,12 @@ import bikeLogo from "@food/assets/bikelogo.png"
 import {
   BILL_UPLOAD_TIMEOUT_MS,
   DELIVERY_ACTIVE_ORDER_KEY,
+  DELIVERY_ASSIGNED_ORDERS_POLL_MS,
   DELIVERY_LOCATION_FALLBACK_INTERVAL_MS,
   DELIVERY_LOCATION_SEND_INTERVAL_MS,
+  DELIVERY_ORDER_VERIFY_POLL_MS,
   DROP_REACHED_THRESHOLD_METERS,
+  NEARBY_ZONES_FETCH_INTERVAL_MS,
   NEW_ORDER_COUNTDOWN_SECONDS,
   PICKUP_REACHED_THRESHOLD_METERS,
   ROUTE_OFF_TRACK_THRESHOLD_METERS,
@@ -667,17 +670,20 @@ export default function DeliveryHome() {
   // We pass stable wrappers into hooks and wire the real implementations once declared.
   const updateLiveTrackingPolylineFnRef = useRef(null)
   const updateRoutePolylineFnRef = useRef(null)
+  const calculateRouteWithDirectionsAPIFnRef = useRef(null)
   const updateLiveTrackingPolylineSafe = useCallback((...args) => {
     return updateLiveTrackingPolylineFnRef.current?.(...args)
   }, [])
   const updateRoutePolylineSafe = useCallback((...args) => {
     return updateRoutePolylineFnRef.current?.(...args)
   }, [])
+  const calculateRouteWithDirectionsAPISafe = useCallback((...args) => {
+    return calculateRouteWithDirectionsAPIFnRef.current?.(...args)
+  }, [])
 
   useDeliveryGeoWatch({
     deliveryAPI,
     mapContainerRef,
-    riderLocation,
     setRiderLocation,
     lastLocationRef,
     lastValidLocationRef,
@@ -2292,7 +2298,7 @@ export default function DeliveryHome() {
     lastLocationRef,
     deliveryAPI,
     restaurantAPI,
-    calculateRouteWithDirectionsAPI,
+    calculateRouteWithDirectionsAPI: calculateRouteWithDirectionsAPISafe,
     updateLiveTrackingPolyline: updateLiveTrackingPolylineSafe,
     directionsResponse,
     setDirectionsResponse,
@@ -4379,66 +4385,38 @@ export default function DeliveryHome() {
     }
   }, [isOnline, calculateTimeAway])
 
+  const fetchAssignedOrdersRef = useRef(fetchAssignedOrders)
+  fetchAssignedOrdersRef.current = fetchAssignedOrders
+
   // Fetch assigned orders when delivery person goes online
   useEffect(() => {
-    if (isOnline) {
-      // Small delay to ensure socket connection is established
-      const timeoutId = setTimeout(() => {
-        fetchAssignedOrders()
-      }, 2000) // Wait 2 seconds after going online
-
-      return () => clearTimeout(timeoutId)
-    }
-  }, [isOnline, fetchAssignedOrders])
-
-  // Re-check available assignments whenever the delivery socket connects.
-  // This covers cases where an order was assigned before the room join finished.
-  useEffect(() => {
-    if (!isOnline || !isConnected) {
-      return
-    }
+    if (!isOnline || !isConnected) return
 
     const timeoutId = setTimeout(() => {
-      fetchAssignedOrders()
-    }, 1000)
+      fetchAssignedOrdersRef.current()
+    }, 1200)
 
     return () => clearTimeout(timeoutId)
-  }, [isOnline, isConnected, fetchAssignedOrders])
+  }, [isOnline, isConnected])
 
-  // Keep a lightweight background sync running while online so riders do not
-  // have to manually refresh if a realtime event is missed.
+  // Keep a lightweight background sync while online (socket can miss events).
+  // Ref + visibility: avoids resetting interval when fetchAssignedOrders identity changes, and pauses in background tabs.
   useEffect(() => {
     if (!isOnline) {
       return
     }
 
     const intervalId = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
       if (showNewOrderPopup || activeOrder || selectedRestaurant) {
         return
       }
 
-      fetchAssignedOrders()
-    }, 15000)
+      fetchAssignedOrdersRef.current()
+    }, DELIVERY_ASSIGNED_ORDERS_POLL_MS)
 
     return () => clearInterval(intervalId)
-  }, [isOnline, showNewOrderPopup, activeOrder, selectedRestaurant, fetchAssignedOrders])
-
-  // Also fetch orders on initial page load if already online
-  useEffect(() => {
-    // Check if delivery person is already online when component mounts
-    const storedOnlineStatus = localStorage.getItem('delivery_online_status')
-    const isCurrentlyOnline = storedOnlineStatus === 'true' || isOnline
-    
-    if (isCurrentlyOnline) {
-      // Fetch orders after a short delay to ensure everything is initialized
-      const timeoutId = setTimeout(() => {
-        fetchAssignedOrders()
-      }, 3000) // Wait 3 seconds on page load
-
-      return () => clearTimeout(timeoutId)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []) // Only run once on mount
+  }, [isOnline, showNewOrderPopup, activeOrder, selectedRestaurant])
 
   // Fetch bank details status and delivery partner status
   useEffect(() => {
@@ -6326,6 +6304,12 @@ export default function DeliveryHome() {
             setSelectedRestaurant(null);
             return;
           }
+          // If input identity is invalid (frontend guard), clear it immediately.
+          if (verifyError?.message === "Invalid order id") {
+            localStorage.removeItem(DELIVERY_ACTIVE_ORDER_KEY);
+            setSelectedRestaurant(null);
+            return;
+          }
           // For other errors (network, etc.), still try to restore but log warning
           debugWarn('?? Could not verify order, but restoring anyway:', verifyError.message);
         }
@@ -6500,6 +6484,10 @@ export default function DeliveryHome() {
     restoreActiveOrder();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []) // Run only on mount - calculateRouteWithDirectionsAPI is stable
+
+  useEffect(() => {
+    calculateRouteWithDirectionsAPIFnRef.current = calculateRouteWithDirectionsAPI
+  }, [calculateRouteWithDirectionsAPI])
 
   // Keep active order progress synced to localStorage so app restarts don't reset flow.
   useEffect(() => {
@@ -6796,6 +6784,7 @@ export default function DeliveryHome() {
     const orderId = selectedRestaurant.orderId || selectedRestaurant.id;
     
     const verifyOrderInterval = setInterval(async () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
       try {
         const orderResponse = await deliveryAPI.getOrderDetails(orderId);
         
@@ -6847,12 +6836,12 @@ export default function DeliveryHome() {
         }
         // Ignore other errors (network issues, etc.)
       }
-    }, 30000); // Check every 30 seconds
+    }, DELIVERY_ORDER_VERIFY_POLL_MS);
 
     return () => {
       clearInterval(verifyOrderInterval);
     };
-  }, [selectedRestaurant?.id, selectedRestaurant?.orderId, clearOrderData])
+  }, [selectedRestaurant?.id, selectedRestaurant?.orderId, clearOrderData, showPaymentPage, showCustomerReviewPopup, showOrderDeliveredAnimation])
 
   // Handle route polyline visibility toggle
   // Only show fallback polyline if DirectionsRenderer is NOT active
@@ -8208,14 +8197,28 @@ selectedRestaurant?.lng || null,
 
   const nextSlot = getNextAvailableSlot()
 
+  const nearbyZonesLastFetchAtRef = useRef(0)
+  const nearbyZonesLastKeyRef = useRef("")
+
   // Fetch zones within 70km radius from backend
   const fetchAndDrawNearbyZones = async () => {
-    if (!riderLocation || riderLocation.length !== 2 || !window.google || !window.deliveryMapInstance) {
+    const loc = lastLocationRef.current
+    if (!loc || loc.length !== 2 || !window.google || !window.deliveryMapInstance) {
       return
     }
 
     try {
-      const [riderLat, riderLng] = riderLocation
+      const [riderLat, riderLng] = loc
+      const key = `${riderLat.toFixed(5)},${riderLng.toFixed(5)}`
+      const now = Date.now()
+
+      // Throttle to avoid calling this on every geolocation tick.
+      if (now - nearbyZonesLastFetchAtRef.current < NEARBY_ZONES_FETCH_INTERVAL_MS) return
+      // If location hasn't changed meaningfully, skip even after interval.
+      if (nearbyZonesLastKeyRef.current === key && now - nearbyZonesLastFetchAtRef.current < NEARBY_ZONES_FETCH_INTERVAL_MS * 3) return
+
+      nearbyZonesLastFetchAtRef.current = now
+      nearbyZonesLastKeyRef.current = key
       const response = await deliveryAPI.getZonesInRadius(riderLat, riderLng, 70)
       
       if (response.data?.success && response.data.data?.zones) {
@@ -8287,12 +8290,19 @@ selectedRestaurant?.lng || null,
     })
   }
 
-  // Fetch zones when map is ready and location changes
+  // Zones: do not tie to riderLocation (GPS updates constantly). Poll on an interval + when map finishes loading.
   useEffect(() => {
-    if (!mapLoading && window.deliveryMapInstance && riderLocation && riderLocation.length === 2) {
-      fetchAndDrawNearbyZones()
+    if (mapLoading || !window.deliveryMapInstance) return
+
+    const tick = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+      void fetchAndDrawNearbyZones()
     }
-  }, [mapLoading, riderLocation])
+
+    tick()
+    const intervalId = setInterval(tick, NEARBY_ZONES_FETCH_INTERVAL_MS)
+    return () => clearInterval(intervalId)
+  }, [mapLoading])
 
   // Render normal feed view when offline or no gig booked
   return (

@@ -1,5 +1,6 @@
 import { sendResponse } from '../../../utils/response.js';
 import * as orderService from './order.service.js';
+import * as foodOrderPaymentService from './foodOrderPayment.service.js';
 import {
     validateCalculateOrderDto,
     validateCreateOrderDto,
@@ -7,7 +8,8 @@ import {
     validateCancelOrderDto,
     validateOrderStatusDto,
     validateAssignDeliveryDto,
-    validateDispatchSettingsDto
+    validateDispatchSettingsDto,
+    validateOrderRatingsDto
 } from './order.validator.js';
 
 export async function calculateOrderController(req, res, next) {
@@ -64,6 +66,18 @@ export async function getOrderByIdUserController(req, res, next) {
     }
 }
 
+/** Ledger rows from `food_order_payments` (append-only audit trail) */
+export async function getOrderPaymentsUserController(req, res, next) {
+    try {
+        const userId = req.user?.userId;
+        const orderId = req.params.orderId;
+        const result = await foodOrderPaymentService.listFoodOrderPaymentsForUser(orderId, userId);
+        return sendResponse(res, 200, 'Payment history', result);
+    } catch (err) {
+        next(err);
+    }
+}
+
 export async function cancelOrderController(req, res, next) {
     try {
         const userId = req.user?.userId;
@@ -71,6 +85,18 @@ export async function cancelOrderController(req, res, next) {
         const dto = validateCancelOrderDto(req.body);
         const order = await orderService.cancelOrder(orderId, userId, dto.reason);
         return sendResponse(res, 200, 'Order cancelled', { order });
+    } catch (err) {
+        next(err);
+    }
+}
+
+export async function submitOrderRatingsController(req, res, next) {
+    try {
+        const userId = req.user?.userId;
+        const orderId = req.params.orderId;
+        const dto = validateOrderRatingsDto(req.body);
+        const order = await orderService.submitOrderRatings(orderId, userId, dto);
+        return sendResponse(res, 200, 'Ratings submitted successfully', { order });
     } catch (err) {
         next(err);
     }

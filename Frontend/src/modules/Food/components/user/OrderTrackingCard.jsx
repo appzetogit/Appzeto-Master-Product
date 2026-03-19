@@ -1,26 +1,36 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { UtensilsCrossed, ChevronRight } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { useState, useEffect, useMemo, useRef, useCallback, memo } from "react";
+import { useNavigate } from "react-router-dom";
+import { UtensilsCrossed, ChevronRight } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import { useOrders } from "@food/context/OrdersContext";
-import { orderAPI } from '@food/api';
+import { orderAPI } from "@food/api";
 
 const getOrderKey = (order) => order?.id || order?._id || order?.orderId || null;
 
 const getOrderStatus = (order) =>
-  String(order?.orderStatus || order?.status || order?.deliveryState?.status || '').toLowerCase();
+  String(order?.orderStatus || order?.status || order?.deliveryState?.status || "").toLowerCase();
 
 const getOrderPhase = (order) =>
-  String(order?.deliveryState?.currentPhase || '').toLowerCase();
+  String(order?.deliveryState?.currentPhase || "").toLowerCase();
+
+/** Orders that should show the live tracking strip (any in-flight order, not terminal). */
+const TERMINAL_STATUSES = new Set([
+  "delivered",
+  "cancelled",
+  "completed",
+  "failed",
+  "cancelled_by_user",
+  "cancelled_by_restaurant",
+  "cancelled_by_admin",
+]);
 
 const isActiveOrder = (order) => {
+  if (!order) return false;
   const status = getOrderStatus(order);
-  return !(
-    status === 'delivered' ||
-    status === 'cancelled' ||
-    status === 'completed' ||
-    status === ''
-  );
+  if (!status || TERMINAL_STATUSES.has(status)) return false;
+  const phase = getOrderPhase(order);
+  if (phase === "completed" || phase === "delivered") return false;
+  return true;
 };
 
 const getTimeRemaining = (order) => {
@@ -38,54 +48,65 @@ const getTimeRemaining = (order) => {
   return Math.max(0, Math.floor((deliveryTime - new Date()) / 60000));
 };
 
-export default function OrderTrackingCard() {
+/** Cheap fingerprint so we skip setState when list content is unchanged (fewer re-renders). */
+function ordersFingerprint(orders) {
+  if (!Array.isArray(orders) || orders.length === 0) return "";
+  return orders
+    .map((o) => `${getOrderKey(o)}:${getOrderStatus(o)}`)
+    .join("|");
+}
+
+function OrderTrackingCardInner({ hasBottomNav = true }) {
   const navigate = useNavigate();
   const { orders: contextOrders } = useOrders();
   const [timeRemaining, setTimeRemaining] = useState(null);
   const [apiOrders, setApiOrders] = useState([]);
   const [activeOrderOverride, setActiveOrderOverride] = useState(null);
   const lastRefreshRef = useRef(0);
+  const lastApiFingerprintRef = useRef("");
+  const activeOrderKeyRef = useRef("");
+  const activeOrderSnapshotRef = useRef(null);
+
+  const fetchOrders = useCallback(async () => {
+    const userToken =
+      localStorage.getItem("user_accessToken") || localStorage.getItem("accessToken");
+    if (!userToken) return;
+
+    try {
+      const response = await orderAPI.getOrders({ limit: 10, page: 1 });
+      let nextOrders = [];
+
+      if (response?.data?.success && response?.data?.data?.orders) {
+        nextOrders = response.data.data.orders;
+      } else if (response?.data?.orders) {
+        nextOrders = response.data.orders;
+      } else if (response?.data?.data?.data && Array.isArray(response.data.data.data)) {
+        nextOrders = response.data.data.data;
+      } else if (response?.data?.data?.docs && Array.isArray(response.data.data.docs)) {
+        nextOrders = response.data.data.docs;
+      } else if (response?.data?.data && Array.isArray(response.data.data)) {
+        nextOrders = response.data.data;
+      }
+
+      const list = Array.isArray(nextOrders) ? nextOrders : [];
+      const fp = ordersFingerprint(list);
+      if (fp !== lastApiFingerprintRef.current) {
+        lastApiFingerprintRef.current = fp;
+        setApiOrders(list);
+      }
+    } catch {
+      if (lastApiFingerprintRef.current !== "") {
+        lastApiFingerprintRef.current = "";
+        setApiOrders([]);
+      }
+    }
+  }, []);
 
   useEffect(() => {
-    const userToken =
-      localStorage.getItem('user_accessToken') || localStorage.getItem('accessToken');
-    if (!userToken) {
-      return;
-    }
-
-    let isMounted = true;
-
-    const fetchOrders = async () => {
-      try {
-        const response = await orderAPI.getOrders({ limit: 10, page: 1 });
-        let nextOrders = [];
-
-        if (response?.data?.success && response?.data?.data?.orders) {
-          nextOrders = response.data.data.orders;
-        } else if (response?.data?.orders) {
-          nextOrders = response.data.orders;
-        } else if (response?.data?.data && Array.isArray(response.data.data)) {
-          nextOrders = response.data.data;
-        }
-
-        if (isMounted) {
-          setApiOrders(Array.isArray(nextOrders) ? nextOrders : []);
-        }
-      } catch {
-        if (isMounted) {
-          setApiOrders([]);
-        }
-      }
-    };
-
     fetchOrders();
     const interval = setInterval(fetchOrders, 30000);
-
-    return () => {
-      isMounted = false;
-      clearInterval(interval);
-    };
-  }, []);
+    return () => clearInterval(interval);
+  }, [fetchOrders]);
 
   const uniqueOrders = useMemo(() => {
     const seen = new Set();
@@ -100,66 +121,79 @@ export default function OrderTrackingCard() {
     });
   }, [contextOrders, apiOrders]);
 
-  const activeOrder = useMemo(
-    () => {
-      const candidate = uniqueOrders.find((order) => isActiveOrder(order)) || null;
-      if (!candidate) return null;
-      const overrideKey = getOrderKey(activeOrderOverride);
-      const candidateKey = getOrderKey(candidate);
-      if (overrideKey && candidateKey && overrideKey === candidateKey) return activeOrderOverride;
-      return candidate;
-    },
-    [uniqueOrders, activeOrderOverride],
-  );
+  const activeOrder = useMemo(() => {
+    const candidate = uniqueOrders.find((order) => isActiveOrder(order)) || null;
+    if (!candidate) return null;
+    const overrideKey = getOrderKey(activeOrderOverride);
+    const candidateKey = getOrderKey(candidate);
+    if (overrideKey && candidateKey && overrideKey === candidateKey) return activeOrderOverride;
+    return candidate;
+  }, [uniqueOrders, activeOrderOverride]);
+
+  useEffect(() => {
+    const key = String(getOrderKey(activeOrder) || "");
+    activeOrderKeyRef.current = key;
+    activeOrderSnapshotRef.current = activeOrder;
+  }, [activeOrder]);
 
   useEffect(() => {
     const handleOrderStatusNotification = async (event) => {
       const detail = event?.detail || {};
-      const incomingKey = String(detail?.orderMongoId || detail?.orderId || '').trim();
-      const currentKey = String(getOrderKey(activeOrder) || '').trim();
+      const incomingKey = String(detail?.orderMongoId || detail?.orderId || "").trim();
+      const currentKey = activeOrderKeyRef.current;
       if (!incomingKey || !currentKey) return;
       if (incomingKey !== currentKey) return;
 
-      // Merge best-effort update immediately for snappy UI.
+      const snap = activeOrderSnapshotRef.current;
+
       setActiveOrderOverride((prev) => ({
-        ...(prev || activeOrder || {}),
-        orderStatus: detail?.orderStatus || prev?.orderStatus || activeOrder?.orderStatus,
+        ...(prev || snap || {}),
+        orderStatus: detail?.orderStatus || prev?.orderStatus || snap?.orderStatus,
         deliveryState: detail?.deliveryState
-          ? { ...(prev?.deliveryState || activeOrder?.deliveryState || {}), ...detail.deliveryState }
-          : (prev?.deliveryState || activeOrder?.deliveryState),
-        status: detail?.status || prev?.status || activeOrder?.status,
+          ? { ...(prev?.deliveryState || snap?.deliveryState || {}), ...detail.deliveryState }
+          : prev?.deliveryState || snap?.deliveryState,
+        status: detail?.status || prev?.status || snap?.status,
       }));
 
-      // Debounced refresh from API for correctness.
       const now = Date.now();
       if (now - lastRefreshRef.current < 1500) return;
       lastRefreshRef.current = now;
 
       try {
         const response = await orderAPI.getOrderDetails(incomingKey);
-        const fresh = response?.data?.data?.order || response?.data?.order || null;
+        const fresh = response?.data?.data?.order || response?.data?.order || response?.data?.data || null;
         if (fresh) setActiveOrderOverride(fresh);
       } catch {
-        // ignore: card will still show optimistic status
+        // ignore
       }
     };
 
-    window.addEventListener('orderStatusNotification', handleOrderStatusNotification);
-    return () => window.removeEventListener('orderStatusNotification', handleOrderStatusNotification);
-  }, [activeOrder]);
+    const handleOrderPlaced = () => {
+      fetchOrders();
+    };
+
+    window.addEventListener("orderStatusNotification", handleOrderStatusNotification);
+    window.addEventListener("order-placed", handleOrderPlaced);
+
+    return () => {
+      window.removeEventListener("orderStatusNotification", handleOrderStatusNotification);
+      window.removeEventListener("order-placed", handleOrderPlaced);
+    };
+  }, [fetchOrders]);
 
   useEffect(() => {
     if (!activeOrder) {
-      setTimeRemaining(null);
+      setTimeRemaining((prev) => (prev !== null ? null : prev));
       return;
     }
 
-    const updateRemainingTime = () => {
-      setTimeRemaining(getTimeRemaining(activeOrder));
+    const tick = () => {
+      const next = getTimeRemaining(activeOrder);
+      setTimeRemaining((prev) => (prev === next ? prev : next));
     };
 
-    updateRemainingTime();
-    const interval = setInterval(updateRemainingTime, 60000);
+    tick();
+    const interval = setInterval(tick, 60000);
 
     return () => clearInterval(interval);
   }, [activeOrder]);
@@ -168,29 +202,28 @@ export default function OrderTrackingCard() {
     return null;
   }
 
-  const orderStatus = getOrderStatus(activeOrder) || 'preparing';
+  const orderStatus = getOrderStatus(activeOrder) || "preparing";
   const orderPhase = getOrderPhase(activeOrder);
-  if (orderStatus === 'delivered' || orderStatus === 'completed' || timeRemaining === 0) {
+  if (orderStatus === "delivered" || orderStatus === "completed" || timeRemaining === 0) {
     return null;
   }
 
   const restaurantName =
-    activeOrder.restaurant || activeOrder.restaurantName || 'Restaurant';
+    activeOrder.restaurant || activeOrder.restaurantName || "Restaurant";
   const statusText = (() => {
     const s = String(orderStatus);
     const p = String(orderPhase);
 
-    if (s === 'confirmed') return 'Order confirmed';
-    if (s === 'preparing' || s === 'created' || s === 'pending') return 'Preparing your order';
-    if (s === 'ready_for_pickup') return 'Ready for pickup';
+    if (s === "confirmed") return "Order confirmed";
+    if (s === "preparing" || s === "created" || s === "pending") return "Preparing your order";
+    if (s === "ready_for_pickup") return "Ready for pickup";
 
-    // Delivery-state driven statuses
-    if (s === 'reached_pickup' || p === 'at_pickup') return 'Delivery partner reached restaurant';
-    if (s === 'picked_up' || p === 'en_route_to_delivery') return 'On the way';
-    if (s === 'reached_drop' || p === 'at_drop') return 'Arrived near you';
+    if (s === "reached_pickup" || p === "at_pickup") return "Delivery partner reached restaurant";
+    if (s === "picked_up" || p === "en_route_to_delivery") return "On the way";
+    if (s === "reached_drop" || p === "at_drop") return "Arrived near you";
 
-    if (s === 'delivered' || p === 'delivered' || p === 'completed') return 'Delivered';
-    return 'Preparing your order';
+    if (s === "delivered" || p === "delivered" || p === "completed") return "Delivered";
+    return "Preparing your order";
   })();
 
   return (
@@ -199,8 +232,8 @@ export default function OrderTrackingCard() {
         initial={{ y: 100, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         exit={{ y: 100, opacity: 0 }}
-        transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-        className="fixed bottom-20 left-4 right-4 z-60 md:hidden"
+        transition={{ type: "spring", damping: 25, stiffness: 200 }}
+        className={`fixed ${hasBottomNav ? "bottom-20" : "bottom-4"} left-4 right-4 z-[9999]`}
         onClick={() => navigate(`/user/orders/${activeOrder.id || activeOrder._id || activeOrder.orderId}`)}
       >
         <div className="bg-gray-800 rounded-xl p-4 shadow-2xl border border-gray-700">
@@ -223,7 +256,7 @@ export default function OrderTrackingCard() {
                 arriving in
               </p>
               <p className="text-white text-sm font-bold leading-tight">
-                {timeRemaining !== null ? `${timeRemaining} mins` : '-- mins'}
+                {timeRemaining !== null ? `${timeRemaining} mins` : "-- mins"}
               </p>
             </div>
           </div>
@@ -232,3 +265,6 @@ export default function OrderTrackingCard() {
     </AnimatePresence>
   );
 }
+
+const OrderTrackingCard = memo(OrderTrackingCardInner);
+export default OrderTrackingCard;

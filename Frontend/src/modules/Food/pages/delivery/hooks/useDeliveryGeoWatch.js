@@ -1,14 +1,14 @@
 import { useEffect } from "react";
 import {
   DELIVERY_LOCATION_FALLBACK_INTERVAL_MS,
+  DELIVERY_LOCATION_MIN_MOVE_METERS,
   DELIVERY_LOCATION_SEND_INTERVAL_MS,
 } from "../constants/deliveryHome.constants";
-import { shouldAcceptLocation } from "../utils/deliveryGeo";
+import { haversineDistance, shouldAcceptLocation } from "../utils/deliveryGeo";
 
 export function useDeliveryGeoWatch({
   deliveryAPI,
   mapContainerRef,
-  riderLocation,
   setRiderLocation,
   lastLocationRef,
   lastValidLocationRef,
@@ -89,7 +89,7 @@ export function useDeliveryGeoWatch({
         } else {
           // Map will init later using riderLocation
           if (!window.deliveryMapInstance && window.google && window.google.maps && mapContainerRef.current) {
-            debugLog?.("Map not initialized yet, will initialize with GPS location");
+            debugLog?.("Map not initialized yet, will initialize when map mounts");
           }
         }
 
@@ -284,6 +284,7 @@ export function useDeliveryGeoWatch({
         watchPositionIdRef.current = null;
       }
     };
-  }, [deliveryAPI, riderLocation]); // riderLocation included to avoid stale closure
+    // Do NOT depend on riderLocation — it updates every GPS tick and would restart watchPosition + spam APIs.
+  }, [deliveryAPI]);
 }
 

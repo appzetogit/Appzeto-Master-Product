@@ -1,5 +1,10 @@
 import mongoose from 'mongoose';
 import { FoodOrder, FoodSettings } from './order.model.js';
+import {
+    recordFoodOrderPaymentEvent,
+    paymentSnapshotFromOrder
+} from './foodOrderPayment.service.js';
+import { logger } from '../../../utils/logger.js';
 import { FoodUser } from '../../../core/users/user.model.js';
 import { FoodRestaurant } from '../restaurant/models/restaurant.model.js';
 import { FoodDeliveryPartner } from '../delivery/models/deliveryPartner.model.js';
@@ -69,6 +74,32 @@ function pushStatusHistory(order, { byRole, byId, from, to, note = '' }) {
         to,
         note
     });
+}
+
+function normalizeOrderForClient(orderDoc) {
+    const order = orderDoc?.toObject ? orderDoc.toObject() : (orderDoc || {});
+    return {
+        ...order,
+        status: order?.orderStatus || order?.status || '',
+        deliveredAt: order?.deliveryState?.deliveredAt || order?.deliveredAt || null,
+        deliveryPartnerId: order?.dispatch?.deliveryPartnerId || order?.deliveryPartnerId || null,
+        rating: order?.ratings?.restaurant?.rating ?? order?.rating ?? null
+    };
+}
+
+async function applyAggregateRating(model, entityId, newRating) {
+    if (!entityId) return;
+    const doc = await model.findById(entityId).select('rating totalRatings');
+    if (!doc) return;
+
+    const totalRatings = Number(doc.totalRatings || 0);
+    const currentAverage = Number(doc.rating || 0);
+    const nextTotal = totalRatings + 1;
+    const nextAverage = Number((((currentAverage * totalRatings) + Number(newRating)) / nextTotal).toFixed(1));
+
+    doc.totalRatings = nextTotal;
+    doc.rating = nextAverage;
+    await doc.save();
 }
 
 const COMMISSION_CACHE_MS = 10 * 1000;
@@ -458,6 +489,18 @@ export async function createOrder(userId, dto) {
 
     await order.save();
 
+    await appendOrderPaymentLedger(order, 'order_placed', {
+        recordedByRole: 'USER',
+        recordedById: new mongoose.Types.ObjectId(userId),
+        metadata: { dispatchMode, paymentMethod }
+    });
+    if (paymentMethod === 'razorpay' && order.payment?.razorpay?.orderId) {
+        await appendOrderPaymentLedger(order, 'razorpay_order_created', {
+            recordedByRole: 'SYSTEM',
+            metadata: { razorpayOrderId: order.payment.razorpay.orderId }
+        });
+    }
+
     // Real-time: notify restaurant instantly (Zomato-style).
     try {
         const io = getIO();
@@ -519,6 +562,15 @@ export async function verifyPayment(userId, dto) {
     order.payment.razorpay.signature = dto.razorpaySignature;
     pushStatusHistory(order, { byRole: 'USER', byId: userId, from: order.orderStatus, to: 'created', note: 'Payment verified' });
     await order.save();
+
+    await appendOrderPaymentLedger(order, 'online_payment_verified', {
+        recordedByRole: 'USER',
+        recordedById: new mongoose.Types.ObjectId(userId),
+        metadata: {
+            razorpayPaymentId: dto.razorpayPaymentId,
+            razorpayOrderId: dto.razorpayOrderId
+        }
+    });
 
     const settings = await getDispatchSettings();
     if (settings.dispatchMode === 'auto') {
@@ -590,28 +642,36 @@ export async function listOrdersUser(userId, query) {
     const { page, limit, skip } = buildPaginationOptions(query);
     const filter = { userId: new mongoose.Types.ObjectId(userId) };
     const [docs, total] = await Promise.all([
-        FoodOrder.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+        FoodOrder.find(filter)
+            .populate('restaurantId', 'restaurantName profileImage area city location rating totalRatings')
+            .populate('dispatch.deliveryPartnerId', 'name phone rating totalRatings')
+            .sort({ createdAt: -1 })
+            .skip(skip)
+            .limit(limit)
+            .lean(),
         FoodOrder.countDocuments(filter)
     ]);
-    return buildPaginatedResult({ docs, total, page, limit });
+    return buildPaginatedResult({ docs: docs.map((doc) => normalizeOrderForClient(doc)), total, page, limit });
 }
 
 export async function getOrderById(orderId, { userId, restaurantId, deliveryPartnerId, admin } = {}) {
     const identity = buildOrderIdentityFilter(orderId);
     if (!identity) throw new ValidationError('Order id required');
     const order = await FoodOrder.findOne(identity)
+        .populate('restaurantId', 'restaurantName profileImage area city location rating totalRatings')
+        .populate('dispatch.deliveryPartnerId', 'name phone rating totalRatings')
         .populate('userId', 'name phone email')
         .populate('restaurantId', 'restaurantName profileImage area city')
         .populate('dispatch.deliveryPartnerId', 'name phone')
         .lean();
     if (!order) throw new ValidationError('Order not found');
 
-    if (admin) return order;
+    if (admin) return normalizeOrderForClient(order);
     if (userId && order.userId?.toString() !== userId.toString()) throw new ForbiddenError('Not your order');
     if (restaurantId && order.restaurantId?._id?.toString() !== restaurantId.toString()) throw new ForbiddenError('Not your restaurant order');
     if (deliveryPartnerId && order.dispatch?.deliveryPartnerId?._id?.toString() !== deliveryPartnerId.toString()) throw new ForbiddenError('Not assigned to you');
 
-    return order;
+    return normalizeOrderForClient(order);
 }
 
 export async function cancelOrder(orderId, userId, reason) {
@@ -623,6 +683,63 @@ export async function cancelOrder(orderId, userId, reason) {
     pushStatusHistory(order, { byRole: 'USER', byId: userId, from: order.orderStatus, to: 'cancelled_by_user', note: reason || '' });
     await order.save();
     return order.toObject();
+}
+
+export async function submitOrderRatings(orderId, userId, dto) {
+    const identity = buildOrderIdentityFilter(orderId);
+    if (!identity) throw new ValidationError('Order id required');
+
+    const order = await FoodOrder.findOne({
+        ...identity,
+        userId: new mongoose.Types.ObjectId(userId)
+    });
+    if (!order) throw new ValidationError('Order not found');
+    if (String(order.orderStatus) !== 'delivered') {
+        throw new ValidationError('You can rate only delivered orders');
+    }
+
+    const hasDeliveryPartner = !!order.dispatch?.deliveryPartnerId;
+    if (hasDeliveryPartner && !dto.deliveryPartnerRating) {
+        throw new ValidationError('Delivery partner rating is required');
+    }
+
+    const restaurantAlreadyRated = Number.isFinite(Number(order?.ratings?.restaurant?.rating));
+    const deliveryAlreadyRated = Number.isFinite(Number(order?.ratings?.deliveryPartner?.rating));
+    if (restaurantAlreadyRated || (hasDeliveryPartner && deliveryAlreadyRated)) {
+        throw new ValidationError('Ratings already submitted for this order');
+    }
+
+    const now = new Date();
+    order.ratings = order.ratings || {};
+    order.ratings.restaurant = {
+        rating: dto.restaurantRating,
+        comment: dto.restaurantComment || '',
+        ratedAt: now
+    };
+
+    if (hasDeliveryPartner) {
+        order.ratings.deliveryPartner = {
+            rating: dto.deliveryPartnerRating,
+            comment: dto.deliveryPartnerComment || '',
+            ratedAt: now
+        };
+    }
+
+    await Promise.all([
+        applyAggregateRating(FoodRestaurant, order.restaurantId, dto.restaurantRating),
+        hasDeliveryPartner
+            ? applyAggregateRating(FoodDeliveryPartner, order.dispatch.deliveryPartnerId, dto.deliveryPartnerRating)
+            : Promise.resolve()
+    ]);
+
+    await order.save();
+
+    const updatedOrder = await FoodOrder.findById(order._id)
+        .populate('restaurantId', 'restaurantName profileImage area city location rating totalRatings')
+        .populate('dispatch.deliveryPartnerId', 'name phone rating totalRatings')
+        .lean();
+
+    return normalizeOrderForClient(updatedOrder || order.toObject());
 }
 
 // ----- Restaurant -----
@@ -651,12 +768,14 @@ export async function updateOrderStatusRestaurant(orderId, restaurantId, orderSt
     try {
         const io = getIO();
         if (io) {
-            console.log(`[DEBUG] Emitting status update to restaurant ${restaurantId}: ${orderStatus}`);
-            io.to(rooms.restaurant(restaurantId)).emit('order_status_update', {
+            console.log(`[DEBUG] Emitting status update to restaurant ${restaurantId} and user ${order.userId}: ${orderStatus}`);
+            const payload = {
                 orderMongoId: order._id?.toString?.(),
                 orderId: order.orderId,
                 orderStatus: order.orderStatus
-            });
+            };
+            io.to(rooms.restaurant(restaurantId)).emit('order_status_update', payload);
+            io.to(rooms.user(order.userId)).emit('order_status_update', payload);
         }
     } catch (err) {
         console.error('[DEBUG] Error emitting status update to restaurant:', err);
@@ -809,6 +928,12 @@ export async function acceptOrderDelivery(orderId, deliveryPartnerId) {
                 orderStatus: order.orderStatus,
                 dispatchStatus: order.dispatch?.status
             });
+            io.to(rooms.user(order.userId)).emit('order_status_update', {
+                orderMongoId: order._id?.toString?.(),
+                orderId: order.orderId,
+                orderStatus: order.orderStatus,
+                dispatchStatus: order.dispatch?.status
+            });
         }
     } catch {}
 
@@ -946,6 +1071,8 @@ export async function completeDelivery(orderId, deliveryPartnerId) {
     if (order.dispatch?.deliveryPartnerId?.toString() !== deliveryPartnerId.toString()) throw new ForbiddenError('Not your order');
 
     const from = order.orderStatus;
+    const prevPayStatus = order.payment.status;
+    const payMethod = order.payment.method;
     order.orderStatus = 'delivered';
     order.payment.status = 'paid'; // Mark as paid upon delivery
     order.deliveryState = {
@@ -1038,6 +1165,15 @@ export async function createCollectQr(orderId, deliveryPartnerId, customerInfo =
             }
         }
     });
+
+    const updated = await FoodOrder.findById(orderId).select('orderId userId payment pricing').lean();
+    if (updated) {
+        await appendOrderPaymentLedger(updated, 'cod_collect_qr_created', {
+            recordedByRole: 'DELIVERY_PARTNER',
+            recordedById: deliveryPartnerId,
+            metadata: { paymentLinkId: link.id, shortUrl: link.short_url }
+        });
+    }
 
     return {
         shortUrl: link.short_url,
