@@ -205,7 +205,10 @@ const orderSchema = new mongoose.Schema(
         },
         note: { type: String, default: '', trim: true },
         sendCutlery: { type: Boolean, default: true },
-        deliveryFleet: { type: String, default: 'standard', trim: true }
+        deliveryFleet: { type: String, default: 'standard', trim: true },
+        scheduledAt: { type: Date, default: null },
+        riderEarning: { type: Number, default: 0, min: 0 },
+        platformProfit: { type: Number, default: 0, min: 0 }
     },
     {
         collection: 'food_orders',
@@ -217,6 +220,8 @@ orderSchema.index({ userId: 1, createdAt: -1 });
 orderSchema.index({ restaurantId: 1, orderStatus: 1, createdAt: -1 });
 orderSchema.index({ 'dispatch.deliveryPartnerId': 1, orderStatus: 1 });
 orderSchema.index({ 'dispatch.status': 1, orderStatus: 1 });
+orderSchema.index({ 'payment.status': 1, createdAt: -1 });
+orderSchema.index({ 'payment.method': 1, createdAt: -1 });
 
 export const FoodOrder = mongoose.model('FoodOrder', orderSchema);
 

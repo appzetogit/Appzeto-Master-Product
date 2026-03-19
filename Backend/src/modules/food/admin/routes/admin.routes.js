@@ -36,6 +36,7 @@ router.patch('/support-tickets/:id', adminController.updateSupportTicketControll
 
 // ----- Restaurants -----
 router.get('/restaurants', adminController.getRestaurants);
+router.get('/reports/restaurants', adminController.getRestaurantReport);
 router.get('/restaurants/pending', adminController.getPendingRestaurants);
 router.get('/restaurants/:id', adminController.getRestaurantById);
 router.get('/restaurants/:id/menu', adminController.getRestaurantMenuById);

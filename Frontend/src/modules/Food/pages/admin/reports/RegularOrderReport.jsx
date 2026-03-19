@@ -71,10 +71,10 @@ export default function RegularOrderReport() {
           setRestaurants(restaurantsRes.data.data.restaurants || [])
         }
 
-        // Fetch customers (users)
-        const usersRes = await adminAPI.getUsers({ limit: 100 })
-        if (usersRes.data?.success) {
-          setCustomers(usersRes.data.data.users || [])
+        // Fetch customers (users) via existing customers API
+        const customersRes = await adminAPI.getCustomers({ limit: 100 })
+        if (customersRes.data?.success) {
+          setCustomers(customersRes.data.data.customers || [])
         }
       } catch (err) {
         debugError("Error fetching filter data:", err)
@@ -128,28 +128,86 @@ export default function RegularOrderReport() {
           zone: filters.zone !== "All Zones" ? filters.zone : undefined,
           restaurant: filters.restaurant !== "All restaurants" ? filters.restaurant : undefined,
           customer: filters.customer !== "All customers" ? filters.customer : undefined,
-          fromDate: fromDate ? fromDate.toISOString().split('T')[0] : undefined,
-          toDate: toDate ? toDate.toISOString().split('T')[0] : undefined,
+          startDate: fromDate ? fromDate.toISOString().split('T')[0] : undefined,
+          endDate: toDate ? toDate.toISOString().split('T')[0] : undefined,
         }
 
         const response = await adminAPI.getOrders(params)
         
         if (response.data?.success) {
-          // Transform backend orders to match frontend format
-          const transformedOrders = (response.data.data.orders || []).map(order => ({
-            orderId: order.orderId,
-            restaurant: order.restaurant,
-            customerName: order.customerName,
-            totalItemAmount: order.totalItemAmount || 0,
-            itemDiscount: order.itemDiscount || 0,
-            discountedAmount: order.discountedAmount || 0,
-            couponDiscount: order.couponDiscount || 0,
-            referralDiscount: order.referralDiscount || 0,
-            vatTax: order.vatTax || 0,
-            deliveryCharge: order.deliveryCharge || 0,
-            totalAmount: order.totalAmount || 0,
-            orderStatus: order.orderStatus,
-          }))
+          // Transform backend orders (FoodOrder docs) to report format
+          const rawOrders = response.data.data.orders || []
+          const transformedOrders = rawOrders.map((order) => {
+            const pricing = order.pricing || {}
+            const items = Array.isArray(order.items) ? order.items : []
+
+            const itemsSubtotal = items.reduce((sum, item) => {
+              const qty = Number(item.quantity || 1)
+              const price = Number(item.price || 0)
+              return sum + qty * price
+            }, 0)
+
+            const subtotal =
+              itemsSubtotal > 0
+                ? itemsSubtotal
+                : Number(pricing.subtotal || 0)
+
+            const deliveryCharge = Number(pricing.deliveryFee || 0)
+            const vatTax = Number(pricing.tax || 0)
+            const couponDiscount = Number(pricing.discount || 0)
+            const referralDiscount = 0
+            const itemDiscount = 0
+            const discountedAmount = itemDiscount + couponDiscount + referralDiscount
+
+            const computedTotal =
+              subtotal + deliveryCharge + vatTax - discountedAmount
+
+            const totalAmount =
+              pricing.total != null
+                ? Number(pricing.total)
+                : computedTotal
+
+            const restaurantName =
+              order.restaurantId?.restaurantName ||
+              order.restaurantName ||
+              ""
+
+            const customerName =
+              order.userId?.name ||
+              order.customerName ||
+              "N/A"
+
+            const backendStatus = String(order.orderStatus || "").toLowerCase()
+            let displayStatus = order.orderStatus
+            if (!backendStatus || backendStatus === "created" || backendStatus === "confirmed") {
+              displayStatus = "Pending"
+            } else if (backendStatus === "preparing" || backendStatus === "ready_for_pickup") {
+              displayStatus = "Processing"
+            } else if (backendStatus === "picked_up") {
+              displayStatus = "Food On The Way"
+            } else if (backendStatus === "delivered") {
+              displayStatus = "Delivered"
+            } else if (backendStatus === "cancelled_by_restaurant") {
+              displayStatus = "Canceled"
+            } else if (backendStatus === "cancelled_by_user" || backendStatus === "cancelled_by_admin") {
+              displayStatus = "Canceled"
+            }
+
+            return {
+              orderId: order.orderId,
+              restaurant: restaurantName,
+              customerName,
+              totalItemAmount: subtotal,
+              itemDiscount,
+              discountedAmount,
+              couponDiscount,
+              referralDiscount,
+              vatTax,
+              deliveryCharge,
+              totalAmount,
+              orderStatus: displayStatus,
+            }
+          })
           setOrders(transformedOrders)
         } else {
           setError(response.data?.message || "Failed to fetch orders")
@@ -168,8 +226,14 @@ export default function RegularOrderReport() {
   }, [filters, searchQuery])
 
   const filteredOrders = useMemo(() => {
-    return orders // Orders are already filtered by backend
-  }, [orders])
+    if (!searchQuery.trim()) return orders
+    const q = searchQuery.toLowerCase().trim()
+    return orders.filter((o) =>
+      String(o.orderId || "")
+        .toLowerCase()
+        .includes(q),
+    )
+  }, [orders, searchQuery])
 
   const handleExport = (format) => {
     if (filteredOrders.length === 0) {
@@ -246,7 +310,10 @@ export default function RegularOrderReport() {
   )
 
   const formatAmount = (amount) =>
-    `$ ${Number(amount || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+    `₹${Number(amount || 0).toLocaleString("en-IN", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}`
 
   const handleFilterChange = (key, value) => {
     setFilters((prev) => ({ ...prev, [key]: value }))

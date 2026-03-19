@@ -129,13 +129,27 @@ export function useOrdersManagement(orders, statusKey, title) {
     // Apply search query
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase().trim()
-      result = result.filter(order =>
-        order.orderId.toLowerCase().includes(query) ||
-        order.customerName.toLowerCase().includes(query) ||
-        order.restaurant.toLowerCase().includes(query) ||
-        order.customerPhone.includes(query) ||
-        order.totalAmount.toString().includes(query)
-      )
+      result = result.filter(order => {
+        const safeTotal =
+          order.totalAmount ??
+          order.total ??
+          order.pricing?.total ??
+          0
+        const totalStr = String(safeTotal)
+        return (
+          String(order.orderId || "")
+            .toLowerCase()
+            .includes(query) ||
+          String(order.customerName || "")
+            .toLowerCase()
+            .includes(query) ||
+          String(order.restaurant || "")
+            .toLowerCase()
+            .includes(query) ||
+          String(order.customerPhone || "").includes(query) ||
+          totalStr.includes(query)
+        )
+      })
     }
 
     // Apply filters
@@ -155,11 +169,27 @@ export function useOrdersManagement(orders, statusKey, title) {
     }
 
     if (filters.minAmount) {
-      result = result.filter(order => order.totalAmount >= parseFloat(filters.minAmount))
+      const min = parseFloat(filters.minAmount)
+      result = result.filter(order => {
+        const amount =
+          order.totalAmount ??
+          order.total ??
+          order.pricing?.total ??
+          0
+        return Number(amount) >= min
+      })
     }
 
     if (filters.maxAmount) {
-      result = result.filter(order => order.totalAmount <= parseFloat(filters.maxAmount))
+      const max = parseFloat(filters.maxAmount)
+      result = result.filter(order => {
+        const amount =
+          order.totalAmount ??
+          order.total ??
+          order.pricing?.total ??
+          0
+        return Number(amount) <= max
+      })
     }
 
     if (filters.restaurant) {
@@ -278,18 +308,50 @@ export function useOrdersManagement(orders, statusKey, title) {
         const unitPrice = toNumber(item?.price)
         return sum + (qty * unitPrice)
       }, 0)
-      const subtotal = itemsSubtotal > 0 ? itemsSubtotal : toNumber(order.subtotal || order.totalAmount)
-      const deliveryFee = toNumber(order.deliveryFee || order.deliveryCharge || order.delivery?.fee)
-      const taxAmount = toNumber(order.taxAmount || order.tax || order.gst)
-      const discountAmount = toNumber(order.discountAmount || order.discount)
+      const subtotal = itemsSubtotal > 0
+        ? itemsSubtotal
+        : toNumber(
+            order.totalItemAmount ??
+            order.subtotal ??
+            order.pricing?.subtotal ??
+            order.totalAmount
+          )
+      const deliveryFee = toNumber(
+        order.deliveryCharge ??
+        order.deliveryFee ??
+        order.pricing?.deliveryFee ??
+        order.delivery?.fee
+      )
+      const taxAmount = toNumber(
+        order.vatTax ??
+        order.taxAmount ??
+        order.tax ??
+        order.pricing?.tax
+      )
+      const discountAmount = toNumber(
+        order.couponDiscount ??
+        order.itemDiscount ??
+        order.discountAmount ??
+        order.pricing?.discount
+      )
       const computedTotal = subtotal + deliveryFee + taxAmount - discountAmount
-      const totalAmount = toNumber(order.totalAmount || computedTotal)
+      const totalAmount = toNumber(
+        order.totalAmount ??
+        order.pricing?.total ??
+        computedTotal
+      )
       const paymentType = order.paymentType || order.payment?.method || order.paymentMethod || "N/A"
       const deliveryPartnerName = formatDisplayText(
-        order.deliveryPartnerName || order.deliveryBoyName || order.deliveryPartnerId?.name,
+        order.deliveryPartnerName ||
+        order.deliveryBoyName ||
+        order.deliveryPartnerId?.name ||
+        order.dispatch?.deliveryPartnerId?.name,
       )
       const deliveryPartnerPhone = formatDisplayText(
-        order.deliveryPartnerPhone || order.deliveryBoyNumber || order.deliveryPartnerId?.phone,
+        order.deliveryPartnerPhone ||
+        order.deliveryBoyNumber ||
+        order.deliveryPartnerId?.phone ||
+        order.dispatch?.deliveryPartnerId?.phone,
       )
       const orderStatus = formatDisplayText(order.orderStatus || order.status)
       const paymentStatus = formatDisplayText(

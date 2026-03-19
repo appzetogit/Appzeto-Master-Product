@@ -26,7 +26,8 @@ export const requestUserOtp = async (phone) => {
 
     const otp = await createOrUpdateOtp(phone);
     // TODO: integrate SMS provider here
-    return { otp }; // for now return OTP (for dev/testing)
+    const shouldExposeOtp = config.nodeEnv !== 'production' || config.useDefaultOtp;
+    return shouldExposeOtp ? { otp } : {};
 };
 
 export const verifyUserOtpAndLogin = async (phone, otp, ref) => {

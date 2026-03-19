@@ -9,6 +9,7 @@ import { ValidationError, ForbiddenError } from '../../../core/auth/errors.js';
 import { buildPaginationOptions, buildPaginatedResult } from '../../../utils/helpers.js';
 import { FoodOffer } from '../admin/models/offer.model.js';
 import { FoodOfferUsage } from '../admin/models/offerUsage.model.js';
+import { FoodDeliveryCommissionRule } from '../admin/models/deliveryCommissionRule.model.js';
 import {
     createRazorpayOrder,
     createPaymentLink,
@@ -68,6 +69,50 @@ function pushStatusHistory(order, { byRole, byId, from, to, note = '' }) {
         to,
         note
     });
+}
+
+const COMMISSION_CACHE_MS = 10 * 1000;
+let commissionRulesCache = null;
+let commissionRulesLoadedAt = 0;
+
+async function getActiveCommissionRules() {
+    const now = Date.now();
+    if (commissionRulesCache && now - commissionRulesLoadedAt < COMMISSION_CACHE_MS) {
+        return commissionRulesCache;
+    }
+    const list = await FoodDeliveryCommissionRule.find({ status: { $ne: false } }).lean();
+    commissionRulesCache = list || [];
+    commissionRulesLoadedAt = now;
+    return commissionRulesCache;
+}
+
+async function getRiderEarning(distanceKm) {
+    const d = Number(distanceKm);
+    if (!Number.isFinite(d) || d <= 0) return 0;
+    const rules = await getActiveCommissionRules();
+    if (!rules.length) return 0;
+
+    const sorted = [...rules].sort((a, b) => (a.minDistance || 0) - (b.minDistance || 0));
+    const baseRule = sorted.find((r) => Number(r.minDistance || 0) === 0) || null;
+    if (!baseRule) return 0;
+
+    let earning = Number(baseRule.basePayout || 0);
+
+    for (const r of sorted) {
+        const perKm = Number(r.commissionPerKm || 0);
+        if (!Number.isFinite(perKm) || perKm <= 0) continue;
+        const min = Number(r.minDistance || 0);
+        const max = r.maxDistance == null ? null : Number(r.maxDistance);
+        if (d <= min) continue;
+        const upper = max == null ? d : Math.min(d, max);
+        const kmInSlab = Math.max(0, upper - min);
+        if (kmInSlab > 0) {
+            earning += kmInSlab * perKm;
+        }
+    }
+
+    if (!Number.isFinite(earning) || earning <= 0) return 0;
+    return Math.round(earning);
 }
 
 function buildDeliverySocketPayload(orderDoc, restaurantDoc = null) {
@@ -338,7 +383,7 @@ export async function createOrder(userId, dto) {
         (Number.isFinite(normalizedPricing.subtotal) ? normalizedPricing.subtotal : 0) +
         (Number.isFinite(normalizedPricing.tax) ? normalizedPricing.tax : 0) +
         (Number.isFinite(normalizedPricing.packagingFee) ? normalizedPricing.packagingFee : 0) +
-        (Number.isFinite(normalizedPricing.deliveryFee) ? normalizedPricing.deliveryFee : 0) -
+        (Number.isFinite(normalizedPricing.deliveryFee) ? normalizedPricing.deliveryFee : 0) +
         (Number.isFinite(normalizedPricing.platformFee) ? normalizedPricing.platformFee : 0) -
         (Number.isFinite(normalizedPricing.discount) ? normalizedPricing.discount : 0)
     );
@@ -354,6 +399,24 @@ export async function createOrder(userId, dto) {
         qr: {}
     };
 
+    let distanceKm = null;
+    if (restaurant.location?.coordinates?.length === 2 && dto.address?.location?.coordinates?.length === 2) {
+        const [rLng, rLat] = restaurant.location.coordinates;
+        const [dLng, dLat] = dto.address.location.coordinates;
+        const d = haversineKm(rLat, rLng, dLat, dLng);
+        distanceKm = Number.isFinite(d) ? d : null;
+    } else {
+        console.warn(`Food order ${orderId}: distance not available, rider earning set to 0`);
+    }
+
+    const riderEarning = await getRiderEarning(distanceKm);
+    const platformProfit = Math.max(
+        0,
+        (Number.isFinite(normalizedPricing.deliveryFee) ? normalizedPricing.deliveryFee : 0) +
+        (Number.isFinite(normalizedPricing.platformFee) ? normalizedPricing.platformFee : 0) -
+        riderEarning
+    );
+
     const order = new FoodOrder({
         orderId,
         userId: new mongoose.Types.ObjectId(userId),
@@ -368,7 +431,9 @@ export async function createOrder(userId, dto) {
         statusHistory: [{ at: new Date(), byRole: 'SYSTEM', from: '', to: 'created', note: 'Order placed' }],
         note: dto.note || '',
         sendCutlery: dto.sendCutlery !== false,
-        deliveryFleet: dto.deliveryFleet || 'standard'
+        deliveryFleet: dto.deliveryFleet || 'standard',
+        riderEarning,
+        platformProfit
     });
 
     let razorpayPayload = null;
@@ -535,6 +600,7 @@ export async function getOrderById(orderId, { userId, restaurantId, deliveryPart
     const identity = buildOrderIdentityFilter(orderId);
     if (!identity) throw new ValidationError('Order id required');
     const order = await FoodOrder.findOne(identity)
+        .populate('userId', 'name phone email')
         .populate('restaurantId', 'restaurantName profileImage area city')
         .populate('dispatch.deliveryPartnerId', 'name phone')
         .lean();
@@ -992,11 +1058,97 @@ export async function getPaymentStatus(orderId, deliveryPartnerId) {
 export async function listOrdersAdmin(query) {
     const { page, limit, skip } = buildPaginationOptions(query);
     const filter = {};
+
+    const rawStatus = typeof query.status === 'string' ? query.status.trim().toLowerCase() : '';
+    const cancelledBy = typeof query.cancelledBy === 'string' ? query.cancelledBy.trim().toLowerCase() : '';
+    const restaurantIdRaw = typeof query.restaurantId === 'string' ? query.restaurantId.trim() : '';
+    const startDateRaw = typeof query.startDate === 'string' ? query.startDate.trim() : '';
+    const endDateRaw = typeof query.endDate === 'string' ? query.endDate.trim() : '';
+
+    if (rawStatus && rawStatus !== 'all') {
+        switch (rawStatus) {
+            case 'pending':
+                filter.orderStatus = { $in: ['created', 'confirmed'] };
+                break;
+            case 'accepted':
+                filter.orderStatus = 'confirmed';
+                break;
+            case 'processing':
+                filter.orderStatus = { $in: ['preparing', 'ready_for_pickup'] };
+                break;
+            case 'food-on-the-way':
+                filter.orderStatus = 'picked_up';
+                break;
+            case 'delivered':
+                filter.orderStatus = 'delivered';
+                break;
+            case 'canceled':
+            case 'cancelled':
+                filter.orderStatus = {
+                    $in: ['cancelled_by_user', 'cancelled_by_restaurant', 'cancelled_by_admin']
+                };
+                break;
+            case 'restaurant-cancelled':
+                filter.orderStatus = 'cancelled_by_restaurant';
+                break;
+            case 'payment-failed':
+                filter['payment.status'] = 'failed';
+                break;
+            case 'refunded':
+                filter['payment.status'] = 'refunded';
+                break;
+            case 'offline-payments':
+                filter['payment.method'] = 'cash';
+                filter.orderStatus = { $in: ['created', 'confirmed', 'delivered'] };
+                break;
+            case 'scheduled':
+                filter.scheduledAt = { $ne: null };
+                break;
+            default:
+                break;
+        }
+    }
+
+    if (cancelledBy) {
+        if (cancelledBy === 'restaurant') {
+            filter.orderStatus = 'cancelled_by_restaurant';
+        } else if (cancelledBy === 'user' || cancelledBy === 'customer') {
+            filter.orderStatus = 'cancelled_by_user';
+        }
+    }
+
+    if (restaurantIdRaw && mongoose.Types.ObjectId.isValid(restaurantIdRaw)) {
+        filter.restaurantId = new mongoose.Types.ObjectId(restaurantIdRaw);
+    }
+
+    if (startDateRaw || endDateRaw) {
+        const createdAt = {};
+        const start = startDateRaw ? new Date(startDateRaw) : null;
+        const end = endDateRaw ? new Date(endDateRaw) : null;
+        if (start && !Number.isNaN(start.getTime())) {
+            createdAt.$gte = start;
+        }
+        if (end && !Number.isNaN(end.getTime())) {
+            createdAt.$lte = end;
+        }
+        if (Object.keys(createdAt).length > 0) {
+            filter.createdAt = createdAt;
+        }
+    }
+
     const [docs, total] = await Promise.all([
-        FoodOrder.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+        FoodOrder.find(filter)
+            .populate('userId', 'name phone email')
+            .populate('restaurantId', 'restaurantName area city ownerPhone')
+            .populate('dispatch.deliveryPartnerId', 'name phone')
+            .sort({ createdAt: -1 })
+            .skip(skip)
+            .limit(limit)
+            .lean(),
         FoodOrder.countDocuments(filter)
     ]);
-    return buildPaginatedResult({ docs, total, page, limit });
+    const paginated = buildPaginatedResult({ docs, total, page, limit });
+    return { ...paginated, orders: paginated.data };
 }
 
 export async function assignDeliveryPartnerAdmin(orderId, deliveryPartnerId, adminId) {
