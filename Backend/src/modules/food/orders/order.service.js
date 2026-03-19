@@ -181,13 +181,8 @@ export async function calculateOrder(userId, dto) {
     if (!restaurant) throw new ValidationError('Restaurant not found');
     if (restaurant.status !== 'approved') throw new ValidationError('Restaurant not available');
 
-    // Server-calculated pricing (do not trust client totals).
-    const subtotal = (dto.items || []).reduce((sum, item) => {
-        const price = Number(item?.price);
-        const qty = Number(item?.quantity);
-        if (!Number.isFinite(price) || !Number.isFinite(qty)) return sum;
-        return sum + Math.max(0, price) * Math.max(0, qty);
-    }, 0);
+    const items = Array.isArray(dto.items) ? dto.items : [];
+    const subtotal = items.reduce((sum, it) => sum + (Number(it.price) || 0) * (Number(it.quantity) || 1), 0);
 
     // Fee settings (admin-configured). Use safe fallbacks for dev if not configured.
     const feeDoc = await FoodFeeSettings.findOne({ isActive: true }).sort({ createdAt: -1 }).lean();
@@ -233,14 +228,7 @@ export async function calculateOrder(userId, dto) {
 
     const gstRate = Number(feeSettings.gstRate || 0);
     const tax = Number.isFinite(gstRate) && gstRate > 0 ? Math.round(subtotal * (gstRate / 100)) : 0;
-    const discount = 0;
-    const total = Math.max(0, subtotal + packagingFee + deliveryFee + platformFee + tax - discount);
 
-    const items = Array.isArray(dto.items) ? dto.items : [];
-    const subtotal = items.reduce((sum, it) => sum + (Number(it.price) || 0) * (Number(it.quantity) || 1), 0);
-    const tax = 0;
-    const packagingFee = 0;
-    const deliveryFee = 0;
     let discount = 0;
     let appliedCoupon = null;
     const codeRaw = dto.couponCode ? String(dto.couponCode).trim().toUpperCase() : '';
@@ -284,7 +272,7 @@ export async function calculateOrder(userId, dto) {
             }
         }
     }
-    const total = Math.max(0, subtotal + tax + packagingFee + deliveryFee - discount);
+    const total = Math.max(0, subtotal + packagingFee + deliveryFee + platformFee + tax - discount);
     return {
         pricing: {
             subtotal,
@@ -292,14 +280,6 @@ export async function calculateOrder(userId, dto) {
             packagingFee,
             deliveryFee,
             platformFee,
-            discount,
-            total,
-            currency: 'INR'
-        pricing: {
-            subtotal,
-            tax,
-            packagingFee,
-            deliveryFee,
             discount,
             total,
             currency: 'INR',
