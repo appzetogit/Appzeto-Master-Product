@@ -35,7 +35,7 @@ export default function TableBookingSuccess() {
     }, [])
 
     if (!booking) {
-        navigate("/dining")
+        navigate("/food/user/dining")
         return null
     }
 
@@ -81,9 +81,12 @@ export default function TableBookingSuccess() {
                     <div className="flex items-center gap-4">
                         <div className="w-16 h-16 rounded-2xl bg-white border border-slate-100 flex-shrink-0 p-1">
                             <img
-                                src={booking.restaurant?.image || booking.restaurant?.profileImage?.url || "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=150&q=80"}
+                                src={booking.restaurant?.image || booking.restaurant?.profileImage?.url || ""}
                                 className="w-full h-full object-cover rounded-xl"
                                 alt="restaurant"
+                                onError={(e) => {
+                                    e.currentTarget.style.display = 'none'
+                                }}
                             />
                         </div>
                         <div className="min-w-0">
@@ -146,14 +149,14 @@ export default function TableBookingSuccess() {
                 className="mt-12 w-full max-w-sm space-y-3"
             >
                 <Button
-                    onClick={() => navigate("/bookings")}
+                    onClick={() => navigate("/food/user/bookings")}
                     className="w-full h-14 bg-red-500 hover:bg-red-600 text-white font-bold text-lg rounded-2xl shadow-xl shadow-red-100 flex items-center justify-center gap-2"
                 >
                     <List className="w-5 h-5" />
                     View My Bookings
                 </Button>
                 <Button
-                    onClick={() => navigate("/")}
+                    onClick={() => navigate("/food/user")}
                     variant="outline"
                     className="w-full h-14 bg-white border-2 border-slate-100 text-slate-600 font-bold text-lg rounded-2xl hover:bg-slate-50 flex items-center justify-center gap-2"
                 >

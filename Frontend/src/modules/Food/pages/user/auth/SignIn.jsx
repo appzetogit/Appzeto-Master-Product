@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react"
-import { useNavigate, Link } from "react-router-dom"
+import { useNavigate, Link, useSearchParams } from "react-router-dom"
 import { AlertCircle, Loader2 } from "lucide-react"
 import AnimatedPage from "@food/components/user/AnimatedPage"
 import { Button } from "@food/components/ui/button"
@@ -13,6 +13,7 @@ const debugError = (...args) => {}
 
 export default function SignIn() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
 
   const [formData, setFormData] = useState({
     phone: "",
@@ -82,12 +83,13 @@ export default function SignIn() {
       const fullPhone = `${countryCode} ${phoneDigits}`
       await authAPI.sendOTP(fullPhone, "login", null)
 
+      const ref = String(searchParams.get("ref") || "").trim()
       const authData = {
         method: "phone",
         phone: fullPhone,
         email: null,
         name: null,
-        referralCode: null,
+        referralCode: ref || null,
         isSignUp: false,
         module: "user",
       }

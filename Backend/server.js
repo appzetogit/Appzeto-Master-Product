@@ -6,11 +6,13 @@ import { connectDB, disconnectDB } from './src/config/db.js';
 import { connectRedis, closeRedis } from './src/config/redis.js';
 import { initSocket } from './src/config/socket.js';
 import { initializeQueues, closeBullMQConnection } from './src/queues/index.js';
+import { expireExpiredOffers } from './src/modules/food/admin/services/admin.service.js';
 
 import { logger } from './src/utils/logger.js';
 
 const SHUTDOWN_TIMEOUT_MS = 10000;
 let server = null;
+let expireOffersInterval = null;
 
 const gracefulShutdown = async (signal) => {
     logger.info(`${signal} received, starting graceful shutdown`);
@@ -23,6 +25,7 @@ const gracefulShutdown = async (signal) => {
             await disconnectDB();
             await closeRedis();
             await closeBullMQConnection();
+            if (expireOffersInterval) clearInterval(expireOffersInterval);
             logger.info('Graceful shutdown complete');
             process.exit(0);
         } catch (err) {
@@ -54,13 +57,16 @@ const startServer = async () => {
             await connectRedis();
         }
 
-        // 5. Conditionally initialize BullMQ queues (only if BULLMQ_ENABLED=true). Workers run separately.
-        if (config.bullmqEnabled) {
+        // 5. Conditionally initialize BullMQ queues.
+        // BullMQ requires Redis; skip queue bootstrap when Redis is disabled.
+        if (config.bullmqEnabled && config.redisEnabled) {
             try {
                 initializeQueues();
             } catch (err) {
                 logger.error(`BullMQ initialization error (server continues): ${err.message}`);
             }
+        } else if (config.bullmqEnabled && !config.redisEnabled) {
+            logger.warn('BullMQ is enabled but Redis is disabled. Queue initialization skipped.');
         }
 
         // 6. Start the HTTP server
@@ -68,6 +74,16 @@ const startServer = async () => {
             logger.info(`Server running in ${config.nodeEnv} mode on port ${config.port}`);
             console.log(`🌐 [URL] http://localhost:${config.port}`);
         });
+
+        const runExpire = async () => {
+            try {
+                await expireExpiredOffers();
+            } catch (err) {
+                logger.error(`Expire offers error: ${err.message}`);
+            }
+        };
+        runExpire();
+        expireOffersInterval = setInterval(runExpire, 5 * 60 * 1000);
 
         process.on('SIGINT', () => gracefulShutdown('SIGINT'));
         process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));

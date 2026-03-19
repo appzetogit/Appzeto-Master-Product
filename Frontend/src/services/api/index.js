@@ -47,6 +47,32 @@ export const api = {
   delete: (_url, _config) => emptyDataStub(),
 };
 
+/** Single in-flight + short cache for user /auth/me - avoids duplicate calls. */
+let userMeInFlight = null;
+let userMeCached = null;
+let userMeCacheTime = 0;
+const USER_ME_CACHE_MS = 3000;
+
+const getUserMeOnce = () => {
+  const now = Date.now();
+  if (userMeCached && now - userMeCacheTime < USER_ME_CACHE_MS) {
+    return Promise.resolve(userMeCached);
+  }
+  if (!userMeInFlight) {
+    userMeInFlight = authService
+      .getMe("user")
+      .then((res) => {
+        userMeCached = res;
+        userMeCacheTime = Date.now();
+        return res;
+      })
+      .finally(() => {
+        userMeInFlight = null;
+      });
+  }
+  return userMeInFlight;
+};
+
 /** Auth API - user OTP + admin login via new backend */
 export const authAPI = {
   sendOTP: (phone, _purpose = "login", _email = null) => {
@@ -65,9 +91,9 @@ export const authAPI = {
   ) => {
     if (!phone || !otp)
       return Promise.reject(new Error("Phone and OTP are required"));
-    return authService.verifyUserOtp(phone, otp);
+    return authService.verifyUserOtp(phone, otp, _referralCode);
   },
-  getCurrentUser: () => authService.getMe("user"),
+  getCurrentUser: () => getUserMeOnce(),
   refreshToken: (token) => authService.refreshToken(token),
   logout: (refreshToken) => {
     const token =
@@ -211,6 +237,35 @@ export const adminAPI = {
   /** Categories (admin) */
   getCategories: (params = {}) =>
     apiClient.get("/food/admin/categories", { params, contextModule: "admin" }),
+  /** Dining categories (admin) */
+  getDiningCategories: (params = {}) =>
+    apiClient.get("/food/admin/dining/categories", {
+      params,
+      contextModule: "admin",
+    }),
+  createDiningCategory: (body) =>
+    apiClient.post("/food/admin/dining/categories", body ?? {}, {
+      contextModule: "admin",
+    }),
+  updateDiningCategory: (id, body) =>
+    apiClient.patch(`/food/admin/dining/categories/${String(id)}`, body ?? {}, {
+      contextModule: "admin",
+    }),
+  deleteDiningCategory: (id) =>
+    apiClient.delete(`/food/admin/dining/categories/${String(id)}`, {
+      contextModule: "admin",
+    }),
+  getDiningRestaurants: (params = {}) =>
+    apiClient.get("/food/admin/dining/restaurants", {
+      params,
+      contextModule: "admin",
+    }),
+  updateRestaurantDiningSettings: (restaurantId, body) =>
+    apiClient.patch(
+      `/food/admin/dining/restaurants/${String(restaurantId)}`,
+      body ?? {},
+      { contextModule: "admin" },
+    ),
   createCategory: (body) =>
     apiClient.post("/food/admin/categories", body ?? {}, {
       contextModule: "admin",
@@ -223,6 +278,8 @@ export const adminAPI = {
     apiClient.delete(`/food/admin/categories/${id}`, {
       contextModule: "admin",
     }),
+  approveCategory: (id) =>
+    apiClient.patch(`/food/admin/categories/${String(id)}/approve`, {}, { contextModule: "admin" }),
   toggleCategoryStatus: (id) =>
     apiClient.patch(
       `/food/admin/categories/${id}/toggle`,
@@ -351,6 +408,10 @@ export const adminAPI = {
       { itemId: String(itemId), showInCart: Boolean(showInCart) },
       { contextModule: "admin" },
     ),
+  deleteAdminOffer: (offerId) =>
+    apiClient.delete(`/food/admin/offers/${String(offerId)}`, {
+      contextModule: "admin",
+    }),
 
   /** Delivery Partner Bonus (admin) */
   getDeliveryPartnerBonusTransactions: (params = {}) =>
@@ -496,6 +557,37 @@ export const adminAPI = {
       contextModule: "admin",
     }),
 
+  /** Referral Settings (admin) */
+  getReferralSettings: () =>
+    apiClient.get("/food/admin/referral-settings", { contextModule: "admin" }),
+  createOrUpdateReferralSettings: (body) =>
+    apiClient.put("/food/admin/referral-settings", body ?? {}, {
+      contextModule: "admin",
+    }),
+
+  /** Safety / Emergency Reports (admin) */
+  getSafetyEmergencyReports: (params) =>
+    apiClient.get("/food/admin/safety-emergency-reports", {
+      params: params ?? {},
+      contextModule: "admin",
+    }),
+  updateSafetyEmergencyStatus: (id, status) =>
+    apiClient.put(
+      `/food/admin/safety-emergency-reports/${String(id)}/status`,
+      { status: String(status) },
+      { contextModule: "admin" },
+    ),
+  updateSafetyEmergencyPriority: (id, priority) =>
+    apiClient.put(
+      `/food/admin/safety-emergency-reports/${String(id)}/priority`,
+      { priority: String(priority) },
+      { contextModule: "admin" },
+    ),
+  deleteSafetyEmergencyReport: (id) =>
+    apiClient.delete(`/food/admin/safety-emergency-reports/${String(id)}`, {
+      contextModule: "admin",
+    }),
+
   /** Delivery Cash Limit (admin) */
   getDeliveryCashLimit: () =>
     apiClient.get("/food/admin/delivery-cash-limit", {
@@ -515,6 +607,18 @@ export const adminAPI = {
     apiClient.put("/food/admin/delivery-emergency-help", body ?? {}, {
       contextModule: "admin",
     }),
+
+  /** Restaurant add-ons approval (admin) */
+  getRestaurantAddons: (params = {}) =>
+    apiClient.get("/food/admin/addons", { params: params ?? {}, contextModule: "admin" }),
+  approveRestaurantAddon: (id) =>
+    apiClient.patch(`/food/admin/addons/${String(id)}/approve`, {}, { contextModule: "admin" }),
+  rejectRestaurantAddon: (id, reason) =>
+    apiClient.patch(
+      `/food/admin/addons/${String(id)}/reject`,
+      { reason: String(reason || "").trim() },
+      { contextModule: "admin" },
+    ),
 };
 
 /** Restaurant API - OTP login via new backend; no email/password. */
@@ -531,6 +635,67 @@ export const restaurantAPI = {
   getMe: () => authService.getMe("restaurant"),
   /** Restaurant dashboard: fetch current restaurant profile (deduped + short-cached). */
   getCurrentRestaurant: () => getRestaurantCurrentOnce(),
+  /** Restaurant hub dashboard bootstrap. */
+  getToHubData: (config = {}) =>
+    apiClient.get("/food/restaurant/to-hub", {
+      contextModule: "restaurant",
+      ...config,
+    }),
+  /** Finance dashboard (stubbed if backend doesn't provide endpoint). */
+  getFinance: (params = {}) => {
+    // NOTE: Backend may not have a /food/restaurant/finance endpoint.
+    // This stub provides a consistent response shape so the UI can render.
+    // Replace with a real endpoint if/when available.
+    const fakeData = {
+      success: true,
+      data: {
+        restaurant: {
+          name: "Your Restaurant",
+          restaurantId: "REST000001",
+          address: "Your address",
+        },
+        currentCycle: {
+          estimatedPayout: 0,
+          totalOrders: 0,
+          orders: [],
+          payoutDate: null,
+          start: "15",
+          end: "21",
+          month: "Dec",
+          year: "25",
+        },
+        pastCycles: {
+          orders: [],
+          totalOrders: 0,
+        },
+      },
+    };
+
+    return Promise.resolve({ data: fakeData });
+  },
+  /** Fetch restaurant by owner (stub for missing backend endpoint). */
+  getRestaurantByOwner: () =>
+    Promise.resolve({
+      data: {
+        success: true,
+        data: {
+          restaurant: {
+            name: "Your Restaurant",
+            restaurantId: "REST000001",
+            address: "Your address",
+          },
+        },
+      },
+    }),
+  /** Submit a withdrawal request (stubbed). */
+  createWithdrawalRequest: (amount) => {
+    return Promise.resolve({
+      data: {
+        success: true,
+        message: `Withdrawal request for ₹${Number(amount).toFixed(2)} received.`,
+      },
+    });
+  },
   /** Update restaurant profile fields (name/cuisines/location/menuImages). */
   updateProfile: (body) =>
     apiClient
@@ -575,25 +740,42 @@ export const restaurantAPI = {
       contextModule: "restaurant",
     });
   },
-  /** Add a staff/manager user (multipart FormData: name, role, phone|email, optional photo). */
-  addStaff: (formData) => {
-    if (!formData || !(formData instanceof FormData)) {
-      return Promise.reject(new Error("FormData is required"));
-    }
-    return apiClient.post("/food/restaurant/staff", formData, {
-      contextModule: "restaurant",
-    });
-  },
-  /** List staff/manager users */
-  getStaff: (params = {}) =>
-    apiClient.get("/food/restaurant/staff", {
-      params,
-      contextModule: "restaurant",
-    }),
-  /** Remove a staff/manager user */
-  deleteStaff: (id) =>
-    apiClient.delete(`/food/restaurant/staff/${String(id)}`, {
-      contextModule: "restaurant",
+  /** Public Offers for users (global/selected restaurant) */
+  getPublicOffers: () =>
+    apiClient.get("/food/restaurant/offers"),
+  /** Backward-compat helper used by Cart: returns coupons array for an item by adapting public offers */
+  getCouponsByItemIdPublic: (restaurantId, _itemId) =>
+    apiClient.get("/food/restaurant/offers").then((res) => {
+      const list = res?.data?.data?.allOffers || res?.data?.allOffers || [];
+      const now = Date.now();
+      const coupons = list
+        .filter((o) => {
+          // Guard: respect selected restaurant scope
+          if (String(o?.restaurantScope) === "selected") {
+            if (!restaurantId) return false;
+            return String(o.restaurantId || "") === String(restaurantId || "");
+          }
+          return true;
+        })
+        .map((o) => {
+          const isPct = o.discountType === "percentage";
+          return {
+            couponCode: o.couponCode,
+            discountType: o.discountType,
+            discountPercentage: isPct ? Number(o.discountValue) || 0 : 0,
+            originalPrice: 0,
+            discountedPrice: 0,
+            minOrderValue: Number(o.minOrderValue || 0),
+            minOrder: Number(o.minOrderValue || 0),
+            maxDiscount: o.maxDiscount != null ? Number(o.maxDiscount) : null,
+            customerGroup: o.customerScope || "all",
+            isGlobalCoupon: true,
+            endDate: o.endDate || null,
+            showInCart: o.showInCart !== false,
+            _ts: now,
+          };
+        });
+      return { data: { success: true, data: { coupons } } };
     }),
   /** Categories (restaurant dashboard) */
   getCategories: (params = {}) =>
@@ -629,6 +811,16 @@ export const restaurantAPI = {
   getMenu: (params = {}) =>
     apiClient.get("/food/restaurant/menu", {
       params,
+      contextModule: "restaurant",
+    }),
+  /** Orders (restaurant dashboard) */
+  getOrders: (params = {}) =>
+    apiClient.get("/food/restaurant/orders", {
+      params: { limit: 50, page: 1, ...params },
+      contextModule: "restaurant",
+    }),
+  getOrderById: (orderId) =>
+    apiClient.get(`/food/restaurant/orders/${String(orderId)}`, {
       contextModule: "restaurant",
     }),
   updateMenu: (body) =>
@@ -788,6 +980,23 @@ export const restaurantAPI = {
       },
     };
   },
+  /** Add-ons (restaurant) - approval handled by admin */
+  getAddons: (params = {}) =>
+    apiClient.get("/food/restaurant/addons", {
+      // Backend validator enforces limit <= 100
+      params: { limit: 100, page: 1, ...params },
+      contextModule: "restaurant",
+    }),
+  addAddon: (body) =>
+    apiClient.post("/food/restaurant/addons", body ?? {}, { contextModule: "restaurant" }),
+  updateAddon: (id, body) =>
+    apiClient.patch(`/food/restaurant/addons/${String(id)}`, body ?? {}, {
+      contextModule: "restaurant",
+    }),
+  deleteAddon: (id) =>
+    apiClient.delete(`/food/restaurant/addons/${String(id)}`, {
+      contextModule: "restaurant",
+    }),
   logout: (refreshToken) => {
     restaurantCurrentInFlight = null;
     restaurantCurrentCached = null;
@@ -814,26 +1023,166 @@ export const restaurantAPI = {
   },
   /** Public: list approved restaurants for user app */
   getRestaurants: (params = {}, config = {}) =>
-    apiClient.get("/food/restaurant/restaurants", {
-      params: { limit: 1000, ...params },
-      ...config,
-    }),
+    getPublicRestaurantsOnce(params, config),
   /** Public: get single approved restaurant by id or slug */
   getRestaurantById: (id, config = {}) =>
     apiClient.get(`/food/restaurant/restaurants/${String(id)}`, { ...config }),
   /** Public: get approved menu by restaurant id or slug */
   getMenuByRestaurantId: (id, config = {}) =>
-    apiClient.get(`/food/restaurant/restaurants/${String(id)}/menu`, {
-      ...config,
-    }),
+    getPublicRestaurantMenuOnce(id, config),
   /** Public: get outlet timings by restaurant id */
   getOutletTimingsByRestaurantId: (id, config = {}) =>
-    apiClient.get(`/food/restaurant/restaurants/${String(id)}/outlet-timings`, {
-      ...config,
-    }),
+    getPublicRestaurantOutletTimingsOnce(id, config),
+  /** Public (user app): approved add-ons by restaurant id/slug */
+  getAddonsByRestaurantId: (id, config = {}) =>
+    apiClient.get(`/food/restaurant/restaurants/${String(id)}/addons`, { ...config }),
   /** Public: list coupons/offers created by admin */
   getPublicOffers: (params = {}, config = {}) =>
     apiClient.get("/food/restaurant/offers", { params, ...config }),
+};
+
+function stableStringify(value) {
+  if (value === null || value === undefined) return String(value);
+  if (typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
+  const keys = Object.keys(value).sort();
+  return `{${keys.map((k) => `${JSON.stringify(k)}:${stableStringify(value[k])}`).join(",")}}`;
+}
+
+function createInFlightCache({ ttlMs }) {
+  const inFlight = new Map();
+  const cached = new Map(); // key -> { t, v }
+
+  const getCached = (key) => {
+    const hit = cached.get(key);
+    if (!hit) return null;
+    if (Date.now() - hit.t > ttlMs) {
+      cached.delete(key);
+      return null;
+    }
+    return hit.v;
+  };
+
+  const getOrCreate = (key, factory) => {
+    const cachedValue = getCached(key);
+    if (cachedValue) return Promise.resolve(cachedValue);
+    if (inFlight.has(key)) return inFlight.get(key);
+    const p = Promise.resolve()
+      .then(factory)
+      .then((res) => {
+        cached.set(key, { t: Date.now(), v: res });
+        return res;
+      })
+      .finally(() => {
+        inFlight.delete(key);
+      });
+    inFlight.set(key, p);
+    return p;
+  };
+
+  return { getOrCreate };
+}
+
+// Public user-app endpoints can be called by multiple components/effects on refresh (and React StrictMode in dev).
+// A small in-flight + short TTL cache collapses duplicate requests without changing functionality.
+const publicRestaurantsCache = createInFlightCache({ ttlMs: 3000 });
+const publicRestaurantMenuCache = createInFlightCache({ ttlMs: 3000 });
+const publicRestaurantOutletTimingsCache = createInFlightCache({ ttlMs: 3000 });
+const publicGenericGetCache = createInFlightCache({ ttlMs: 3000 });
+
+export const publicGetOnce = (url, config = {}) => {
+  const safeUrl = typeof url === "string" ? url.trim() : "";
+  const { noCache, params, ...axiosConfig } = config || {};
+  if (!safeUrl) return Promise.reject(new Error("url is required"));
+
+  if (noCache) {
+    return apiClient.get(safeUrl, { params, ...axiosConfig });
+  }
+
+  const keyParams = params && typeof params === "object" ? { ...params } : params;
+  if (keyParams && typeof keyParams === "object") {
+    // `_ts` is used as a cache-buster in some call sites; ignore it for dedupe purposes.
+    delete keyParams._ts;
+  }
+
+  const key = `GET:${safeUrl}:${stableStringify(keyParams)}`;
+  return publicGenericGetCache.getOrCreate(key, () =>
+    apiClient.get(safeUrl, { params, ...axiosConfig }),
+  );
+};
+
+const getPublicRestaurantsOnce = (params = {}, config = {}) => {
+  const { noCache, ...axiosConfig } = config || {};
+  if (noCache) {
+    return apiClient.get("/food/restaurant/restaurants", {
+      params: { limit: 1000, ...params },
+      ...axiosConfig,
+    });
+  }
+  const keyParams = { limit: 1000, ...params };
+  // `_ts` is an explicit cache-buster in many call sites; ignore it for dedupe purposes.
+  if (keyParams && typeof keyParams === "object") {
+    delete keyParams._ts;
+  }
+  const key = `restaurants:${stableStringify(keyParams)}`;
+  return publicRestaurantsCache.getOrCreate(key, () =>
+    apiClient.get("/food/restaurant/restaurants", {
+      params: { limit: 1000, ...params },
+      ...axiosConfig,
+    }),
+  );
+};
+
+const getPublicRestaurantMenuOnce = (id, config = {}) => {
+  const safeId = String(id || "").trim();
+  const { noCache, ...axiosConfig } = config || {};
+  if (!safeId) {
+    return Promise.resolve({
+      data: { success: false, data: null },
+      status: 200,
+      statusText: "OK",
+      headers: {},
+      config: {},
+    });
+  }
+  if (noCache) {
+    return apiClient.get(`/food/restaurant/restaurants/${safeId}/menu`, {
+      ...axiosConfig,
+    });
+  }
+  const key = `menu:${safeId}`;
+  return publicRestaurantMenuCache.getOrCreate(key, () =>
+    apiClient.get(`/food/restaurant/restaurants/${safeId}/menu`, {
+      ...axiosConfig,
+    }),
+  );
+};
+
+const getPublicRestaurantOutletTimingsOnce = (id, config = {}) => {
+  const safeId = String(id || "").trim();
+  const { noCache, ...axiosConfig } = config || {};
+  if (!safeId) {
+    return Promise.resolve({
+      data: { success: false, data: null },
+      status: 200,
+      statusText: "OK",
+      headers: {},
+      config: {},
+    });
+  }
+  if (noCache) {
+    return apiClient.get(
+      `/food/restaurant/restaurants/${safeId}/outlet-timings`,
+      { ...axiosConfig },
+    );
+  }
+  const key = `outletTimings:${safeId}`;
+  return publicRestaurantOutletTimingsCache.getOrCreate(key, () =>
+    apiClient.get(
+      `/food/restaurant/restaurants/${safeId}/outlet-timings`,
+      { ...axiosConfig },
+    ),
+  );
 };
 
 /** Single in-flight + short cache for restaurant /food/restaurant/current - prevents request storms. */
@@ -912,6 +1261,8 @@ export const deliveryAPI = {
         data: { profile: res.data?.data?.user ?? res.data?.data },
       },
     })),
+  getReferralStats: () =>
+    apiClient.get("/food/delivery/referrals/stats", { contextModule: "delivery" }),
   logout: (refreshToken) => {
     deliveryMeCached = null;
     deliveryMeCacheTime = 0;
@@ -1128,8 +1479,90 @@ export const deliveryAPI = {
 };
 
 export const userAPI = {
-  /** GET /food/user/addresses (Bearer USER) */
-  getAddresses: () => apiClient.get("/food/user/addresses", { contextModule: "user" }),
+  /** Get current user profile (Bearer USER). */
+  getProfile: () =>
+    getUserMeOnce().then((res) => {
+      const user =
+        res?.data?.data?.user ??
+        res?.data?.user ??
+        res?.data?.data ??
+        res?.data;
+      return { ...res, data: { ...res.data, data: { user } } };
+    }),
+  /** PATCH /food/user/profile (Bearer USER) */
+  updateProfile: (body) =>
+    apiClient.patch("/food/user/profile", body ?? {}, { contextModule: "user" }),
+  /** Upload and set user profile image (multipart). Field name: file */
+  uploadProfileImage: (file) => {
+    if (!file) return Promise.reject(new Error("File is required"));
+    const formData = new FormData();
+    formData.append("file", file);
+    return apiClient.post("/food/user/profile/profile-image", formData, {
+      contextModule: "user",
+    });
+  },
+  /** GET /food/user/wallet (Bearer USER). Deduped + short-cached. */
+  getWallet: (() => {
+    let inFlight = null;
+    let cached = null;
+    let cacheTime = 0;
+    const CACHE_MS = 3000;
+    return () => {
+      const now = Date.now();
+      if (cached && now - cacheTime < CACHE_MS) return Promise.resolve(cached);
+      if (!inFlight) {
+        inFlight = apiClient
+          .get("/food/user/wallet", { contextModule: "user" })
+          .then((res) => {
+            cached = res;
+            cacheTime = Date.now();
+            return res;
+          })
+          .finally(() => {
+            inFlight = null;
+          });
+      }
+      return inFlight;
+    };
+  })(),
+  /** GET /food/user/referrals/stats (Bearer USER) */
+  getReferralStats: () => apiClient.get("/food/user/referrals/stats", { contextModule: "user" }),
+  /** POST /food/user/wallet/topup/order (Bearer USER). Body: { amount } */
+  createWalletTopupOrder: (amount) =>
+    apiClient.post(
+      "/food/user/wallet/topup/order",
+      { amount: Number(amount) },
+      { contextModule: "user" },
+    ),
+  /** POST /food/user/wallet/topup/verify (Bearer USER) */
+  verifyWalletTopupPayment: (body) =>
+    apiClient.post("/food/user/wallet/topup/verify", body ?? {}, {
+      contextModule: "user",
+    }),
+  /** GET /food/user/addresses (Bearer USER). Deduped + short-cached. */
+  getAddresses: (() => {
+    let inFlight = null;
+    let cached = null;
+    let cacheTime = 0;
+    const CACHE_MS = 3000;
+    return () => {
+      const now = Date.now();
+      if (cached && now - cacheTime < CACHE_MS) return Promise.resolve(cached);
+      if (!inFlight) {
+        inFlight = apiClient
+          .get("/food/user/addresses", { contextModule: "user" })
+          .then((res) => {
+            cached = res;
+            cacheTime = Date.now();
+            return res;
+          })
+          .finally(() => {
+            inFlight = null;
+          });
+      }
+      return inFlight;
+    };
+  })(),
   /** POST /food/user/addresses (Bearer USER) */
   addAddress: (body) => apiClient.post("/food/user/addresses", body ?? {}, { contextModule: "user" }),
   /** PATCH /food/user/addresses/:id (Bearer USER) */
@@ -1141,6 +1574,19 @@ export const userAPI = {
   /** PATCH /food/user/addresses/:id/default (Bearer USER) */
   setDefaultAddress: (id) =>
     apiClient.patch(`/food/user/addresses/${String(id)}/default`, {}, { contextModule: "user" }),
+  /** POST /food/user/safety-emergency-reports (Bearer USER) */
+  createSafetyEmergencyReport: (message) =>
+    apiClient.post(
+      "/food/user/safety-emergency-reports",
+      { message: String(message || "") },
+      { contextModule: "user" },
+    ),
+  /** GET /food/user/safety-emergency-reports (Bearer USER) */
+  getMySafetyEmergencyReports: (params) =>
+    apiClient.get("/food/user/safety-emergency-reports", {
+      params: params ?? {},
+      contextModule: "user",
+    }),
   /**
    * Legacy UI compatibility: update "current user location".
    * We already persist the user's selected location in localStorage in the UI.
@@ -1197,6 +1643,306 @@ export const orderAPI = {
   cancelOrder: (orderId, body = {}) =>
     apiClient.patch(`/food/orders/${String(orderId)}/cancel`, body ?? {}, { contextModule: "user" }),
 };
-export const diningAPI = createStubAPI();
+
+const DINING_BOOKINGS_STORAGE_KEY = "food_dining_bookings_v1";
+
+const safeJsonParse = (value, fallback) => {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallback;
+  }
+};
+
+const getStoredBookings = () => {
+  if (typeof localStorage === "undefined") return [];
+  const parsed = safeJsonParse(
+    localStorage.getItem(DINING_BOOKINGS_STORAGE_KEY) || "[]",
+    [],
+  );
+  return Array.isArray(parsed) ? parsed : [];
+};
+
+const saveStoredBookings = (bookings) => {
+  if (typeof localStorage === "undefined") return;
+  localStorage.setItem(
+    DINING_BOOKINGS_STORAGE_KEY,
+    JSON.stringify(Array.isArray(bookings) ? bookings : []),
+  );
+};
+
+const getStoredModuleUser = (module) => {
+  if (typeof localStorage === "undefined") return null;
+  const parsed = safeJsonParse(localStorage.getItem(`${module}_user`) || "null", null);
+  return parsed && typeof parsed === "object" ? parsed : null;
+};
+
+const normalizeName = (restaurant) =>
+  restaurant?.name || restaurant?.restaurantName || "Restaurant";
+
+const normalizeRestaurantShape = (restaurant) => {
+  if (!restaurant || typeof restaurant !== "object") return null;
+  return {
+    _id: restaurant?._id || restaurant?.id || null,
+    id: restaurant?.id || restaurant?._id || null,
+    slug: restaurant?.slug || "",
+    name: normalizeName(restaurant),
+    restaurantName: restaurant?.restaurantName || normalizeName(restaurant),
+    profileImage: restaurant?.profileImage || null,
+    image:
+      restaurant?.image ||
+      restaurant?.profileImage?.url ||
+      (typeof restaurant?.profileImage === "string" ? restaurant.profileImage : ""),
+    location: restaurant?.location || null,
+  };
+};
+
+const buildLocalBookingId = () => `dbook_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+const buildDisplayBookingId = () => `TB${Date.now().toString().slice(-8)}`;
+
+const getCurrentUserForBookings = async () => {
+  const storedUser = getStoredModuleUser("user");
+  if (storedUser) return storedUser;
+
+  try {
+    const me = await getUserMeOnce();
+    return (
+      me?.data?.data?.user ||
+      me?.data?.user ||
+      me?.data?.data ||
+      null
+    );
+  } catch {
+    return null;
+  }
+};
+
+const normalizeBookingUser = (candidate) => {
+  if (!candidate || typeof candidate !== "object") return null;
+  const name = String(candidate?.name || candidate?.fullName || "").trim();
+  const phone = String(candidate?.phone || candidate?.mobile || candidate?.phoneNumber || "").trim();
+  const email = String(candidate?.email || "").trim();
+
+  return {
+    _id: candidate?._id || candidate?.id || null,
+    id: candidate?.id || candidate?._id || null,
+    name,
+    phone,
+    email,
+  };
+};
+
+const byLatest = (a, b) =>
+  new Date(b?.createdAt || b?.date || 0).getTime() -
+  new Date(a?.createdAt || a?.date || 0).getTime();
+
+export const diningAPI = {
+  getCategories: (params = {}) =>
+    apiClient.get("/food/dining/categories/public", { params }),
+  getRestaurants: (params = {}) =>
+    apiClient.get("/food/dining/restaurants/public", { params }),
+  getHeroBanners: () =>
+    apiClient.get("/food/hero-banners/dining/public"),
+  getRestaurantBySlug: (slug) =>
+    apiClient.get(`/food/restaurant/restaurants/${String(slug)}`),
+  getOfferBanners: () =>
+    Promise.resolve({ data: { success: true, data: [] } }),
+  getStories: () =>
+    Promise.resolve({ data: { success: true, data: [] } }),
+  getBankOffers: () =>
+    Promise.resolve({ data: { success: true, data: [] } }),
+  getBookings: async () => {
+    const bookings = getStoredBookings();
+    const user = await getCurrentUserForBookings();
+
+    const userId = user?._id || user?.id || null;
+    const userPhone = String(user?.phone || "").trim();
+    const userEmail = String(user?.email || "").trim().toLowerCase();
+
+    const filtered = bookings
+      .filter((booking) => {
+        if (userId) {
+          return (
+            String(booking?.userId || "") === String(userId) ||
+            String(booking?.user?._id || booking?.user?.id || "") === String(userId)
+          );
+        }
+
+        if (userPhone) {
+          return String(booking?.user?.phone || "").trim() === userPhone;
+        }
+
+        if (userEmail) {
+          return String(booking?.user?.email || "").trim().toLowerCase() === userEmail;
+        }
+
+        return false;
+      })
+      .sort(byLatest);
+
+    return Promise.resolve({ data: { success: true, data: filtered } });
+  },
+  getRestaurantBookings: (restaurantId) => {
+    const id = String(restaurantId || "").trim();
+    const bookings = getStoredBookings();
+
+    const filtered = bookings
+      .filter((booking) => {
+        if (!id) return false;
+        return (
+          String(booking?.restaurantId || "") === id ||
+          String(
+            booking?.restaurant?._id ||
+              booking?.restaurant?.id ||
+              booking?.restaurant?.restaurantId ||
+              booking?.restaurant?.restaurant?._id ||
+              booking?.restaurant?.restaurant?.id ||
+              "",
+          ) === id
+        );
+      })
+      .sort(byLatest);
+
+    return Promise.resolve({ data: { success: true, data: filtered } });
+  },
+  updateBookingStatusRestaurant: (bookingId, status) => {
+    const id = String(bookingId || "").trim();
+    const nextStatus = String(status || "").trim().toLowerCase();
+    const bookings = getStoredBookings();
+
+    const next = bookings.map((booking) => {
+      const bookingKey = String(booking?._id || booking?.id || "");
+      if (bookingKey !== id) return booking;
+      return {
+        ...booking,
+        status: nextStatus || booking?.status || "confirmed",
+        updatedAt: new Date().toISOString(),
+      };
+    });
+
+    saveStoredBookings(next);
+    const updated = next.find((booking) => String(booking?._id || booking?.id || "") === id) || null;
+
+    return Promise.resolve({ data: { success: Boolean(updated), data: updated } });
+  },
+  createReview: (payload = {}) => {
+    const bookingId = String(payload?.bookingId || "").trim();
+    if (!bookingId) {
+      return Promise.resolve({
+        data: { success: false, message: "bookingId is required", data: null },
+      });
+    }
+
+    const bookings = getStoredBookings();
+    const next = bookings.map((booking) => {
+      const bookingKey = String(booking?._id || booking?.id || "");
+      if (bookingKey !== bookingId) return booking;
+      return {
+        ...booking,
+        review: {
+          rating: Number(payload?.rating || 0),
+          comment: String(payload?.comment || "").trim(),
+          createdAt: new Date().toISOString(),
+        },
+        updatedAt: new Date().toISOString(),
+      };
+    });
+
+    saveStoredBookings(next);
+    const updated = next.find((booking) => String(booking?._id || booking?.id || "") === bookingId) || null;
+
+    return Promise.resolve({ data: { success: Boolean(updated), data: updated } });
+  },
+  createBooking: async (payload = {}) => {
+    const restaurantId = String(
+      payload?.restaurant ||
+        payload?.restaurantId ||
+        payload?.restaurantRef?._id ||
+        payload?.restaurantRef?.id ||
+        payload?.restaurantRef?.restaurant?._id ||
+        payload?.restaurantRef?.restaurant?.id ||
+        payload?.restaurant?._id ||
+        payload?.restaurant?.id ||
+        "",
+    ).trim();
+
+    if (!restaurantId) {
+      return Promise.resolve({
+        data: {
+          success: false,
+          message: "Restaurant is required",
+          data: null,
+        },
+      });
+    }
+
+    let restaurantData =
+      normalizeRestaurantShape(payload?.restaurantRef) ||
+      normalizeRestaurantShape(payload?.restaurant?.restaurant) ||
+      normalizeRestaurantShape(payload?.restaurant);
+    if (!restaurantData) {
+      try {
+        const restaurantRes = await apiClient.get(
+          `/food/restaurant/restaurants/${String(restaurantId)}`,
+        );
+        const rawRestaurant =
+          restaurantRes?.data?.data?.restaurant || restaurantRes?.data?.data || null;
+        restaurantData = normalizeRestaurantShape(rawRestaurant);
+      } catch {
+        restaurantData = {
+          _id: restaurantId,
+          id: restaurantId,
+          name: "Restaurant",
+          restaurantName: "Restaurant",
+          profileImage: null,
+          image: "",
+          location: null,
+          slug: "",
+        };
+      }
+    }
+
+    const payloadUser = normalizeBookingUser(payload?.userRef || payload?.user);
+    const resolvedUser = payloadUser || normalizeBookingUser(await getCurrentUserForBookings()) || null;
+    const nowIso = new Date().toISOString();
+    const localBookingId = buildLocalBookingId();
+
+    const booking = {
+      _id: localBookingId,
+      id: localBookingId,
+      bookingId: buildDisplayBookingId(),
+      restaurantId,
+      restaurant: restaurantData,
+      userId: resolvedUser?._id || resolvedUser?.id || null,
+      user: {
+        _id: resolvedUser?._id || resolvedUser?.id || null,
+        id: resolvedUser?.id || resolvedUser?._id || null,
+        name: resolvedUser?.name || "Guest",
+        phone: resolvedUser?.phone || "",
+        email: resolvedUser?.email || "",
+      },
+      guests: Math.max(1, Number(payload?.guests) || 1),
+      date: new Date(payload?.date || nowIso).toISOString(),
+      timeSlot: String(payload?.timeSlot || "").trim(),
+      specialRequest: String(payload?.specialRequest || "").trim(),
+      status: "confirmed",
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    };
+
+    const bookings = getStoredBookings();
+    const next = [booking, ...bookings].sort(byLatest);
+    saveStoredBookings(next);
+
+    return Promise.resolve({
+      data: {
+        success: true,
+        message: "Booking created successfully",
+        data: booking,
+      },
+    });
+  },
+};
 export const heroBannerAPI = createStubAPI();
 export const publicAPI = createStubAPI();

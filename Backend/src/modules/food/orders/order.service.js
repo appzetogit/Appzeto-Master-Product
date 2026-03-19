@@ -7,6 +7,8 @@ import { FoodZone } from '../admin/models/zone.model.js';
 import { FoodFeeSettings } from '../admin/models/feeSettings.model.js';
 import { ValidationError, ForbiddenError } from '../../../core/auth/errors.js';
 import { buildPaginationOptions, buildPaginatedResult } from '../../../utils/helpers.js';
+import { FoodOffer } from '../admin/models/offer.model.js';
+import { FoodOfferUsage } from '../admin/models/offerUsage.model.js';
 import {
     createRazorpayOrder,
     createPaymentLink,
@@ -234,6 +236,55 @@ export async function calculateOrder(userId, dto) {
     const discount = 0;
     const total = Math.max(0, subtotal + packagingFee + deliveryFee + platformFee + tax - discount);
 
+    const items = Array.isArray(dto.items) ? dto.items : [];
+    const subtotal = items.reduce((sum, it) => sum + (Number(it.price) || 0) * (Number(it.quantity) || 1), 0);
+    const tax = 0;
+    const packagingFee = 0;
+    const deliveryFee = 0;
+    let discount = 0;
+    let appliedCoupon = null;
+    const codeRaw = dto.couponCode ? String(dto.couponCode).trim().toUpperCase() : '';
+    if (codeRaw) {
+        const now = new Date();
+        const offer = await FoodOffer.findOne({ couponCode: codeRaw }).lean();
+        if (!offer) {
+            discount = 0;
+        } else {
+            const statusOk = offer.status === 'active';
+            const startOk = !offer.startDate || now >= new Date(offer.startDate);
+            const endOk = !offer.endDate || now < new Date(offer.endDate);
+            const scopeOk = offer.restaurantScope !== 'selected' || String(offer.restaurantId || '') === String(dto.restaurantId || '');
+            const minOk = subtotal >= (Number(offer.minOrderValue) || 0);
+            let usageOk = true;
+            if (Number(offer.usageLimit) > 0 && Number(offer.usedCount || 0) >= Number(offer.usageLimit)) usageOk = false;
+            let perUserOk = true;
+            if (userId && Number(offer.perUserLimit) > 0) {
+                const usage = await FoodOfferUsage.findOne({ offerId: offer._id, userId }).lean();
+                if (usage && Number(usage.count) >= Number(offer.perUserLimit)) perUserOk = false;
+            }
+            let firstOrderOk = true;
+            if (userId && offer.customerScope === 'first-time') {
+                const c = await FoodOrder.countDocuments({ userId: new mongoose.Types.ObjectId(userId) });
+                firstOrderOk = c === 0;
+            }
+            if (userId && offer.isFirstOrderOnly === true) {
+                const c2 = await FoodOrder.countDocuments({ userId: new mongoose.Types.ObjectId(userId) });
+                if (c2 > 0) firstOrderOk = false;
+            }
+            const allowed = statusOk && startOk && endOk && scopeOk && minOk && usageOk && perUserOk && firstOrderOk;
+            if (allowed) {
+                if (offer.discountType === 'percentage') {
+                    const raw = subtotal * (Number(offer.discountValue) / 100);
+                    const capped = Number(offer.maxDiscount) ? Math.min(raw, Number(offer.maxDiscount)) : raw;
+                    discount = Math.max(0, Math.min(subtotal, Math.floor(capped)));
+                } else {
+                    discount = Math.max(0, Math.min(subtotal, Math.floor(Number(offer.discountValue) || 0)));
+                }
+                appliedCoupon = { code: codeRaw, discount };
+            }
+        }
+    }
+    const total = Math.max(0, subtotal + tax + packagingFee + deliveryFee - discount);
     return {
         pricing: {
             subtotal,
@@ -244,6 +295,16 @@ export async function calculateOrder(userId, dto) {
             discount,
             total,
             currency: 'INR'
+        pricing: {
+            subtotal,
+            tax,
+            packagingFee,
+            deliveryFee,
+            discount,
+            total,
+            currency: 'INR',
+            couponCode: appliedCoupon?.code || (codeRaw || null),
+            appliedCoupon
         }
     };
 }
@@ -368,6 +429,20 @@ export async function createOrder(userId, dto) {
         }
     } catch {
         // Don't block order placement on socket failures.
+    }
+    const couponCode = dto.pricing?.couponCode ? String(dto.pricing.couponCode).trim().toUpperCase() : '';
+    if (couponCode) {
+        const offer = await FoodOffer.findOne({ couponCode }).lean();
+        if (offer) {
+            await FoodOffer.updateOne({ _id: offer._id }, { $inc: { usedCount: 1 } });
+            if (userId) {
+                await FoodOfferUsage.updateOne(
+                    { offerId: offer._id, userId: new mongoose.Types.ObjectId(userId) },
+                    { $inc: { count: 1 }, $set: { lastUsedAt: new Date() } },
+                    { upsert: true }
+                );
+            }
+        }
     }
 
     if (dispatchMode === 'auto' && (isCash || order.payment.status === 'paid' || order.payment.status === 'cod_pending')) {

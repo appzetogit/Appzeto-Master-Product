@@ -63,14 +63,12 @@ const EditPayment = lazy(() => import("@food/pages/user/profile/EditPayment"))
 const Favorites = lazy(() => import("@food/pages/user/profile/Favorites"))
 const Settings = lazy(() => import("@food/pages/user/profile/Settings"))
 const Coupons = lazy(() => import("@food/pages/user/profile/Coupons"))
-const RedeemGoldCoupon = lazy(() => import("@food/pages/user/profile/RedeemGoldCoupon"))
 const About = lazy(() => import("@food/pages/user/profile/About"))
 const Terms = lazy(() => import("@food/pages/user/profile/Terms"))
 const Privacy = lazy(() => import("@food/pages/user/profile/Privacy"))
 const Refund = lazy(() => import("@food/pages/user/profile/Refund"))
 const Shipping = lazy(() => import("@food/pages/user/profile/Shipping"))
 const Cancellation = lazy(() => import("@food/pages/user/profile/Cancellation"))
-const SendFeedback = lazy(() => import("@food/pages/user/profile/SendFeedback"))
 const ReportSafetyEmergency = lazy(() => import("@food/pages/user/profile/ReportSafetyEmergency"))
 const Accessibility = lazy(() => import("@food/pages/user/profile/Accessibility"))
 const Logout = lazy(() => import("@food/pages/user/profile/Logout"))
@@ -247,14 +245,6 @@ export default function UserRouter() {
             }
           />
           <Route
-            path="profile/redeem-gold-coupon"
-            element={
-              <ProtectedRoute requiredRole="user" loginPath="/user/auth/login">
-                <RedeemGoldCoupon />
-              </ProtectedRoute>
-            }
-          />
-          <Route
             path="profile/about"
             element={
               <ProtectedRoute requiredRole="user" loginPath="/user/auth/login">
@@ -263,14 +253,6 @@ export default function UserRouter() {
             }
           />
 
-          <Route
-            path="profile/send-feedback"
-            element={
-              <ProtectedRoute requiredRole="user" loginPath="/user/auth/login">
-                <SendFeedback />
-              </ProtectedRoute>
-            }
-          />
           <Route
             path="profile/report-safety-emergency"
             element={

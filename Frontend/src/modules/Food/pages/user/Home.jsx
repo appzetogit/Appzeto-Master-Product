@@ -81,7 +81,7 @@ import { useLocation } from "@food/hooks/useLocation";
 import { useZone } from "@food/hooks/useZone";
 import quickSpicyLogo from "@food/assets/quicky-spicy-logo.png";
 import offerImage from "@food/assets/offerimage.png";
-import api, { restaurantAPI, adminAPI } from "@food/api";
+import api, { publicGetOnce, restaurantAPI, adminAPI } from "@food/api";
 import { API_BASE_URL } from "@food/api/config";
 import OptimizedImage from "@food/components/OptimizedImage";
 import { getRestaurantAvailabilityStatus } from "@food/utils/restaurantAvailability";
@@ -106,6 +106,21 @@ const placeholders = [
 ];
 
 const WEBVIEW_SESSION_CACHE_BUSTER = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+const getRestaurantDisplayName = (restaurant) => {
+  const nameCandidates = [
+    restaurant?.name,
+    restaurant?.restaurantName,
+    restaurant?.restaurantName?.english,
+    restaurant?.restaurantName?.value,
+    restaurant?.onboarding?.step1?.restaurantName,
+  ];
+  const resolvedName = nameCandidates.find(
+    (candidate) =>
+      typeof candidate === "string" && candidate.trim().length > 0,
+  );
+  return resolvedName ? resolvedName.trim() : "Restaurant";
+};
 
 // Restaurant Image Carousel Component
 const RestaurantImageCarousel = React.memo(
@@ -397,6 +412,8 @@ export default function Home() {
   const [restaurantDietMeta, setRestaurantDietMeta] = useState({});
   const [showAllCategoriesModal, setShowAllCategoriesModal] = useState(false);
   const [availabilityTick, setAvailabilityTick] = useState(Date.now());
+  const publicCategoriesCacheRef = useRef(new Map());
+  const publicCategoriesInFlightRef = useRef(new Map());
   const isHandlingSwitchOff = useRef(false);
   const heroShellRef = useRef(null);
   const stickyHeaderRef = useRef(null);
@@ -408,6 +425,17 @@ export default function Home() {
         .replace(/(^-|-$)/g, ""),
     [],
   );
+
+  // Stable list of restaurant ids for menu-category union so we don't refetch menus
+  // when `restaurantsData` changes for reasons like distance recalculation or outletTimings enrichment.
+  const menuUnionRestaurantIdsKey = useMemo(() => {
+    if (!Array.isArray(restaurantsData) || restaurantsData.length === 0) return "";
+    return restaurantsData
+      .map((r) => String(r?.restaurantId || r?.id || "").trim())
+      .filter(Boolean)
+      .sort()
+      .join(",");
+  }, [restaurantsData]);
 
   const normalizeImageUrl = useCallback(
     (imageUrl) => {
@@ -675,8 +703,8 @@ export default function Home() {
   }, [landingCategories, normalizeImageUrl, slugifyCategory]);
 
   const displayCategories = useMemo(() => {
-    if (menuCategories.length > 0) return menuCategories;
     if (realCategories.length > 0) return realCategories;
+    if (menuCategories.length > 0) return menuCategories;
     return normalizedLandingCategories;
   }, [menuCategories, realCategories, normalizedLandingCategories]);
 
@@ -762,8 +790,7 @@ export default function Home() {
   useEffect(() => {
     let cancelled = false;
     setLoadingBanners(true);
-    api
-      .get("/food/hero-banners/public")
+    publicGetOnce("/food/hero-banners/public")
       .then((response) => {
         if (cancelled) return;
         const data = response?.data?.data;
@@ -805,11 +832,9 @@ export default function Home() {
     let cancelled = false;
     setLoadingLandingConfig(true);
     Promise.all([
-      api
-        .get("/food/explore-icons/public")
+      publicGetOnce("/food/explore-icons/public")
         .catch(() => ({ data: { data: {} } })),
-      api
-        .get("/food/landing/settings/public")
+      publicGetOnce("/food/landing/settings/public")
         .catch(() => ({ data: { data: {} } })),
     ])
       .then(([exploreRes, settingsRes]) => {
@@ -1060,22 +1085,50 @@ export default function Home() {
   useEffect(() => {
     let cancelled = false
     const run = async () => {
+      const zoneKey = String(zoneId || "global")
       try {
+        // Dedupe repeated calls (StrictMode + zone settling). Cache per zoneKey and share in-flight request.
+        const cached = publicCategoriesCacheRef.current.get(zoneKey)
+        if (cached) {
+          if (!cancelled) setRealCategories(cached)
+          return
+        }
+
+        const inFlight = publicCategoriesInFlightRef.current.get(zoneKey)
+        if (inFlight) {
+          const categories = await inFlight
+          if (!cancelled) setRealCategories(categories)
+          return
+        }
+
         setLoadingRealCategories(true)
-        const res = await adminAPI.getPublicCategories(zoneId ? { zoneId } : {})
-        const list =
-          res?.data?.data?.categories ||
-          res?.data?.categories ||
-          []
-        const categories = Array.isArray(list)
-          ? list.map((cat, idx) => ({
-              id: String(cat?.id || cat?._id || cat?.slug || idx),
-              name: cat?.name || "",
-              slug: cat?.slug || String(cat?.name || "").toLowerCase().replace(/\s+/g, "-"),
-              image: cat?.image || foodImages[idx % foodImages.length] || foodImages[0],
-              type: cat?.type || "",
-            }))
-          : []
+        const promise = (async () => {
+          const res = await adminAPI.getPublicCategories(zoneId ? { zoneId } : {})
+          const list =
+            res?.data?.data?.categories ||
+            res?.data?.categories ||
+            []
+          const categories = Array.isArray(list)
+            ? list.map((cat, idx) => ({
+                id: String(cat?.id || cat?._id || cat?.slug || idx),
+                name: cat?.name || "",
+                slug: cat?.slug || String(cat?.name || "").toLowerCase().replace(/\s+/g, "-"),
+                image:
+                  normalizeImageUrl(cat?.image || cat?.imageUrl) ||
+                  foodImages[idx % foodImages.length] ||
+                  foodImages[0],
+                type: cat?.type || "",
+              }))
+            : []
+
+          publicCategoriesCacheRef.current.set(zoneKey, categories)
+          return categories
+        })()
+
+        publicCategoriesInFlightRef.current.set(zoneKey, promise)
+        const categories = await promise
+        publicCategoriesInFlightRef.current.delete(zoneKey)
+
         if (!cancelled) setRealCategories(categories)
       } catch (err) {
         debugWarn("Failed to fetch categories:", err)
@@ -1088,7 +1141,7 @@ export default function Home() {
     return () => {
       cancelled = true
     }
-  }, [zoneId])
+  }, [zoneId, normalizeImageUrl])
 
   // Memoize cartCount to prevent recalculation on every render - use cart directly
   const cartCount = useMemo(
@@ -1213,6 +1266,9 @@ export default function Home() {
   const filterSectionRefs = useRef({});
   const [activeScrollSection, setActiveScrollSection] = useState("sort");
   const rightContentRef = useRef(null);
+  const restaurantsRequestSeqRef = useRef(0);
+  const menuUnionRequestSeqRef = useRef(0);
+  const menuUnionCacheRef = useRef(new Map());
 
   // Scroll tracking effect
   useEffect(() => {
@@ -1247,6 +1303,7 @@ export default function Home() {
   // Fetch restaurants from API with filters
   const fetchRestaurants = useCallback(
     async (filters = {}) => {
+      const requestSeq = ++restaurantsRequestSeqRef.current;
       try {
         setLoadingRestaurants(true);
 
@@ -1329,6 +1386,9 @@ export default function Home() {
         const response = await restaurantAPI.getRestaurants(params);
         debugLog("Restaurants API response:", response.data);
 
+        // If a newer request started, ignore this response to avoid races/flicker.
+        if (requestSeq !== restaurantsRequestSeqRef.current) return;
+
         if (
           response.data &&
           response.data.success &&
@@ -1341,7 +1401,6 @@ export default function Home() {
           if (restaurantsArray.length === 0) {
             debugWarn("No restaurants found in API response");
             setRestaurantsData([]);
-            setLoadingRestaurants(false);
             return;
           }
 
@@ -1466,7 +1525,7 @@ export default function Home() {
               return {
                 id: restaurant.restaurantId || restaurant._id,
                 mongoId: restaurant._id || null,
-                name: restaurant.name,
+                name: getRestaurantDisplayName(restaurant),
                 cuisine: cuisine,
                 cuisines: Array.isArray(restaurant.cuisines)
                   ? restaurant.cuisines
@@ -1523,6 +1582,8 @@ export default function Home() {
             }),
           );
 
+          if (requestSeq !== restaurantsRequestSeqRef.current) return;
+
           // Sort restaurants by distance (nearby first) - only if user location is available
           if (userLat && userLng) {
             restaurantsWithOutletTimings.sort((a, b) => {
@@ -1567,14 +1628,12 @@ export default function Home() {
         // This way, if API succeeds later, it will show the real data
         setRestaurantsData([]);
       } finally {
-        setLoadingRestaurants(false);
-        debugLog(
-          "Restaurant loading completed. restaurantsData length:",
-          restaurantsData.length,
-        );
+        if (requestSeq === restaurantsRequestSeqRef.current) {
+          setLoadingRestaurants(false);
+        }
       }
     },
-    [normalizeImageUrl, zoneId, extractImages, buildRestaurantImageCandidates],
+    [extractImages, buildRestaurantImageCandidates],
   );
 
   const applyFiltersAndRefetch = useCallback(
@@ -1698,8 +1757,14 @@ export default function Home() {
   // - Menu categories: empty (UI can still show explore sections)
   // - Veg mode: if we don't have per-restaurant diet meta, don't hide restaurants.
   useEffect(() => {
+    const restaurantIds = menuUnionRestaurantIdsKey
+      ? menuUnionRestaurantIdsKey.split(",").filter(Boolean)
+      : [];
+
     const fetchMenuCategories = async () => {
-      if (!Array.isArray(restaurantsData) || restaurantsData.length === 0) {
+      const requestSeq = ++menuUnionRequestSeqRef.current;
+
+      if (!menuUnionRestaurantIdsKey) {
         setMenuCategories([]);
         setRestaurantDietMeta({});
         return;
@@ -1708,24 +1773,29 @@ export default function Home() {
       setLoadingMenuCategories(true);
       try {
         const categoryMap = new Map();
+        const menuCache = menuUnionCacheRef.current;
+
         const menuResponses = await Promise.all(
-          restaurantsData.map(async (restaurant) => {
-            const id = restaurant?.restaurantId || restaurant?.id;
+          restaurantIds.map(async (id) => {
             if (!id) return { id: null, menu: null };
+
+            if (menuCache.has(id)) {
+              return { id, menu: menuCache.get(id) };
+            }
+
             try {
               const response = await restaurantAPI.getMenuByRestaurantId(id);
-              return {
-                id: String(id),
-                menu: response?.data?.data?.menu || null,
-              };
+              const menu = response?.data?.data?.menu || null;
+              menuCache.set(id, menu);
+              return { id, menu };
             } catch {
-              return {
-                id: String(id),
-                menu: null,
-              };
+              menuCache.set(id, null);
+              return { id, menu: null };
             }
           }),
         );
+
+        if (requestSeq !== menuUnionRequestSeqRef.current) return;
 
         const nextDietMeta = {};
 
@@ -1828,12 +1898,14 @@ export default function Home() {
         setMenuCategories(categories);
         setRestaurantDietMeta(nextDietMeta);
       } finally {
-        setLoadingMenuCategories(false);
+        if (requestSeq === menuUnionRequestSeqRef.current) {
+          setLoadingMenuCategories(false);
+        }
       }
     };
 
     fetchMenuCategories();
-  }, [restaurantsData, normalizeImageUrl, slugifyCategory]);
+  }, [menuUnionRestaurantIdsKey, normalizeImageUrl, slugifyCategory]);
 
   const matchesVegMode = useCallback(
     (restaurant) => {
@@ -2003,7 +2075,7 @@ export default function Home() {
       return {
         id: restaurant?.restaurantId || restaurantId,
         mongoId: restaurantId,
-        name: restaurant?.name || "Restaurant",
+        name: getRestaurantDisplayName(restaurant),
         cuisine,
         rating: Number(restaurant?.rating) || 4.0,
         distance: "",
@@ -2605,7 +2677,7 @@ export default function Home() {
                       MEALS UNDER
                     </span>
                     <span className="text-sm sm:text-base font-extrabold text-white">
-                      ?200
+                      ₹200
                     </span>
                     <div className="w-10 h-4 bg-white rounded-full mt-1 flex items-center justify-center">
                       <span className="text-[8px] font-bold text-[#EB590E]">
@@ -3447,7 +3519,7 @@ export default function Home() {
                           }`}>
                           <span
                             className={`text-sm font-medium ${activeFilters.has("price-under-200") ? "text-[#EB590E]" : "text-gray-700 dark:text-gray-300"}`}>
-                            Under ?200
+                            Under ₹200
                           </span>
                         </button>
                         <button
@@ -3459,7 +3531,7 @@ export default function Home() {
                           }`}>
                           <span
                             className={`text-sm font-medium ${activeFilters.has("price-under-500") ? "text-[#EB590E]" : "text-gray-700 dark:text-gray-300"}`}>
-                            Under ?500
+                            Under ₹500
                           </span>
                         </button>
                       </div>

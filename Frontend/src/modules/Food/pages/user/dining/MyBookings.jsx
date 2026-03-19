@@ -86,6 +86,26 @@ export default function MyBookings() {
     const [loading, setLoading] = useState(true)
     const [selectedBooking, setSelectedBooking] = useState(null)
 
+    const getStatusLabel = (status) => {
+        const key = String(status || "").toLowerCase()
+        if (key === "confirmed") return "Pending"
+        if (key === "accepted") return "Accepted"
+        if (key === "checked-in") return "Checked-in"
+        if (key === "completed") return "Completed"
+        if (key === "cancelled") return "Cancelled"
+        return String(status || "unknown")
+    }
+
+    const getStatusBadgeClass = (status) => {
+        const key = String(status || "").toLowerCase()
+        if (key === "confirmed") return "bg-amber-100 text-amber-700"
+        if (key === "accepted") return "bg-green-100 text-green-700"
+        if (key === "checked-in") return "bg-[#FFF2EB] text-[#EB590E]"
+        if (key === "completed") return "bg-blue-100 text-blue-700"
+        if (key === "cancelled") return "bg-red-100 text-red-700"
+        return "bg-slate-100 text-slate-700"
+    }
+
     useEffect(() => {
         const fetchBookings = async () => {
             try {
@@ -135,20 +155,19 @@ export default function MyBookings() {
                         <div key={booking._id} className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 flex items-start gap-4">
                             <div className="w-20 h-20 rounded-xl overflow-hidden flex-shrink-0 bg-slate-100">
                                 <img
-                                    src={booking.restaurant?.image || booking.restaurant?.profileImage?.url || "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=200&q=80"}
+                                    src={booking.restaurant?.image || booking.restaurant?.profileImage?.url || ""}
                                     className="w-full h-full object-cover"
                                     alt={booking.restaurant?.name}
+                                    onError={(e) => {
+                                        e.currentTarget.style.display = 'none'
+                                    }}
                                 />
                             </div>
                             <div className="flex-1 min-w-0">
                                 <div className="flex justify-between items-start">
                                     <h3 className="font-bold text-gray-900 truncate">{booking.restaurant?.name}</h3>
-                                    <Badge className={`${booking.status === 'confirmed' ? 'bg-[#FFF2EB] text-[#EB590E]' :
-                                        booking.status === 'checked-in' ? 'bg-[#FFF2EB] text-[#EB590E]' :
-                                            booking.status === 'completed' ? 'bg-[#FFF2EB] text-[#EB590E]' :
-                                                'bg-slate-100 text-slate-700'
-                                        }`}>
-                                        {booking.status}
+                                    <Badge className={getStatusBadgeClass(booking.status)}>
+                                        {getStatusLabel(booking.status)}
                                     </Badge>
                                 </div>
                                 <p className="text-xs text-gray-500 flex items-center gap-1 mt-0.5">
