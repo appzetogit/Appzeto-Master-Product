@@ -72,3 +72,21 @@ export const listZonesPublicController = async (_req, res, next) => {
     }
 };
 
+/** GET /zones/nearby - list zones for hotspot/nearby visualization */
+export const listZonesNearbyPublicController = async (req, res, next) => {
+    try {
+        const zones = await FoodZone.find({ isActive: true })
+            .select('name zoneName serviceLocation country unit isActive coordinates createdAt')
+            .sort({ createdAt: 1 })
+            .lean();
+
+        return res.status(200).json({
+            success: true,
+            message: 'Nearby zones fetched',
+            data: { zones }
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+

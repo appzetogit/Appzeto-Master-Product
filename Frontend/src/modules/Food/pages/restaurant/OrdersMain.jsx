@@ -31,13 +31,12 @@ const filterTabs = [
 ]
 
 // Completed Orders List Component
-function CompletedOrders({ onSelectOrder }) {
+function CompletedOrders({ onSelectOrder, refreshToken = 0 }) {
   const [orders, setOrders] = useState([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     let isMounted = true
-    let intervalId = null
 
     const fetchOrders = async () => {
       try {
@@ -97,19 +96,11 @@ function CompletedOrders({ onSelectOrder }) {
     }
 
     fetchOrders()
-    intervalId = setInterval(() => {
-      if (isMounted) {
-        fetchOrders()
-      }
-    }, 10000)
 
     return () => {
       isMounted = false
-      if (intervalId) {
-        clearInterval(intervalId)
-      }
     }
-  }, [])
+  }, [refreshToken])
 
   if (loading) {
     return (
@@ -235,13 +226,12 @@ function CompletedOrders({ onSelectOrder }) {
 }
 
 // Cancelled Orders List Component
-function CancelledOrders({ onSelectOrder }) {
+function CancelledOrders({ onSelectOrder, refreshToken = 0 }) {
   const [orders, setOrders] = useState([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     let isMounted = true
-    let intervalId = null
 
     const fetchOrders = async () => {
       try {
@@ -304,19 +294,11 @@ function CancelledOrders({ onSelectOrder }) {
     }
 
     fetchOrders()
-    intervalId = setInterval(() => {
-      if (isMounted) {
-        fetchOrders()
-      }
-    }, 10000)
 
     return () => {
       isMounted = false
-      if (intervalId) {
-        clearInterval(intervalId)
-      }
     }
-  }, [])
+  }, [refreshToken])
 
   if (loading) {
     return (
@@ -601,6 +583,32 @@ export default function OrdersMain() {
   const isMutedRef = useRef(isMuted)
   const newOrderRef = useRef(null)
 
+  const markOrderAsShown = (orderLike) => {
+    const keys = [
+      orderLike?.orderMongoId,
+      orderLike?.orderId,
+      orderLike?._id,
+      orderLike?.id,
+    ]
+      .map((v) => (v == null ? "" : String(v).trim()))
+      .filter(Boolean)
+
+    for (const k of keys) shownOrdersRef.current.add(k)
+  }
+
+  const hasOrderBeenShown = (orderLike) => {
+    const keys = [
+      orderLike?.orderMongoId,
+      orderLike?.orderId,
+      orderLike?._id,
+      orderLike?.id,
+    ]
+      .map((v) => (v == null ? "" : String(v).trim()))
+      .filter(Boolean)
+
+    return keys.some((k) => shownOrdersRef.current.has(k))
+  }
+
   // Restaurant notifications hook for real-time orders
   const { newOrder, clearNewOrder, isConnected } = useRestaurantNotifications()
 
@@ -735,12 +743,12 @@ export default function OrdersMain() {
   useEffect(() => {
     if (newOrder) {
       debugLog('?? New order received via Socket.IO:', newOrder)
-      const orderId = newOrder.orderId || newOrder.orderMongoId
-      if (orderId && !shownOrdersRef.current.has(orderId)) {
-        shownOrdersRef.current.add(orderId)
+      if (!hasOrderBeenShown(newOrder)) {
+        markOrderAsShown(newOrder)
         setPopupOrder(newOrder)
         setShowNewOrderPopup(true)
         setCountdown(240) // Reset countdown to 4 minutes
+        requestOrdersRefresh()
       }
     }
   }, [newOrder])
@@ -791,6 +799,9 @@ export default function OrdersMain() {
     }
   }, [])
 
+  const [ordersRefreshToken, setOrdersRefreshToken] = useState(0)
+  const requestOrdersRefresh = () => setOrdersRefreshToken((t) => t + 1)
+
   // Check for confirmed orders that haven't been shown in popup yet (fallback if Socket.IO fails)
   useEffect(() => {
     const checkConfirmedOrders = async () => {
@@ -803,7 +814,7 @@ export default function OrdersMain() {
           // Find confirmed orders that haven't been shown yet
           const confirmedOrders = response.data.data.orders.filter(
             order => order.status === 'confirmed' &&
-              !shownOrdersRef.current.has(order.orderId || order._id)
+              !hasOrderBeenShown(order)
           )
 
           // Show the most recent confirmed order in popup (double-check state)
@@ -830,7 +841,7 @@ export default function OrdersMain() {
             }
 
             debugLog('?? Found confirmed order (fallback):', orderForPopup)
-            shownOrdersRef.current.add(orderId)
+            markOrderAsShown({ orderId, _id: latestConfirmedOrder._id })
             setPopupOrder(orderForPopup)
             setShowNewOrderPopup(true)
             setCountdown(240)
@@ -845,13 +856,9 @@ export default function OrdersMain() {
       }
     }
 
-    // Check every 5 seconds for new confirmed orders (fallback mechanism)
-    const interval = setInterval(checkConfirmedOrders, 5000)
-
-    // Check immediately on mount
+    // Check once on mount (best-effort fallback, no polling)
     checkConfirmedOrders()
-
-    return () => clearInterval(interval)
+    return () => {}
   }, []) // Empty dependency array - check runs independently
 
   // Play audio when popup opens
@@ -898,6 +905,8 @@ export default function OrdersMain() {
 
     const handleTouchMove = (event) => {
       if (acceptSwipeActiveRef.current && event.touches[0]) {
+        // Prevent page scroll while swiping the slider
+        if (typeof event.preventDefault === 'function') event.preventDefault()
         handleAcceptSwipeMove(event.touches[0].clientX)
       }
     }
@@ -910,7 +919,8 @@ export default function OrdersMain() {
 
     window.addEventListener('mousemove', handleMouseMove)
     window.addEventListener('mouseup', handlePointerEnd)
-    window.addEventListener('touchmove', handleTouchMove, { passive: true })
+    // passive: false is required to allow preventDefault() during swipe
+    window.addEventListener('touchmove', handleTouchMove, { passive: false })
     window.addEventListener('touchend', handlePointerEnd)
     window.addEventListener('touchcancel', handlePointerEnd)
 
@@ -921,7 +931,7 @@ export default function OrdersMain() {
       window.removeEventListener('touchend', handlePointerEnd)
       window.removeEventListener('touchcancel', handlePointerEnd)
     }
-  }, [acceptSwipeProgress, isAcceptingOrder])
+  }, [isAcceptingOrder])
 
   // Format countdown time
   const formatTime = (seconds) => {
@@ -984,6 +994,9 @@ export default function OrdersMain() {
     // Use popupOrder (from Socket.IO or API fallback) or newOrder (from hook)
     const orderToAccept = popupOrder || newOrder
 
+    // Ensure this order can't re-trigger fallback popup by using a different id key.
+    markOrderAsShown(orderToAccept)
+
     // Accept order via API if we have a real order
     if (orderToAccept?.orderMongoId || orderToAccept?.orderId) {
       try {
@@ -991,6 +1004,7 @@ export default function OrdersMain() {
         const response = await restaurantAPI.acceptOrder(orderId, prepTime)
         debugLog('? Order accepted:', orderId)
         toast.success('Order accepted successfully')
+        requestOrdersRefresh()
       } catch (error) {
         debugError('? Error accepting order:', error)
         const errorMessage = error.response?.data?.message ||
@@ -1040,6 +1054,7 @@ export default function OrdersMain() {
         const orderId = orderToReject.orderMongoId || orderToReject.orderId
         await restaurantAPI.rejectOrder(orderId, rejectReason)
         debugLog('? Order rejected:', orderId)
+        requestOrdersRefresh()
       } catch (error) {
         debugError('? Error rejecting order:', error)
         alert('Failed to reject order. Please try again.')
@@ -1082,6 +1097,7 @@ export default function OrdersMain() {
       const orderId = orderToCancel.mongoId || orderToCancel.orderId
       await restaurantAPI.rejectOrder(orderId, cancelReason.trim())
       toast.success('Order cancelled successfully')
+      requestOrdersRefresh()
       setShowCancelPopup(false)
       setOrderToCancel(null)
       setCancelReason("")
@@ -1366,19 +1382,26 @@ export default function OrdersMain() {
   const renderContent = () => {
     switch (activeFilter) {
       case "preparing":
-        return <PreparingOrders onSelectOrder={handleSelectOrder} onCancel={handleCancelClick} />
+        return (
+          <PreparingOrders
+            onSelectOrder={handleSelectOrder}
+            onCancel={handleCancelClick}
+            refreshToken={ordersRefreshToken}
+            onStatusChanged={requestOrdersRefresh}
+          />
+        )
       case "ready":
-        return <ReadyOrders onSelectOrder={handleSelectOrder} />
+        return <ReadyOrders onSelectOrder={handleSelectOrder} refreshToken={ordersRefreshToken} />
       case "out-for-delivery":
-        return <OutForDeliveryOrders onSelectOrder={handleSelectOrder} />
+        return <OutForDeliveryOrders onSelectOrder={handleSelectOrder} refreshToken={ordersRefreshToken} />
       case "scheduled":
         return <EmptyState message="Scheduled orders will appear here" />
       case "completed":
-        return <CompletedOrders onSelectOrder={handleSelectOrder} />
+        return <CompletedOrders onSelectOrder={handleSelectOrder} refreshToken={ordersRefreshToken} />
       case "table-booking":
         return <TableBookings />
       case "cancelled":
-        return <CancelledOrders onSelectOrder={handleSelectOrder} />
+        return <CancelledOrders onSelectOrder={handleSelectOrder} refreshToken={ordersRefreshToken} />
       default:
         return <EmptyState />
     }
@@ -1830,7 +1853,7 @@ export default function OrdersMain() {
                         onTouchCancel={handleAcceptSwipeEnd}
                         disabled={isAcceptingOrder}
                       >
-                        <span className="text-lg font-bold">›</span>
+                        <span className="text-lg font-bold">ï¿½</span>
                       </motion.button>
                     </div>
 
@@ -2055,7 +2078,7 @@ export default function OrdersMain() {
                   <p className="text-[11px] text-gray-500 mt-1">
                     {selectedOrder.type}
                     {selectedOrder.tableOrToken
-                      ? ` • ${selectedOrder.tableOrToken}`
+                      ? ` ï¿½ ${selectedOrder.tableOrToken}`
                       : ""}
                   </p>
                 </div>
@@ -2304,7 +2327,7 @@ function OrderCard({
             <div className="flex flex-col gap-1">
               <p className="text-[11px] text-gray-500">
                 {type}
-                {tableOrToken ? ` • ${tableOrToken}` : ""}
+                {tableOrToken ? ` ï¿½ ${tableOrToken}` : ""}
               </p>
               {/* Delivery Assignment Status - Only show for preparing orders */}
               {isPreparing && (
@@ -2355,7 +2378,7 @@ function OrderCard({
 }
 
 // Preparing Orders List
-function PreparingOrders({ onSelectOrder, onCancel }) {
+function PreparingOrders({ onSelectOrder, onCancel, refreshToken = 0, onStatusChanged }) {
   const [orders, setOrders] = useState([])
   const [loading, setLoading] = useState(true)
   const [currentTime, setCurrentTime] = useState(new Date())
@@ -2363,8 +2386,6 @@ function PreparingOrders({ onSelectOrder, onCancel }) {
 
   useEffect(() => {
     let isMounted = true
-    let intervalId = null
-    let countdownIntervalId = null
 
     const fetchOrders = async () => {
       try {
@@ -2435,15 +2456,8 @@ function PreparingOrders({ onSelectOrder, onCancel }) {
 
     fetchOrders()
 
-    // Refresh orders every 10 seconds
-    intervalId = setInterval(() => {
-      if (isMounted) {
-        fetchOrders()
-      }
-    }, 10000)
-
     // Update countdown every second
-    countdownIntervalId = setInterval(() => {
+    const countdownIntervalId = setInterval(() => {
       if (isMounted) {
         setCurrentTime(new Date())
       }
@@ -2451,14 +2465,11 @@ function PreparingOrders({ onSelectOrder, onCancel }) {
 
     return () => {
       isMounted = false
-      if (intervalId) {
-        clearInterval(intervalId)
-      }
       if (countdownIntervalId) {
         clearInterval(countdownIntervalId)
       }
     }
-  }, []) // Empty dependency array is correct here - we want this to run once on mount
+  }, [refreshToken]) // Re-fetch only when parent requests it
 
   // Track which orders have been marked as ready to avoid duplicate API calls
   const markedReadyOrdersRef = useRef(new Set())
@@ -2493,6 +2504,7 @@ function PreparingOrders({ onSelectOrder, onCancel }) {
               markedReadyOrdersRef.current.add(orderKey) // Mark as processing
               await restaurantAPI.markOrderReady(order.mongoId || order.orderId)
               debugLog(`? Order ${order.orderId} marked as ready`)
+              onStatusChanged?.()
               // Order will be removed from preparing list on next fetch
             } catch (error) {
               const status = error.response?.status
@@ -2540,12 +2552,14 @@ function PreparingOrders({ onSelectOrder, onCancel }) {
       await restaurantAPI.markOrderReady(orderKey)
       setOrders((prev) => prev.filter((order) => (order.mongoId || order.orderId) !== orderKey))
       toast.success(`Order ${orderId} marked ready${customerName ? ` for ${customerName}` : ""}`)
+      onStatusChanged?.()
     } catch (error) {
       const status = error.response?.status
       const message = error.response?.data?.message || 'Failed to mark order as ready'
       if (status === 400 && String(message).toLowerCase().includes('current status')) {
         setOrders((prev) => prev.filter((order) => (order.mongoId || order.orderId) !== orderKey))
         toast.success(`Order ${orderId} is already ready`)
+        onStatusChanged?.()
       } else {
         toast.error(message)
       }
@@ -2633,13 +2647,12 @@ function PreparingOrders({ onSelectOrder, onCancel }) {
 }
 
 // Ready Orders List
-function ReadyOrders({ onSelectOrder }) {
+function ReadyOrders({ onSelectOrder, refreshToken = 0 }) {
   const [orders, setOrders] = useState([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     let isMounted = true
-    let intervalId = null
 
     const fetchOrders = async () => {
       try {
@@ -2696,20 +2709,10 @@ function ReadyOrders({ onSelectOrder }) {
 
     fetchOrders()
 
-    // Refresh every 10 seconds (reduced frequency to avoid spam if backend is down)
-    intervalId = setInterval(() => {
-      if (isMounted) {
-        fetchOrders()
-      }
-    }, 10000)
-
     return () => {
       isMounted = false
-      if (intervalId) {
-        clearInterval(intervalId)
-      }
     }
-  }, []) // Empty dependency array is correct here - we want this to run once on mount
+  }, [refreshToken]) // Re-fetch only when parent requests it
 
   if (loading) {
     return (
@@ -2751,13 +2754,12 @@ function ReadyOrders({ onSelectOrder }) {
 }
 
 // Out for Delivery Orders List
-const OutForDeliveryOrders = ({ onSelectOrder }) => {
+const OutForDeliveryOrders = ({ onSelectOrder, refreshToken = 0 }) => {
   const [orders, setOrders] = useState([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     let isMounted = true
-    let intervalId = null
 
     const fetchOrders = async () => {
       try {
@@ -2814,20 +2816,10 @@ const OutForDeliveryOrders = ({ onSelectOrder }) => {
 
     fetchOrders()
 
-    // Refresh every 10 seconds
-    intervalId = setInterval(() => {
-      if (isMounted) {
-        fetchOrders()
-      }
-    }, 10000)
-
     return () => {
       isMounted = false
-      if (intervalId) {
-        clearInterval(intervalId)
-      }
     }
-  }, []) // Empty dependency array is correct here - we want this to run once on mount
+  }, [refreshToken]) // Re-fetch only when parent requests it
 
   if (loading) {
     return (

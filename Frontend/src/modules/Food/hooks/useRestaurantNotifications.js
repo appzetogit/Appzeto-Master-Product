@@ -394,7 +394,21 @@ export const useRestaurantNotifications = () => {
     }
     
     // Construct Socket.IO URL
-    const socketUrl = `${backendUrl}/restaurant`;
+    // IMPORTANT: Socket.IO server is on the origin (not /api/v1).
+    // Our API baseURL is typically like: http://localhost:5000/api/v1
+    // So for sockets we always connect to: http://localhost:5000
+    let socketOrigin = backendUrl;
+    try {
+      socketOrigin = new URL(backendUrl).origin;
+    } catch {
+      socketOrigin = String(backendUrl || "")
+        .replace(/\/api\/v\d+\/?$/i, "")
+        .replace(/\/api\/?$/i, "")
+        .replace(/\/+$/, "");
+    }
+
+    // Backend uses default namespace; rooms handle role separation.
+    const socketUrl = `${socketOrigin}`;
     
     // Validate socket URL format
     try {
@@ -424,7 +438,7 @@ export const useRestaurantNotifications = () => {
     debugLog('?? Is Production Build:', isProductionBuild);
     debugLog('?? Is Production Deployment:', isProductionDeployment);
 
-    // Initialize socket connection to restaurant namespace
+    // Initialize socket connection (default namespace)
     // Use polling only to avoid repeated "WebSocket connection failed" when backend is down
     socketRef.current = io(socketUrl, {
       path: '/socket.io/',

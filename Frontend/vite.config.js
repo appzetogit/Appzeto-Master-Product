@@ -33,5 +33,12 @@ export default defineConfig({
   server: {
     host: '0.0.0.0',
     port: 5173,
+    proxy: {
+      // Backend API (default 5000)
+      '/api/v1': {
+        target: process.env.VITE_BACKEND_PROXY_TARGET || 'http://localhost:5000',
+        changeOrigin: true,
+      },
+    },
   },
 })

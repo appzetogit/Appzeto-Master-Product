@@ -4,6 +4,7 @@ import { FoodUser } from '../../../core/users/user.model.js';
 import { FoodRestaurant } from '../restaurant/models/restaurant.model.js';
 import { FoodDeliveryPartner } from '../delivery/models/deliveryPartner.model.js';
 import { FoodZone } from '../admin/models/zone.model.js';
+import { FoodFeeSettings } from '../admin/models/feeSettings.model.js';
 import { ValidationError, ForbiddenError } from '../../../core/auth/errors.js';
 import { buildPaginationOptions, buildPaginatedResult } from '../../../utils/helpers.js';
 import {
@@ -13,9 +14,17 @@ import {
     getRazorpayKeyId,
     isRazorpayConfigured
 } from './razorpay.helper.js';
+import { getIO, rooms } from '../../../config/socket.js';
 
 const ORDER_ID_PREFIX = 'FOD-';
 const ORDER_ID_LENGTH = 6;
+
+function buildOrderIdentityFilter(orderIdOrMongoId) {
+    const raw = String(orderIdOrMongoId || '').trim();
+    if (!raw) return null;
+    if (mongoose.isValidObjectId(raw)) return { _id: new mongoose.Types.ObjectId(raw) };
+    return { orderId: raw };
+}
 
 function generateOrderId() {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -59,6 +68,87 @@ function pushStatusHistory(order, { byRole, byId, from, to, note = '' }) {
     });
 }
 
+function buildDeliverySocketPayload(orderDoc, restaurantDoc = null) {
+    const order = orderDoc?.toObject ? orderDoc.toObject() : (orderDoc || {});
+    const restaurant = restaurantDoc || order?.restaurantId || null;
+    const restaurantLocation = restaurant?.location || {};
+
+    return {
+        orderMongoId: orderDoc?._id?.toString?.() || order?._id?.toString?.() || order?._id,
+        orderId: order?.orderId,
+        status: orderDoc?.orderStatus || order?.orderStatus,
+        items: order?.items || [],
+        pricing: order?.pricing,
+        total: order?.pricing?.total,
+        payment: order?.payment,
+        paymentMethod: order?.payment?.method,
+        restaurantId: order?.restaurantId?._id?.toString?.() || order?.restaurantId?.toString?.() || order?.restaurantId,
+        restaurantName: restaurant?.restaurantName || order?.restaurantName,
+        restaurantLocation: {
+            latitude: restaurantLocation?.latitude,
+            longitude: restaurantLocation?.longitude,
+            address: restaurantLocation?.address || restaurantLocation?.formattedAddress || restaurant?.addressLine1 || '',
+            formattedAddress: restaurantLocation?.formattedAddress || restaurantLocation?.address || '',
+            area: restaurantLocation?.area || restaurant?.area || '',
+            city: restaurantLocation?.city || restaurant?.city || '',
+            state: restaurantLocation?.state || restaurant?.state || '',
+        },
+        deliveryAddress: order?.deliveryAddress,
+        deliveryFleet: order?.deliveryFleet,
+        dispatch: order?.dispatch,
+        createdAt: order?.createdAt,
+        updatedAt: order?.updatedAt,
+    };
+}
+
+async function listNearbyOnlineDeliveryPartners(restaurantId, { maxKm = 15, limit = 25 } = {}) {
+    const restaurant = await FoodRestaurant.findById(restaurantId).select('location').lean();
+    if (!restaurant?.location?.coordinates?.length) {
+        // Fallback: if restaurant location is missing, notify any online approved partners.
+        const partners = await FoodDeliveryPartner.find({
+            status: 'approved',
+            availabilityStatus: 'online'
+        })
+            .select('_id')
+            .limit(Math.max(1, limit))
+            .lean();
+        return { restaurant: null, partners: partners.map((p) => ({ partnerId: p._id, distanceKm: null })) };
+    }
+
+    const [rLng, rLat] = restaurant.location.coordinates;
+    const partners = await FoodDeliveryPartner.find({
+        status: 'approved',
+        availabilityStatus: 'online',
+        lastLat: { $exists: true, $ne: null },
+        lastLng: { $exists: true, $ne: null }
+    })
+        .select('_id lastLat lastLng')
+        .lean();
+
+    const scored = [];
+    for (const p of partners) {
+        const d = haversineKm(rLat, rLng, p.lastLat, p.lastLng);
+        if (Number.isFinite(d) && d <= maxKm) scored.push({ partnerId: p._id, distanceKm: d });
+    }
+
+    scored.sort((a, b) => a.distanceKm - b.distanceKm);
+    const picked = scored.slice(0, Math.max(1, limit));
+
+    // Fallback: if no one has GPS yet, still notify online partners (common right after login).
+    if (picked.length === 0) {
+        const anyOnline = await FoodDeliveryPartner.find({
+            status: 'approved',
+            availabilityStatus: 'online'
+        })
+            .select('_id')
+            .limit(Math.max(1, limit))
+            .lean();
+        return { restaurant, partners: anyOnline.map((p) => ({ partnerId: p._id, distanceKm: null })) };
+    }
+
+    return { restaurant, partners: picked };
+}
+
 // ----- Settings -----
 export async function getDispatchSettings() {
     let doc = await FoodSettings.findOne({ key: 'dispatch' }).lean();
@@ -88,14 +178,71 @@ export async function calculateOrder(userId, dto) {
     const restaurant = await FoodRestaurant.findById(dto.restaurantId).select('status').lean();
     if (!restaurant) throw new ValidationError('Restaurant not found');
     if (restaurant.status !== 'approved') throw new ValidationError('Restaurant not available');
+
+    // Server-calculated pricing (do not trust client totals).
+    const subtotal = (dto.items || []).reduce((sum, item) => {
+        const price = Number(item?.price);
+        const qty = Number(item?.quantity);
+        if (!Number.isFinite(price) || !Number.isFinite(qty)) return sum;
+        return sum + Math.max(0, price) * Math.max(0, qty);
+    }, 0);
+
+    // Fee settings (admin-configured). Use safe fallbacks for dev if not configured.
+    const feeDoc = await FoodFeeSettings.findOne({ isActive: true }).sort({ createdAt: -1 }).lean();
+    const feeSettings = feeDoc || {
+        deliveryFee: 25,
+        deliveryFeeRanges: [],
+        freeDeliveryThreshold: 149,
+        platformFee: 5,
+        gstRate: 5
+    };
+
+    const packagingFee = 0;
+    const platformFee = Number(feeSettings.platformFee || 0);
+
+    // Delivery fee by subtotal range (fallback to flat fee; free above threshold).
+    const freeThreshold = Number(feeSettings.freeDeliveryThreshold || 0);
+    let deliveryFee = 0;
+    if (Number.isFinite(freeThreshold) && freeThreshold > 0 && subtotal >= freeThreshold) {
+        deliveryFee = 0;
+    } else {
+        const ranges = Array.isArray(feeSettings.deliveryFeeRanges) ? [...feeSettings.deliveryFeeRanges] : [];
+        if (ranges.length > 0) {
+            ranges.sort((a, b) => Number(a.min) - Number(b.min));
+            let matched = null;
+            for (let i = 0; i < ranges.length; i += 1) {
+                const r = ranges[i] || {};
+                const min = Number(r.min);
+                const max = Number(r.max);
+                const fee = Number(r.fee);
+                if (!Number.isFinite(min) || !Number.isFinite(max) || !Number.isFinite(fee)) continue;
+                const isLast = i === ranges.length - 1;
+                const inRange = isLast ? subtotal >= min && subtotal <= max : subtotal >= min && subtotal < max;
+                if (inRange) {
+                    matched = fee;
+                    break;
+                }
+            }
+            deliveryFee = Number.isFinite(matched) ? matched : Number(feeSettings.deliveryFee || 0);
+        } else {
+            deliveryFee = Number(feeSettings.deliveryFee || 0);
+        }
+    }
+
+    const gstRate = Number(feeSettings.gstRate || 0);
+    const tax = Number.isFinite(gstRate) && gstRate > 0 ? Math.round(subtotal * (gstRate / 100)) : 0;
+    const discount = 0;
+    const total = Math.max(0, subtotal + packagingFee + deliveryFee + platformFee + tax - discount);
+
     return {
-        pricing: dto.pricing || {
-            subtotal: 0,
-            tax: 0,
-            packagingFee: 0,
-            deliveryFee: 0,
-            discount: 0,
-            total: 0,
+        pricing: {
+            subtotal,
+            tax,
+            packagingFee,
+            deliveryFee,
+            platformFee,
+            discount,
+            total,
             currency: 'INR'
         }
     };
@@ -128,10 +275,40 @@ export async function createOrder(userId, dto) {
     const isCash = paymentMethod === 'cash';
     const isWallet = paymentMethod === 'wallet';
 
+    // Ensure pricing is present and consistent.
+    const computedSubtotal = (dto.items || []).reduce((sum, item) => {
+        const price = Number(item?.price);
+        const qty = Number(item?.quantity);
+        if (!Number.isFinite(price) || !Number.isFinite(qty)) return sum;
+        return sum + Math.max(0, price) * Math.max(0, qty);
+    }, 0);
+    const normalizedPricing = {
+        subtotal: Number(dto.pricing?.subtotal ?? computedSubtotal),
+        tax: Number(dto.pricing?.tax ?? 0),
+        packagingFee: Number(dto.pricing?.packagingFee ?? 0),
+        deliveryFee: Number(dto.pricing?.deliveryFee ?? 0),
+        platformFee: Number(dto.pricing?.platformFee ?? 0),
+        discount: Number(dto.pricing?.discount ?? 0),
+        total: Number(dto.pricing?.total ?? 0),
+        currency: String(dto.pricing?.currency || 'INR')
+    };
+    const computedTotal = Math.max(
+        0,
+        (Number.isFinite(normalizedPricing.subtotal) ? normalizedPricing.subtotal : 0) +
+        (Number.isFinite(normalizedPricing.tax) ? normalizedPricing.tax : 0) +
+        (Number.isFinite(normalizedPricing.packagingFee) ? normalizedPricing.packagingFee : 0) +
+        (Number.isFinite(normalizedPricing.deliveryFee) ? normalizedPricing.deliveryFee : 0) -
+        (Number.isFinite(normalizedPricing.platformFee) ? normalizedPricing.platformFee : 0) -
+        (Number.isFinite(normalizedPricing.discount) ? normalizedPricing.discount : 0)
+    );
+    if (!Number.isFinite(normalizedPricing.total) || normalizedPricing.total <= 0) {
+        normalizedPricing.total = computedTotal;
+    }
+
     const payment = {
         method: paymentMethod,
         status: isCash ? 'cod_pending' : isWallet ? 'paid' : 'created',
-        amountDue: dto.pricing?.total ?? 0,
+        amountDue: normalizedPricing.total ?? 0,
         razorpay: {},
         qr: {}
     };
@@ -143,7 +320,7 @@ export async function createOrder(userId, dto) {
         zoneId: dto.zoneId ? new mongoose.Types.ObjectId(dto.zoneId) : restaurant.zoneId,
         items: dto.items,
         deliveryAddress,
-        pricing: dto.pricing,
+        pricing: normalizedPricing,
         payment,
         orderStatus: 'created',
         dispatch: { modeAtCreation: dispatchMode, status: 'unassigned' },
@@ -156,7 +333,7 @@ export async function createOrder(userId, dto) {
     let razorpayPayload = null;
 
     if (paymentMethod === 'razorpay' && isRazorpayConfigured()) {
-        const amountPaise = Math.round((dto.pricing?.total ?? 0) * 100);
+        const amountPaise = Math.round((normalizedPricing.total ?? 0) * 100);
         if (amountPaise < 100) throw new ValidationError('Amount too low for online payment');
         try {
             const rzOrder = await createRazorpayOrder(amountPaise, 'INR', orderId);
@@ -174,6 +351,24 @@ export async function createOrder(userId, dto) {
     }
 
     await order.save();
+
+    // Real-time: notify restaurant instantly (Zomato-style).
+    try {
+        const io = getIO();
+        if (io) {
+            const payload = {
+                ...order.toObject(),
+                orderMongoId: order._id?.toString?.() || undefined
+            };
+            io.to(rooms.restaurant(dto.restaurantId)).emit('new_order', payload);
+            io.to(rooms.restaurant(dto.restaurantId)).emit('play_notification_sound', {
+                orderId: payload.orderId,
+                orderMongoId: payload.orderMongoId
+            });
+        }
+    } catch {
+        // Don't block order placement on socket failures.
+    }
 
     if (dispatchMode === 'auto' && (isCash || order.payment.status === 'paid' || order.payment.status === 'cod_pending')) {
         try {
@@ -282,9 +477,9 @@ export async function listOrdersUser(userId, query) {
 }
 
 export async function getOrderById(orderId, { userId, restaurantId, deliveryPartnerId, admin } = {}) {
-    const id = mongoose.Types.ObjectId.isValid(orderId) ? new mongoose.Types.ObjectId(orderId) : null;
-    if (!id) throw new ValidationError('Invalid order id');
-    const order = await FoodOrder.findById(id)
+    const identity = buildOrderIdentityFilter(orderId);
+    if (!identity) throw new ValidationError('Order id required');
+    const order = await FoodOrder.findOne(identity)
         .populate('restaurantId', 'restaurantName profileImage area city')
         .populate('dispatch.deliveryPartnerId', 'name phone')
         .lean();
@@ -330,6 +525,92 @@ export async function updateOrderStatusRestaurant(orderId, restaurantId, orderSt
     order.orderStatus = orderStatus;
     pushStatusHistory(order, { byRole: 'RESTAURANT', byId: restaurantId, from, to: orderStatus });
     await order.save();
+
+    // Real-time: status update to restaurant room.
+    try {
+        const io = getIO();
+        if (io) {
+            console.log(`[DEBUG] Emitting status update to restaurant ${restaurantId}: ${orderStatus}`);
+            io.to(rooms.restaurant(restaurantId)).emit('order_status_update', {
+                orderMongoId: order._id?.toString?.(),
+                orderId: order.orderId,
+                orderStatus: order.orderStatus
+            });
+        }
+    } catch (err) {
+        console.error('[DEBUG] Error emitting status update to restaurant:', err);
+    }
+
+    // Real-time: delivery request / ready notifications.
+    try {
+        const io = getIO();
+        if (io) {
+            // On accept -> request delivery partners.
+            if (String(orderStatus) === 'preparing' && String(from) !== 'preparing') {
+                console.log(`[DEBUG] Order ${order.orderId} status changed to 'preparing'. Triggering delivery dispatch.`);
+                // If auto dispatch, try assign now.
+                if (order.dispatch?.status === 'unassigned' && order.dispatch?.modeAtCreation === 'auto') {
+                    try {
+                        console.log(`[DEBUG] Auto-assigning order ${order.orderId}`);
+                        await tryAutoAssign(order._id);
+                        await order.reload();
+                    } catch (err) {
+                        console.error(`[DEBUG] Auto-assign failed for order ${order.orderId}:`, err);
+                    }
+                }
+
+                const restaurant = await FoodRestaurant.findById(order.restaurantId).select('restaurantName location addressLine1 area city state').lean();
+                const payload = buildDeliverySocketPayload(order, restaurant);
+
+                // If assigned, notify assigned partner only.
+                const assignedId = order.dispatch?.deliveryPartnerId?.toString?.() || order.dispatch?.deliveryPartnerId;
+                if (assignedId && order.dispatch?.status === 'assigned') {
+                    console.log(`[DEBUG] Order ${order.orderId} assigned to ${assignedId}. Notifying.`);
+                    io.to(rooms.delivery(assignedId)).emit('new_order', payload);
+                    io.to(rooms.delivery(assignedId)).emit('play_notification_sound', {
+                        orderId: payload.orderId,
+                        orderMongoId: payload.orderMongoId
+                    });
+                } else {
+                    // Broadcast to nearby online partners so someone can accept/claim.
+                    console.log(`[DEBUG] Searching for nearby partners for order ${order.orderId}`);
+                    const { partners } = await listNearbyOnlineDeliveryPartners(order.restaurantId, { maxKm: 15, limit: 25 });
+                    console.log(`[DEBUG] Found ${partners.length} partners: ${JSON.stringify(partners)}`);
+                    for (const p of partners) {
+                        const targetRoom = rooms.delivery(p.partnerId);
+                        console.log(`[DEBUG] Emitting new_order_available to room: ${targetRoom}`);
+                        io.to(targetRoom).emit('new_order_available', {
+                            ...payload,
+                            pickupDistanceKm: p.distanceKm
+                        });
+                    }
+                    // Also trigger a generic sound event for the first few partners.
+                    for (const p of partners.slice(0, 5)) {
+                        io.to(rooms.delivery(p.partnerId)).emit('play_notification_sound', {
+                            orderId: payload.orderId,
+                            orderMongoId: payload.orderMongoId
+                        });
+                    }
+                }
+            }
+
+            // When ready for pickup -> ping assigned delivery partner.
+            if (String(orderStatus) === 'ready_for_pickup' && String(from) !== 'ready_for_pickup') {
+                console.log(`[DEBUG] Order ${order.orderId} changed to 'ready_for_pickup'.`);
+                const assignedId = order.dispatch?.deliveryPartnerId?.toString?.() || order.dispatch?.deliveryPartnerId;
+                if (assignedId) {
+                    console.log(`[DEBUG] Notifying assigned partner ${assignedId} that order is ready.`);
+                    const restaurant = await FoodRestaurant.findById(order.restaurantId).select('restaurantName location addressLine1 area city state').lean();
+                    const payload = buildDeliverySocketPayload(order, restaurant);
+                    io.to(rooms.delivery(assignedId)).emit('order_ready', payload);
+                } else {
+                    console.log(`[DEBUG] Order ${order.orderId} is ready but no partner assigned.`);
+                }
+            }
+        }
+    } catch (err) {
+        console.error('[DEBUG] Error in delivery notification logic:', err);
+    }
     return order.toObject();
 }
 
@@ -338,10 +619,17 @@ export async function listOrdersAvailableDelivery(deliveryPartnerId, query) {
     const { page, limit, skip } = buildPaginationOptions(query);
     const filter = {
         $or: [
-            { 'dispatch.status': 'unassigned' },
-            { 'dispatch.deliveryPartnerId': new mongoose.Types.ObjectId(deliveryPartnerId) }
-        ],
-        orderStatus: { $nin: ['delivered', 'cancelled_by_user', 'cancelled_by_restaurant', 'cancelled_by_admin'] }
+            // "Marketplace" pool – only show orders once restaurant accepted.
+            {
+                'dispatch.status': 'unassigned',
+                orderStatus: { $in: ['preparing', 'ready_for_pickup'] }
+            },
+            // My assigned/accepted orders – keep showing until terminal.
+            {
+                'dispatch.deliveryPartnerId': new mongoose.Types.ObjectId(deliveryPartnerId),
+                orderStatus: { $nin: ['delivered', 'cancelled_by_user', 'cancelled_by_restaurant', 'cancelled_by_admin'] }
+            }
+        ]
     };
     const [docs, total] = await Promise.all([
         FoodOrder.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
@@ -351,20 +639,65 @@ export async function listOrdersAvailableDelivery(deliveryPartnerId, query) {
 }
 
 export async function acceptOrderDelivery(orderId, deliveryPartnerId) {
-    const order = await FoodOrder.findById(orderId);
+    const partnerId = new mongoose.Types.ObjectId(deliveryPartnerId);
+    const identity = buildOrderIdentityFilter(orderId);
+    if (!identity) throw new ValidationError('Order id required');
+
+    // Atomically claim if unassigned, or accept if already assigned to me.
+    const order = await FoodOrder.findOne({
+        ...identity,
+        orderStatus: { $nin: ['delivered', 'cancelled_by_user', 'cancelled_by_restaurant', 'cancelled_by_admin'] },
+        $or: [
+            { 'dispatch.status': 'unassigned' },
+            { 'dispatch.deliveryPartnerId': partnerId }
+        ]
+    });
+
     if (!order) throw new ValidationError('Order not found');
-    if (order.dispatch.status !== 'assigned' || order.dispatch.deliveryPartnerId?.toString() !== deliveryPartnerId.toString()) {
-        throw new ValidationError('Order not assigned to you or already accepted');
+
+    // Guard: only dispatchable after restaurant accepted.
+    if (!['preparing', 'ready_for_pickup', 'picked_up'].includes(order.orderStatus)) {
+        throw new ValidationError('Order not ready for delivery assignment');
     }
+
+    const wasUnassigned = order.dispatch?.status === 'unassigned' || !order.dispatch?.deliveryPartnerId;
+    if (!wasUnassigned && order.dispatch.deliveryPartnerId?.toString() !== deliveryPartnerId.toString()) {
+        throw new ForbiddenError('Not your order');
+    }
+
+    const from = order.dispatch?.status || 'unassigned';
+    order.dispatch.deliveryPartnerId = partnerId;
     order.dispatch.status = 'accepted';
+    if (!order.dispatch.assignedAt) order.dispatch.assignedAt = new Date();
     order.dispatch.acceptedAt = new Date();
-    pushStatusHistory(order, { byRole: 'DELIVERY_PARTNER', byId: deliveryPartnerId, from: 'assigned', to: 'accepted' });
+    pushStatusHistory(order, { byRole: 'DELIVERY_PARTNER', byId: deliveryPartnerId, from, to: 'accepted' });
     await order.save();
+
+    // Notify delivery partner (self) + restaurant about dispatch acceptance.
+    try {
+        const io = getIO();
+        if (io) {
+            io.to(rooms.delivery(deliveryPartnerId)).emit('order_status_update', {
+                orderMongoId: order._id?.toString?.(),
+                orderId: order.orderId,
+                dispatchStatus: order.dispatch?.status
+            });
+            io.to(rooms.restaurant(order.restaurantId)).emit('order_status_update', {
+                orderMongoId: order._id?.toString?.(),
+                orderId: order.orderId,
+                orderStatus: order.orderStatus,
+                dispatchStatus: order.dispatch?.status
+            });
+        }
+    } catch {}
+
     return order.toObject();
 }
 
 export async function rejectOrderDelivery(orderId, deliveryPartnerId) {
-    const order = await FoodOrder.findById(orderId);
+    const identity = buildOrderIdentityFilter(orderId);
+    if (!identity) throw new ValidationError('Order id required');
+    const order = await FoodOrder.findOne(identity);
     if (!order) throw new ValidationError('Order not found');
     if (order.dispatch.deliveryPartnerId?.toString() !== deliveryPartnerId.toString()) throw new ForbiddenError('Not your order');
     order.dispatch.status = 'unassigned';
@@ -376,8 +709,167 @@ export async function rejectOrderDelivery(orderId, deliveryPartnerId) {
     return order.toObject();
 }
 
+export async function confirmReachedPickupDelivery(orderId, deliveryPartnerId) {
+    const identity = buildOrderIdentityFilter(orderId);
+    if (!identity) throw new ValidationError('Order id required');
+
+    const order = await FoodOrder.findOne(identity);
+    if (!order) throw new ValidationError('Order not found');
+    if (order.dispatch?.deliveryPartnerId?.toString() !== deliveryPartnerId.toString()) throw new ForbiddenError('Not your order');
+    if (order.orderStatus === 'delivered') throw new ValidationError('Order already delivered');
+
+    // Idempotent: if already at/after pickup, keep success.
+    const currentPhase = order.deliveryState?.currentPhase || '';
+    const currentStatus = order.deliveryState?.status || '';
+    if (currentPhase === 'at_pickup' || currentStatus === 'reached_pickup') {
+        return order.toObject();
+    }
+
+    const from = currentStatus || currentPhase || order.orderStatus;
+    order.deliveryState = {
+        ...(order.deliveryState?.toObject?.() || order.deliveryState || {}),
+        currentPhase: 'at_pickup',
+        status: 'reached_pickup',
+        reachedPickupAt: order.deliveryState?.reachedPickupAt || new Date()
+    };
+    pushStatusHistory(order, {
+        byRole: 'DELIVERY_PARTNER',
+        byId: deliveryPartnerId,
+        from,
+        to: 'reached_pickup',
+        note: 'Reached pickup location'
+    });
+    await order.save();
+
+    // Notify
+    emitOrderUpdate(order, deliveryPartnerId);
+
+    return order.toObject();
+}
+
+/**
+ * Slide to confirm pickup (Bill uploaded)
+ */
+export async function confirmPickupDelivery(orderId, deliveryPartnerId, billImageUrl) {
+    const identity = buildOrderIdentityFilter(orderId);
+    const order = await FoodOrder.findOne(identity);
+    if (!order) throw new ValidationError('Order not found');
+    if (order.dispatch?.deliveryPartnerId?.toString() !== deliveryPartnerId.toString()) throw new ForbiddenError('Not your order');
+
+    const from = order.orderStatus;
+    order.orderStatus = 'picked_up';
+    order.deliveryState = {
+        ...(order.deliveryState?.toObject?.() || order.deliveryState || {}),
+        currentPhase: 'en_route_to_delivery',
+        status: 'picked_up',
+        pickedUpAt: new Date(),
+        billImageUrl
+    };
+    pushStatusHistory(order, {
+        byRole: 'DELIVERY_PARTNER',
+        byId: deliveryPartnerId,
+        from,
+        to: 'picked_up',
+        note: 'Order picked up'
+    });
+    await order.save();
+
+    emitOrderUpdate(order, deliveryPartnerId);
+    return order.toObject();
+}
+
+export async function confirmReachedDropDelivery(orderId, deliveryPartnerId) {
+    const identity = buildOrderIdentityFilter(orderId);
+    const order = await FoodOrder.findOne(identity);
+    if (!order) throw new ValidationError('Order not found');
+    if (order.dispatch?.deliveryPartnerId?.toString() !== deliveryPartnerId.toString()) throw new ForbiddenError('Not your order');
+
+    order.deliveryState = {
+        ...(order.deliveryState?.toObject?.() || order.deliveryState || {}),
+        currentPhase: 'at_drop',
+        status: 'reached_drop',
+        reachedDropAt: new Date()
+    };
+    pushStatusHistory(order, {
+        byRole: 'DELIVERY_PARTNER',
+        byId: deliveryPartnerId,
+        from: 'picked_up',
+        to: 'reached_drop',
+        note: 'Reached drop location'
+    });
+    await order.save();
+
+    emitOrderUpdate(order, deliveryPartnerId);
+    return order.toObject();
+}
+
+export async function verifyDropOtpDelivery(orderId, deliveryPartnerId, otp) {
+    const identity = buildOrderIdentityFilter(orderId);
+    const order = await FoodOrder.findOne(identity);
+    if (!order) throw new ValidationError('Order not found');
+    if (order.dispatch?.deliveryPartnerId?.toString() !== deliveryPartnerId.toString()) throw new ForbiddenError('Not your order');
+
+    // For now, simple verification (or mock if no deliveryOtp field exists)
+    // If order.deliveryOtp doesn't exist, we skip validation for testing
+    if (order.deliveryOtp && order.deliveryOtp !== otp) {
+        throw new ValidationError('Invalid OTP');
+    }
+
+    return { success: true, message: 'OTP verified' };
+}
+
+export async function completeDelivery(orderId, deliveryPartnerId) {
+    const identity = buildOrderIdentityFilter(orderId);
+    const order = await FoodOrder.findOne(identity);
+    if (!order) throw new ValidationError('Order not found');
+    if (order.dispatch?.deliveryPartnerId?.toString() !== deliveryPartnerId.toString()) throw new ForbiddenError('Not your order');
+
+    const from = order.orderStatus;
+    order.orderStatus = 'delivered';
+    order.payment.status = 'paid'; // Mark as paid upon delivery
+    order.deliveryState = {
+        ...(order.deliveryState?.toObject?.() || order.deliveryState || {}),
+        currentPhase: 'delivered',
+        status: 'delivered',
+        deliveredAt: new Date()
+    };
+
+    pushStatusHistory(order, {
+        byRole: 'DELIVERY_PARTNER',
+        byId: deliveryPartnerId,
+        from,
+        to: 'delivered',
+        note: 'Delivery completed successfully'
+    });
+    await order.save();
+
+    emitOrderUpdate(order, deliveryPartnerId);
+    return order.toObject();
+}
+
+function emitOrderUpdate(order, deliveryPartnerId) {
+    try {
+        const io = getIO();
+        if (io) {
+            const payload = {
+                orderMongoId: order._id?.toString?.(),
+                orderId: order.orderId,
+                orderStatus: order.orderStatus,
+                deliveryState: order.deliveryState
+            };
+            io.to(rooms.delivery(deliveryPartnerId)).emit('order_status_update', payload);
+            io.to(rooms.restaurant(order.restaurantId)).emit('order_status_update', payload);
+            io.to(rooms.user(order.userId)).emit('order_status_update', payload);
+        }
+    } catch (e) {
+        console.error('Error emitting order update:', e);
+    }
+}
+
 export async function updateOrderStatusDelivery(orderId, deliveryPartnerId, orderStatus) {
-    const order = await FoodOrder.findById(orderId);
+    const identity = buildOrderIdentityFilter(orderId);
+    if (!identity) throw new ValidationError('Order id required');
+    const order = await FoodOrder.findOne(identity);
     if (!order) throw new ValidationError('Order not found');
     if (order.dispatch.deliveryPartnerId?.toString() !== deliveryPartnerId.toString()) throw new ForbiddenError('Not your order');
     const from = order.orderStatus;

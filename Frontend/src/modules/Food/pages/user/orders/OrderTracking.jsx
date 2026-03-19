@@ -312,7 +312,8 @@ const transformOrderForTracking = (apiOrder, previousOrder = null, explicitResta
       price: item.price
     })) || previousOrder?.items || [],
     total: apiOrder?.pricing?.total || previousOrder?.total || 0,
-    status: apiOrder?.status || previousOrder?.status || 'pending',
+    // Backend canonical field is orderStatus; keep legacy `status` for UI compatibility.
+    status: apiOrder?.orderStatus || apiOrder?.status || previousOrder?.status || 'pending',
     deliveryPartner: apiOrder?.deliveryPartnerId ? {
       name: apiOrder.deliveryPartnerId.name || 'Delivery Partner',
       avatar: null

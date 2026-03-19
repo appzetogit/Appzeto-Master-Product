@@ -32,9 +32,22 @@ import BottomPopup from "@food/components/delivery/BottomPopup"
 import FeedNavbar from "@food/components/delivery/FeedNavbar"
 import { Card, CardContent } from "@food/components/ui/card"
 import { Button } from "@food/components/ui/button"
+import DeliveryPaymentOverlay from "./components/DeliveryPaymentOverlay"
+import DeliveryOrderDeliveredPopup from "./components/DeliveryOrderDeliveredPopup"
+import DeliveryOtpModal from "./components/DeliveryOtpModal"
+import DeliveryReachedDropPopup from "./components/DeliveryReachedDropPopup"
+import DeliveryOrderIdConfirmationPopup from "./components/DeliveryOrderIdConfirmationPopup"
+import DeliveryReachedPickupPopup from "./components/DeliveryReachedPickupPopup"
+import DeliveryNewOrderPopup from "./components/DeliveryNewOrderPopup"
+import DeliveryRejectOrderModal from "./components/DeliveryRejectOrderModal"
 import { useGigStore } from "@food/store/gigStore"
 import { useProgressStore } from "@food/store/progressStore"
 import { formatTimeDisplay, calculateTotalHours } from "@food/utils/gigUtils"
+import { useDeliveryGeoWatch } from "./hooks/useDeliveryGeoWatch"
+import { useBikeMarker } from "./hooks/useBikeMarker"
+import { useRoutePolyline } from "./hooks/useRoutePolyline"
+import { useNewOrderAcceptSwipe } from "./hooks/swipes/useNewOrderAcceptSwipe"
+import { useReachedPickupSwipe } from "./hooks/swipes/useReachedPickupSwipe"
 import {
   fetchDeliveryWallet,
   calculatePeriodEarnings
@@ -62,16 +75,27 @@ import referralBonusBg from "@food/assets/referralbonuscardbg.png"
 import alertSound from "@food/assets/audio/alert.mp3"
 import originalSound from "@food/assets/audio/original.mp3"
 import bikeLogo from "@food/assets/bikelogo.png"
+import {
+  BILL_UPLOAD_TIMEOUT_MS,
+  DELIVERY_ACTIVE_ORDER_KEY,
+  DELIVERY_LOCATION_FALLBACK_INTERVAL_MS,
+  DELIVERY_LOCATION_SEND_INTERVAL_MS,
+  DROP_REACHED_THRESHOLD_METERS,
+  NEW_ORDER_COUNTDOWN_SECONDS,
+  PICKUP_REACHED_THRESHOLD_METERS,
+  ROUTE_OFF_TRACK_THRESHOLD_METERS,
+} from "./constants/deliveryHome.constants"
+import {
+  getCustomerDestination,
+  haversineDistance,
+  isDirectionsResultNearDestination,
+  shouldAcceptLocation,
+  toFiniteCoordinate,
+} from "./utils/deliveryGeo"
+import { useDeliveryProximityTriggers } from "./hooks/useDeliveryProximityTriggers"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
-
-const PICKUP_REACHED_THRESHOLD_METERS = 120
-const DROP_REACHED_THRESHOLD_METERS = 90
-const ROUTE_OFF_TRACK_THRESHOLD_METERS = 40
-const DELIVERY_LOCATION_SEND_INTERVAL_MS = 3000
-const DELIVERY_LOCATION_FALLBACK_INTERVAL_MS = 3000
-const BILL_UPLOAD_TIMEOUT_MS = 45000
 
 
 // Ola Maps API Key removed
@@ -154,119 +178,6 @@ const mockRestaurants = [
 // ============================================
 
 /**
- * Calculate distance between two coordinates using Haversine formula
- * @param {number} lat1 
- * @param {number} lng1 
- * @param {number} lat2 
- * @param {number} lng2 
- * @returns {number} Distance in meters
- */
-function haversineDistance(lat1, lng1, lat2, lng2) {
-  const R = 6371000 // Earth radius in meters
-  const dLat = (lat2 - lat1) * Math.PI / 180
-  const dLng = (lng2 - lng1) * Math.PI / 180
-  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-    Math.sin(dLng / 2) * Math.sin(dLng / 2)
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-  return R * c
-}
-
-function toFiniteCoordinate(value) {
-  const parsed = Number(value)
-  return Number.isFinite(parsed) ? parsed : null
-}
-
-function getCustomerDestination(restaurantInfo) {
-  if (!restaurantInfo) return null
-  const lat = toFiniteCoordinate(restaurantInfo.customerLat)
-  const lng = toFiniteCoordinate(restaurantInfo.customerLng)
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null
-  return { lat, lng }
-}
-
-function isDirectionsResultNearDestination(directionsResult, destination, thresholdMeters = 120) {
-  if (!directionsResult || !destination) return false
-  const legs = directionsResult?.routes?.[0]?.legs
-  const lastLeg = Array.isArray(legs) && legs.length > 0 ? legs[legs.length - 1] : null
-  const endLocation = lastLeg?.end_location
-  if (!endLocation) return false
-
-  const endLat = typeof endLocation.lat === 'function' ? endLocation.lat() : Number(endLocation.lat)
-  const endLng = typeof endLocation.lng === 'function' ? endLocation.lng() : Number(endLocation.lng)
-  if (!Number.isFinite(endLat) || !Number.isFinite(endLng)) return false
-
-  return haversineDistance(endLat, endLng, destination.lat, destination.lng) <= thresholdMeters
-}
-
-/**
- * Filter GPS location based on accuracy, distance jump, and speed
- * @param {Object} position - GPS position object
- * @param {Array} lastValidLocation - [lat, lng] of last valid location
- * @param {number} lastLocationTime - Timestamp of last location
- * @returns {boolean} true if location should be accepted
- */
-function shouldAcceptLocation(position, lastValidLocation, lastLocationTime) {
-  const accuracy = position.coords.accuracy || 0
-  const latitude = position.coords.latitude
-  const longitude = position.coords.longitude
-  
-  // CRITICAL: Always accept first location (no previous location) to ensure admin map shows delivery boy
-  // Even if accuracy is poor, we need at least one location update
-  const isFirstLocation = !lastValidLocation || !lastLocationTime
-  
-  if (isFirstLocation) {
-    // For first location, accept if accuracy < 1000m (very lenient)
-    if (accuracy > 1000) {
-      debugLog('?? First location rejected: accuracy extremely poor', { accuracy: accuracy.toFixed(2) + 'm' })
-      return false
-    }
-    debugLog('? Accepting first location (will be used for admin map):', { 
-      accuracy: accuracy.toFixed(2) + 'm',
-      lat: latitude,
-      lng: longitude
-    })
-    return true
-  }
-  
-  // Filter 1: For subsequent locations, use relaxed accuracy threshold (200m instead of 30m)
-  // This allows GPS to work even in areas with poor signal
-  if (accuracy > 200) {
-    debugLog('?? Location rejected: accuracy too poor', { accuracy: accuracy.toFixed(2) + 'm' })
-    return false
-  }
-  
-  // Filter 2: Check distance jump and speed if we have previous location
-  if (lastValidLocation && lastLocationTime) {
-    const [prevLat, prevLng] = lastValidLocation
-    const distance = haversineDistance(prevLat, prevLng, latitude, longitude)
-    const timeDiff = (Date.now() - lastLocationTime) / 1000 // seconds
-    
-    // Filter 2a: Ignore if distance jump > 50 meters within 2 seconds
-    if (distance > 50 && timeDiff < 2) {
-      debugLog('?? Location rejected: distance jump too large', { 
-        distance: distance.toFixed(2) + 'm', 
-        timeDiff: timeDiff.toFixed(2) + 's' 
-      })
-      return false
-    }
-    
-    // Filter 2b: Ignore if calculated speed > 60 km/h (bike speed limit)
-    if (timeDiff > 0) {
-      const speedKmh = (distance / timeDiff) * 3.6 // Convert m/s to km/h
-      if (speedKmh > 60) {
-        debugLog('?? Location rejected: speed too high', { 
-          speed: speedKmh.toFixed(2) + ' km/h' 
-        })
-        return false
-      }
-    }
-  }
-  
-  return true
-}
-
-/**
  * Apply moving average smoothing on location history
  * @param {Array} locationHistory - Array of [lat, lng] coordinates
  * @returns {Array|null} Smoothed [lat, lng] or null if not enough points
@@ -340,7 +251,6 @@ function animateMarkerSmoothly(marker, newPosition, duration = 1500, animationRe
 export default function DeliveryHome() {
   const ENABLE_GOOGLE_DIRECTIONS = import.meta.env.VITE_ENABLE_GOOGLE_DIRECTIONS === 'true'
   const DELIVERY_DROP_OTP_LENGTH = 4
-  const DELIVERY_ACTIVE_ORDER_KEY = 'deliveryActiveOrder'
   const companyName = useCompanyName()
   const navigate = useNavigate()
   const location = useLocation()
@@ -648,7 +558,7 @@ export default function DeliveryHome() {
   const [isAnimatingToComplete, setIsAnimatingToComplete] = useState(false)
   const [hasAutoShown, setHasAutoShown] = useState(false)
   const [showNewOrderPopup, setShowNewOrderPopup] = useState(false)
-  const [countdownSeconds, setCountdownSeconds] = useState(300)
+  const [countdownSeconds, setCountdownSeconds] = useState(NEW_ORDER_COUNTDOWN_SECONDS)
   const countdownTimerRef = useRef(null)
   const [showRejectPopup, setShowRejectPopup] = useState(false)
   const [rejectReason, setRejectReason] = useState("")
@@ -679,6 +589,9 @@ export default function DeliveryHome() {
   const [customerRating, setCustomerRating] = useState(0)
   const [customerReviewText, setCustomerReviewText] = useState("")
   const [orderEarnings, setOrderEarnings] = useState(0) // Store earnings from completed order
+  const [collectQrLink, setCollectQrLink] = useState(null) // Razorpay payment link (shortUrl/imageUrl)
+  const [isGeneratingCollectQr, setIsGeneratingCollectQr] = useState(false)
+  const [collectQrError, setCollectQrError] = useState("")
   const [routePolyline, setRoutePolyline] = useState([])
    const [showRoutePath, setShowRoutePath] = useState(false) // Toggle to show/hide route path - disabled by default
    const [directionsResponse, setDirectionsResponse] = useState(null) // Directions API response for road-based routing
@@ -740,6 +653,55 @@ export default function DeliveryHome() {
     newOrder?.orderMongoId,
     newOrder?._id
   ])
+
+  const { calculateHeading, createOrUpdateBikeMarker } = useBikeMarker({
+    bikeLogo,
+    bikeMarkerRef,
+    isUserPanningRef,
+    debugLog,
+    debugWarn,
+    debugError,
+  })
+
+  // Avoid "Cannot access before initialization" for callbacks defined later in file.
+  // We pass stable wrappers into hooks and wire the real implementations once declared.
+  const updateLiveTrackingPolylineFnRef = useRef(null)
+  const updateRoutePolylineFnRef = useRef(null)
+  const updateLiveTrackingPolylineSafe = useCallback((...args) => {
+    return updateLiveTrackingPolylineFnRef.current?.(...args)
+  }, [])
+  const updateRoutePolylineSafe = useCallback((...args) => {
+    return updateRoutePolylineFnRef.current?.(...args)
+  }, [])
+
+  useDeliveryGeoWatch({
+    deliveryAPI,
+    mapContainerRef,
+    riderLocation,
+    setRiderLocation,
+    lastLocationRef,
+    lastValidLocationRef,
+    lastLocationTimeRef,
+    smoothedLocationRef,
+    locationHistoryRef,
+    routeHistoryRef,
+    watchPositionIdRef,
+    bikeMarkerRef,
+    markerAnimationRef,
+    isUserPanningRef,
+    directionsResponseRef,
+    updateLiveTrackingPolyline: updateLiveTrackingPolylineSafe,
+    createOrUpdateBikeMarker,
+    updateRoutePolyline: updateRoutePolylineSafe,
+    smoothLocation,
+    calculateHeading,
+    animateMarkerSmoothly,
+    debugLog,
+    debugWarn,
+    debugError,
+    toast,
+    isOnlineRef,
+  })
   const deliveryOtpInputRefs = useRef([])
   const deliveryOtpSingleInputRef = useRef(null)
   const orderDeliveredButtonRef = useRef(null)
@@ -1597,7 +1559,7 @@ export default function DeliveryHome() {
   // Reset countdown when popup closes
   useEffect(() => {
     if (!showNewOrderPopup) {
-      setCountdownSeconds(300)
+      setCountdownSeconds(NEW_ORDER_COUNTDOWN_SECONDS)
     }
   }, [showNewOrderPopup])
 
@@ -1652,7 +1614,7 @@ export default function DeliveryHome() {
     setIsNewOrderPopupMinimized(false) // Reset minimized state
     setNewOrderDragY(0) // Reset drag position
     setRejectReason("")
-    setCountdownSeconds(300)
+    setCountdownSeconds(NEW_ORDER_COUNTDOWN_SECONDS)
     // Here you would typically send the rejection to your backend
     debugLog("Order rejected with reason:", rejectReason)
   }
@@ -1668,7 +1630,7 @@ export default function DeliveryHome() {
     setShowNewOrderPopup(false)
     setSelectedRestaurant(null)
     setHasAutoShown(false)
-    setCountdownSeconds(300)
+    setCountdownSeconds(NEW_ORDER_COUNTDOWN_SECONDS)
     
     // Clear any timers
     if (autoShowTimerRef.current) {
@@ -1690,6 +1652,8 @@ export default function DeliveryHome() {
 
   // Get rider location - App open होते ही location fetch करें
   useEffect(() => {
+    // NOTE: moved to `useDeliveryGeoWatch` (keep old block disabled)
+    return
     // First, check if we have saved location in localStorage (for refresh handling)
     const savedLocation = localStorage.getItem('deliveryBoyLastLocation')
     if (savedLocation) {
@@ -1951,6 +1915,8 @@ export default function DeliveryHome() {
 
   // Watch position updates - ONLY when online (Production Level Implementation)
   useEffect(() => {
+    // NOTE: moved to `useDeliveryGeoWatch` (keep old block disabled)
+    return
     if (!navigator.geolocation) {
       return
     }
@@ -2301,751 +2267,80 @@ export default function DeliveryHome() {
     return { x: touch.clientX, y: touch.clientY }
   }
 
-  // Handle new order popup accept button swipe
-  const handleNewOrderAcceptTouchStart = (e) => {
-    if (isAcceptingNewOrderRef.current) return
-    const touch = getTouchPoint(e)
-    if (!touch) return
-    newOrderAcceptButtonSwipeStartX.current = touch.x
-    newOrderAcceptButtonSwipeStartY.current = touch.y
-    newOrderAcceptButtonIsSwiping.current = false
-    setNewOrderIsAnimatingToComplete(false)
-    setNewOrderAcceptButtonProgress(0)
-  }
+  const {
+    handleNewOrderAcceptTouchStart,
+    handleNewOrderAcceptTouchMove,
+    handleNewOrderAcceptTouchEnd,
+    handleNewOrderAcceptTouchCancel,
+  } = useNewOrderAcceptSwipe({
+    newOrderAcceptButtonRef,
+    newOrderAcceptButtonSwipeStartX,
+    newOrderAcceptButtonSwipeStartY,
+    newOrderAcceptButtonIsSwiping,
+    isAcceptingNewOrderRef,
+    setIsAcceptingNewOrder,
+    setNewOrderIsAnimatingToComplete,
+    setNewOrderAcceptButtonProgress,
+    alertAudioRef,
+    debugLog,
+    debugWarn,
+    debugError,
+    toast,
+    selectedRestaurant,
+    newOrder,
+    riderLocation,
+    lastLocationRef,
+    deliveryAPI,
+    restaurantAPI,
+    calculateRouteWithDirectionsAPI,
+    updateLiveTrackingPolyline: updateLiveTrackingPolylineSafe,
+    directionsResponse,
+    setDirectionsResponse,
+    directionsResponseRef,
+    pickupRouteDistanceRef,
+    pickupRouteTimeRef,
+    setRoutePolyline,
+    setSelectedRestaurant,
+    acceptedOrderIdsRef,
+    clearNewOrder,
+    setShowNewOrderPopup,
+    setIsNewOrderPopupMinimized,
+    setNewOrderDragY,
+    setShowRoutePath,
+    setShowDirectionsMap,
+    directionsRendererRef,
+    routePolylineRef,
+    createRestaurantMapMarker,
+    DELIVERY_ACTIVE_ORDER_KEY,
+    setShowreachedPickupPopup,
+  })
 
-  const handleNewOrderAcceptTouchMove = (e) => {
-    if (isAcceptingNewOrderRef.current) return
-    const touch = getTouchPoint(e)
-    if (!touch) return
-    const deltaX = touch.x - newOrderAcceptButtonSwipeStartX.current
-    const deltaY = touch.y - newOrderAcceptButtonSwipeStartY.current
-
-    // Only handle horizontal swipes (swipe right)
-    if (Math.abs(deltaX) > 5 && Math.abs(deltaX) > Math.abs(deltaY) && deltaX > 0) {
-      newOrderAcceptButtonIsSwiping.current = true
-      // Don't call preventDefault - CSS touch-action handles scrolling prevention
-      // safePreventDefault(e) // Removed to avoid passive listener error
-
-      // Calculate max swipe distance
-      const buttonWidth = newOrderAcceptButtonRef.current?.offsetWidth || 300
-      const circleWidth = 56 // w-14 = 56px
-      const padding = 16 // px-4 = 16px
-      const maxSwipe = buttonWidth - circleWidth - (padding * 2)
-
-      const progress = Math.min(Math.max(deltaX / maxSwipe, 0), 1)
-      setNewOrderAcceptButtonProgress(progress)
-    }
-  }
-
-  const handleNewOrderAcceptTouchEnd = (e) => {
-    if (isAcceptingNewOrderRef.current) return
-
-    const touch = getTouchPoint(e)
-    const deltaX = (touch?.x || newOrderAcceptButtonSwipeStartX.current) - newOrderAcceptButtonSwipeStartX.current
-    if (!newOrderAcceptButtonIsSwiping.current && deltaX > 30) {
-      newOrderAcceptButtonIsSwiping.current = true
-    }
-
-    if (!newOrderAcceptButtonIsSwiping.current) {
-      setNewOrderAcceptButtonProgress(0)
-      return
-    }
-
-    const buttonWidth = newOrderAcceptButtonRef.current?.offsetWidth || 300
-    const circleWidth = 56
-    const padding = 16
-    const maxSwipe = buttonWidth - circleWidth - (padding * 2)
-    const threshold = maxSwipe * 0.55 // smoother acceptance
-
-    if (deltaX > threshold) {
-      isAcceptingNewOrderRef.current = true
-      setIsAcceptingNewOrder(true)
-      // Stop audio immediately when user accepts
-      if (alertAudioRef.current) {
-        alertAudioRef.current.pause()
-        alertAudioRef.current.currentTime = 0
-        alertAudioRef.current = null
-        debugLog('[NewOrder] ?? Audio stopped (order accepted)')
-      }
-
-      // Animate to completion
-      setNewOrderIsAnimatingToComplete(true)
-      setNewOrderAcceptButtonProgress(1)
-
-      // Accept order via backend API and get route
-      const acceptOrderAndShowRoute = async () => {
-        // Resolve order ID from all known payload variants.
-        const orderId =
-          selectedRestaurant?.id ||
-          selectedRestaurant?.orderId ||
-          newOrder?.orderMongoId ||
-          newOrder?.mongoId ||
-          newOrder?.id ||
-          newOrder?._id ||
-          newOrder?.orderId
-        
-        debugLog('?? Order ID lookup:', {
-          selectedRestaurantId: selectedRestaurant?.id,
-          newOrderMongoId: newOrder?.orderMongoId,
-          newOrderId: newOrder?.orderId,
-          finalOrderId: orderId
-        })
-        
-        if (!orderId) {
-          debugError('? No order ID found to accept')
-          toast.error('Order ID not found. Please try again.')
-          setNewOrderAcceptButtonProgress(0)
-          setNewOrderIsAnimatingToComplete(false)
-          return
-        }
-
-        // Declare currentLocation in outer scope so it's accessible in catch block
-        let currentLocation = null
-        
-        try {
-          // Get current LIVE location (prioritize riderLocation which is updated in real-time)
-          currentLocation = riderLocation
-          
-          // If riderLocation is not available, try to get from lastLocationRef
-          if (!currentLocation || currentLocation.length !== 2) {
-            currentLocation = lastLocationRef.current
-          }
-          
-          // If still not available, try to get current position
-          if (!currentLocation || currentLocation.length !== 2) {
-            try {
-              const position = await new Promise((resolve, reject) => {
-                navigator.geolocation.getCurrentPosition(
-                  (pos) => resolve([pos.coords.latitude, pos.coords.longitude]),
-                  reject,
-                  { timeout: 5000, enableHighAccuracy: true }
-                )
-              })
-              currentLocation = position
-              debugLog('?? Got fresh location from geolocation API')
-            } catch (geoError) {
-              debugError('? Could not get current location:', geoError)
-              toast.error('Location not available. Please enable location services.')
-              // Ensure currentLocation is set to null before returning
-              currentLocation = null
-              return
-            }
-          }
-          
-          // Validate currentLocation before proceeding
-          if (!currentLocation || currentLocation.length !== 2) {
-            debugError('? No valid location available')
-            toast.error('Location not available. Please enable location services.')
-            return
-          }
-
-          debugLog('?? Accepting order:', orderId)
-          debugLog('?? Current LIVE location:', currentLocation)
-          debugLog('?? Order details:', {
-            orderId: orderId,
-            restaurantName: selectedRestaurant?.name || newOrder?.restaurantName,
-            orderStatus: newOrder?.status
-          })
-
-          // Call backend API to accept order
-          // Backend expects currentLat and currentLng
-          const response = await deliveryAPI.acceptOrder(orderId, {
-            // Backend expects currentLat/currentLng for acceptance validations.
-            currentLat: currentLocation[0],
-            currentLng: currentLocation[1],
-            // Keep legacy keys for compatibility with any older handler.
-            lat: currentLocation[0],
-            lng: currentLocation[1]
-          })
-          
-          debugLog('?? API Response:', response.data)
-
-          if (response.data?.success && response.data.data) {
-            // Stop audio immediately when order is successfully accepted
-            if (alertAudioRef.current) {
-              alertAudioRef.current.pause()
-              alertAudioRef.current.currentTime = 0
-              alertAudioRef.current = null
-              debugLog('[NewOrder] ?? Audio stopped (order accepted successfully)')
-            }
-            
-            const orderData = response.data.data
-            const order = orderData.order || orderData // Backend returns { order, route }
-            const routeData = response.data.data.route
-
-            debugLog('? Order accepted successfully')
-            debugLog('?? Route data:', routeData)
-            debugLog('?? Full order data from backend:', JSON.stringify(order, null, 2))
-            debugLog('?? Restaurant name from backend:', {
-              restaurantName: order.restaurantName,
-              restaurantIdName: order.restaurantId?.name,
-              restaurantIdType: typeof order.restaurantId,
-              restaurantId: order.restaurantId
-            })
-
-            // Update selectedRestaurant with correct data from backend
-            let restaurantInfo = null;
-            if (order) {
-              // Extract restaurant location (GeoJSON format: [longitude, latitude])
-              const restaurantCoords = order.restaurantId?.location?.coordinates || []
-              const restaurantLat = restaurantCoords[1] // Latitude is second element
-              const restaurantLng = restaurantCoords[0] // Longitude is first element
-              
-              // Format restaurant address - check multiple possible locations
-              let restaurantAddress = 'Restaurant Address'
-              const restaurantLocation = order.restaurantId?.location
-              
-              // Debug: Log order structure to understand data format
-              debugLog('?? Order structure for address extraction:', {
-                hasRestaurantId: !!order.restaurantId,
-                restaurantIdType: typeof order.restaurantId,
-                restaurantIdKeys: order.restaurantId ? Object.keys(order.restaurantId) : [],
-                hasLocation: !!restaurantLocation,
-                locationKeys: restaurantLocation ? Object.keys(restaurantLocation) : [],
-                restaurantIdAddress: order.restaurantId?.address,
-                locationFormattedAddress: restaurantLocation?.formattedAddress,
-                locationAddress: restaurantLocation?.address,
-                locationStreet: restaurantLocation?.street,
-                orderRestaurantAddress: order.restaurantAddress
-              })
-              
-              // Priority 1: Direct address fields on restaurantId
-              if (order.restaurantId?.address) {
-                restaurantAddress = order.restaurantId.address
-                debugLog('? Using restaurantId.address:', restaurantAddress)
-              }
-              // Priority 2: formattedAddress from location
-              else if (restaurantLocation?.formattedAddress) {
-                restaurantAddress = restaurantLocation.formattedAddress
-                debugLog('? Using location.formattedAddress:', restaurantAddress)
-              }
-              // Priority 3: address from location
-              else if (restaurantLocation?.address) {
-                restaurantAddress = restaurantLocation.address
-                debugLog('? Using location.address:', restaurantAddress)
-              }
-              // Priority 4: Build from addressLine1 (with zone and pin code)
-              else if (restaurantLocation?.addressLine1) {
-                const addressParts = [
-                  restaurantLocation.addressLine1,
-                  restaurantLocation.addressLine2,
-                  restaurantLocation.area, // Zone
-                  restaurantLocation.city,
-                  restaurantLocation.state,
-                  restaurantLocation.pincode || restaurantLocation.zipCode || restaurantLocation.postalCode
-                ].filter(Boolean)
-                restaurantAddress = addressParts.join(', ')
-                debugLog('? Built address from addressLine1 with zone and pin:', restaurantAddress)
-              }
-              // Priority 5: Build from street components (with zone and pin code)
-              else if (restaurantLocation?.street) {
-                const addressParts = [
-                  restaurantLocation.street,
-                  restaurantLocation.area, // Zone
-                  restaurantLocation.city,
-                  restaurantLocation.state,
-                  restaurantLocation.pincode || restaurantLocation.zipCode || restaurantLocation.postalCode
-                ].filter(Boolean)
-                restaurantAddress = addressParts.join(', ')
-                debugLog('? Built address from street components with zone and pin:', restaurantAddress)
-              }
-              // Priority 6: Check restaurantId directly for address fields
-              else if (order.restaurantId?.street || order.restaurantId?.city) {
-                const addressParts = [
-                  order.restaurantId.street,
-                  order.restaurantId.area,
-                  order.restaurantId.city,
-                  order.restaurantId.state,
-                  order.restaurantId.zipCode || order.restaurantId.pincode || order.restaurantId.postalCode
-                ].filter(Boolean)
-                restaurantAddress = addressParts.join(', ')
-                debugLog('? Built address from restaurantId fields:', restaurantAddress)
-              }
-              // Priority 7: Check order.restaurantAddress (if exists)
-              else if (order.restaurantAddress) {
-                restaurantAddress = order.restaurantAddress
-                debugLog('? Using order.restaurantAddress:', restaurantAddress)
-              }
-              // Priority 8: Use coordinates if address not available
-              else if (restaurantLat && restaurantLng) {
-                restaurantAddress = `${restaurantLat}, ${restaurantLng}`
-                debugLog('?? Using coordinates as address:', restaurantAddress)
-              } else {
-                debugWarn('?? Restaurant address not found in order, will try to fetch from restaurant API')
-                // Try to fetch restaurant address by ID if available
-                const restaurantId = order.restaurantId
-                if (restaurantId) {
-                  // Handle both string and object restaurantId
-                  const restaurantIdString = typeof restaurantId === 'string' 
-                    ? restaurantId 
-                    : (restaurantId._id || restaurantId.id || restaurantId.toString())
-                  
-                  if (restaurantIdString) {
-                    try {
-                      debugLog('?? Fetching restaurant address by ID:', restaurantIdString)
-                      const restaurantResponse = await restaurantAPI.getRestaurantById(restaurantIdString)
-                      if (restaurantResponse.data?.success && restaurantResponse.data.data) {
-                        const restaurant = restaurantResponse.data.data.restaurant || restaurantResponse.data.data
-                        const restLocation = restaurant.location
-                        debugLog('? Fetched restaurant data:', { restaurant, restLocation })
-                        
-                        // Priority: location.formattedAddress (this is what user wants)
-                        if (restLocation?.formattedAddress) {
-                          restaurantAddress = restLocation.formattedAddress
-                          debugLog('? Fetched restaurant.location.formattedAddress:', restaurantAddress)
-                        } else if (restaurant.address) {
-                          restaurantAddress = restaurant.address
-                          debugLog('? Fetched restaurant.address:', restaurantAddress)
-                        } else if (restLocation?.address) {
-                          restaurantAddress = restLocation.address
-                          debugLog('? Fetched restaurant.location.address:', restaurantAddress)
-                        } else if (restLocation?.addressLine1) {
-                          const addressParts = [
-                            restLocation.addressLine1,
-                            restLocation.addressLine2,
-                            restLocation.area, // Zone
-                            restLocation.city,
-                            restLocation.state,
-                            restLocation.pincode || restLocation.zipCode || restLocation.postalCode
-                          ].filter(Boolean)
-                          restaurantAddress = addressParts.join(', ')
-                          debugLog('? Built address from restaurant location addressLine1 with zone and pin:', restaurantAddress)
-                        } else if (restLocation?.street) {
-                          const addressParts = [
-                            restLocation.street,
-                            restLocation.area, // Zone
-                            restLocation.city,
-                            restLocation.state,
-                            restLocation.pincode || restLocation.zipCode || restLocation.postalCode
-                          ].filter(Boolean)
-                          restaurantAddress = addressParts.join(', ')
-                          debugLog('? Built address from restaurant location components with zone and pin:', restaurantAddress)
-                        }
-                      }
-                    } catch (restaurantError) {
-                      debugError('? Error fetching restaurant address:', restaurantError)
-                    }
-                  }
-                }
-                
-                if (restaurantAddress === 'Restaurant Address') {
-                  debugWarn('?? Restaurant address not found in any location, using default')
-                }
-              }
-              
-              // Extract restaurant name - priority: restaurantName field > restaurantId.name > fallback
-              // Backend returns restaurantName as a direct field on order, and restaurantId is populated with name
-              let restaurantName = null
-              
-              // Priority 1: Direct restaurantName field from order (stored in Order model)
-              if (order.restaurantName && typeof order.restaurantName === 'string' && order.restaurantName.trim()) {
-                restaurantName = order.restaurantName.trim()
-                debugLog('? Using restaurantName from order:', restaurantName)
-              } 
-              // Priority 2: Name from populated restaurantId object
-              else if (order.restaurantId && typeof order.restaurantId === 'object' && order.restaurantId.name) {
-                restaurantName = order.restaurantId.name.trim()
-                debugLog('? Using restaurantId.name:', restaurantName)
-              }
-              // Priority 3: Fallback to existing selectedRestaurant name
-              else if (selectedRestaurant?.name) {
-                restaurantName = selectedRestaurant.name
-                debugWarn('?? Restaurant name not found in order, using selectedRestaurant.name:', restaurantName)
-              }
-              // Final fallback
-              else {
-                restaurantName = 'Restaurant'
-                debugError('? Restaurant name not found anywhere, using default:', restaurantName)
-              }
-              
-              debugLog('?? Final extracted restaurant name:', restaurantName)
-              
-              // Extract earnings from backend response
-              const backendEarnings = orderData.estimatedEarnings || response.data.data.estimatedEarnings;
-              const earningsValue = backendEarnings 
-                ? (typeof backendEarnings === 'object' ? backendEarnings.totalEarning : backendEarnings)
-                : (selectedRestaurant?.estimatedEarnings || 0);
-              
-              debugLog('?? Earnings from backend:', {
-                backendEarnings,
-                earningsValue,
-                orderDataEarnings: orderData.estimatedEarnings,
-                responseEarnings: response.data.data.estimatedEarnings
-              });
-
-              restaurantInfo = {
-                id: order._id || order.orderId,
-                orderId: order.orderId, // Correct order ID from backend
-                name: restaurantName, // Restaurant name from backend (priority: restaurantName > restaurantId.name)
-                address: restaurantAddress, // Restaurant address from backend
-                lat: restaurantLat || selectedRestaurant?.lat,
-                lng: restaurantLng || selectedRestaurant?.lng,
-                distance: selectedRestaurant?.distance || '0 km',
-                timeAway: selectedRestaurant?.timeAway || '0 mins',
-                dropDistance: selectedRestaurant?.dropDistance || '0 km',
-                pickupDistance: selectedRestaurant?.pickupDistance || '0 km',
-                estimatedEarnings: backendEarnings || selectedRestaurant?.estimatedEarnings || 0,
-                amount: earningsValue, // Also set amount for compatibility
-                customerName: order.userId?.name || selectedRestaurant?.customerName,
-                customerPhone: order.userId?.phone || selectedRestaurant?.customerPhone || null,
-                customerAddress: order.address?.formattedAddress || 
-                                (order.address?.street ? `${order.address.street}, ${order.address.city || ''}, ${order.address.state || ''}`.trim() : '') ||
-                                selectedRestaurant?.customerAddress,
-                customerLat: order.address?.location?.coordinates?.[1],
-                customerLng: order.address?.location?.coordinates?.[0],
-                items: order.items || [],
-                total: order.pricing?.total || 0,
-                paymentMethod: order.paymentMethod || order.payment?.method || 'razorpay', // backend-resolved first (COD vs Online)
-                deliveryVerification: order.deliveryVerification || null,
-                phone: order.restaurantId?.phone || order.restaurantId?.ownerPhone || null, // Restaurant phone number (prefer phone, fallback to ownerPhone)
-                ownerPhone: order.restaurantId?.ownerPhone || null, // Owner phone number (separate field for direct access)
-                orderStatus: order.status || 'preparing', // Store order status (pending, preparing, ready, out_for_delivery, delivered)
-                deliveryState: {
-                  ...(order.deliveryState || {}),
-                  currentPhase: 'en_route_to_pickup', // CRITICAL: Set to en_route_to_pickup after order acceptance
-                  status: 'accepted' // Set status to accepted
-                }, // Store delivery state (currentPhase, status, etc.)
-                deliveryPhase: 'en_route_to_pickup' // CRITICAL: Set to en_route_to_pickup after order acceptance so Reached Pickup popup can show
-              }
-              
-              debugLog('?? Updated restaurant info from backend:', restaurantInfo)
-              // Update state immediately
-              setSelectedRestaurant(restaurantInfo)
-            }
-
-            // Ensure we have restaurantInfo before proceeding
-            if (!restaurantInfo) {
-              debugError('? Restaurant info not available, cannot proceed');
-              return;
-            }
-
-            let routeCoordinates = null;
-            let directionsResultForMap = null; // Store directions result for main map rendering
-
-            // Use route from backend if available (for fallback/polyline)
-            if (routeData && routeData.coordinates && routeData.coordinates.length > 0) {
-              // Backend returns coordinates as [[lat, lng], ...]
-              routeCoordinates = routeData.coordinates;
-              setRoutePolyline(routeCoordinates);
-              debugLog('? Route set from backend:', routeCoordinates.length, 'points');
-            }
-            
-            // Calculate route using Google Maps Directions API (Zomato-style road-based routing)
-            // Use LIVE location from delivery boy to restaurant
-            // Use restaurantInfo directly (not selectedRestaurant) since state update is async
-            if (restaurantInfo && restaurantInfo.lat && restaurantInfo.lng && currentLocation) {
-              debugLog('??? Calculating route with Google Maps Directions API...');
-              debugLog('?? From (Delivery Boy Live Location):', currentLocation);
-              debugLog('?? To (Restaurant):', { lat: restaurantInfo.lat, lng: restaurantInfo.lng });
-              
-              try {
-                // Calculate route immediately with current live location
-                const directionsResult = await calculateRouteWithDirectionsAPI(
-                  currentLocation, // Delivery boy's current live location
-                  { lat: restaurantInfo.lat, lng: restaurantInfo.lng } // Restaurant location
-                );
-                
-                if (directionsResult) {
-                  debugLog('? Route calculated with Directions API from live location');
-                  debugLog('?? Route distance:', directionsResult.routes[0]?.legs[0]?.distance?.text);
-                  debugLog('?? Route duration:', directionsResult.routes[0]?.legs[0]?.duration?.text);
-                  
-                  // Store pickup route distance and time
-                  const pickupDistance = directionsResult.routes[0]?.legs[0]?.distance?.value || 0; // in meters
-                  const pickupDuration = directionsResult.routes[0]?.legs[0]?.duration?.value || 0; // in seconds
-                  pickupRouteDistanceRef.current = pickupDistance;
-                  pickupRouteTimeRef.current = pickupDuration;
-                  debugLog('?? Pickup route stored:', { distance: pickupDistance, duration: pickupDuration });
-                  
-                  // Store directions result for rendering on main map
-                  setDirectionsResponse(directionsResult);
-                  directionsResponseRef.current = directionsResult; // Store in ref for callbacks
-                  directionsResultForMap = directionsResult; // Store for use in setTimeout
-                  
-                  // Initialize live tracking polyline with full route (Delivery Boy ? Restaurant)
-                  if (currentLocation) {
-                    // Ensure map is ready before updating polyline
-                    if (window.deliveryMapInstance) {
-                      updateLiveTrackingPolyline(directionsResult, currentLocation);
-                      debugLog('? Live tracking polyline initialized for pickup route');
-                    } else {
-                      // Wait for map to be ready
-                      setTimeout(() => {
-                        if (window.deliveryMapInstance && currentLocation) {
-                          updateLiveTrackingPolyline(directionsResult, currentLocation);
-                          debugLog('? Live tracking polyline initialized for pickup route (delayed)');
-                        }
-                      }, 500);
-                    }
-                  }
-                  
-                  debugLog('? Route to restaurant initialized - polyline will update as delivery boy moves');
-                } else {
-                  // OSRM disabled - new backend in progress. Use straight line only.
-                  debugLog('?? Using straight line (no external routing API)');
-                  if (!routeCoordinates || routeCoordinates.length === 0) {
-                    routeCoordinates = [currentLocation, [restaurantInfo.lat, restaurantInfo.lng]];
-                    setRoutePolyline(routeCoordinates);
-                  }
-                }
-              } catch (directionsError) {
-                // Handle REQUEST_DENIED gracefully (billing/API key issue)
-                if (directionsError.message?.includes('REQUEST_DENIED') || directionsError.message?.includes('not available')) {
-                  debugWarn('?? Google Maps Directions API not available (billing/API key issue). Using fallback route.');
-                } else {
-                  debugError('? Error calculating route with Directions API:', directionsError);
-                }
-                
-                // OSRM disabled - new backend in progress. Use straight line only.
-                if (!routeCoordinates || routeCoordinates.length === 0) {
-                  routeCoordinates = [currentLocation, [restaurantInfo.lat, restaurantInfo.lng]];
-                  setRoutePolyline(routeCoordinates);
-                  debugLog('?? Using straight line (no external routing API)');
-                }
-              }
-            } else {
-              debugError('? Cannot calculate route: missing restaurant info or location', {
-                restaurantInfo: !!restaurantInfo,
-                restaurantLat: restaurantInfo?.lat,
-                restaurantLng: restaurantInfo?.lng,
-                currentLocation: !!currentLocation
-              });
-            }
-
-            // Close popup and show route on main map (not full-screen directions map)
-            setShowNewOrderPopup(false);
-            // CRITICAL: Clear newOrder notification immediately to prevent duplicate notifications
-            const acceptedOrderId = restaurantInfo.id || restaurantInfo.orderId || newOrder?.orderMongoId || newOrder?.orderId;
-            if (acceptedOrderId) {
-              acceptedOrderIdsRef.current.add(acceptedOrderId);
-              debugLog('? Added order to accepted list:', acceptedOrderId);
-            }
-            clearNewOrder();
-            
-            // Ensure route path is visible
-            setShowRoutePath(true);
-            
-            // Reached Pickup should open only after the rider is actually near the restaurant.
-            setShowDirectionsMap(false);
-            
-            // Show route on main map instead of opening full-screen directions map
-            setTimeout(() => {
-              debugLog('? Showing route on main map from live location to restaurant');
-              debugLog('?? Flow: Order Accepted ? Route to Restaurant ? 500m Detection ? Reached Pickup ? Order ID ? Route to Customer ? 500m Detection ? Reached Drop ? Delivered ? Review ? Payment');
-              
-              // Show route on main map using DirectionsRenderer or polyline
-              if (window.deliveryMapInstance && restaurantInfo) {
-                // Use DirectionsRenderer on main map if we have directions result
-                // Use directionsResponse state (which was set above) instead of local variable
-                const directionsResult = directionsResultForMap || (directionsResponse && directionsResponse.routes && directionsResponse.routes.length > 0 ? directionsResponse : null);
-                
-                if (directionsResult && directionsResult.routes && directionsResult.routes.length > 0) {
-                  debugLog('??? Setting up DirectionsRenderer on main map with route:', directionsResult);
-                  
-                  // Initialize DirectionsRenderer for main map if not exists
-                  // Don't create DirectionsRenderer - it adds dots
-                  // We'll extract route path and use custom polyline instead
-                  if (!directionsRendererRef.current) {
-                    // Create DirectionsRenderer but don't set it on map (only for extracting route data)
-                    directionsRendererRef.current = new window.google.maps.DirectionsRenderer({
-                      suppressMarkers: true,
-                      suppressInfoWindows: false,
-                      polylineOptions: {
-                        strokeColor: '#4285F4',
-                        strokeWeight: 0,
-                        strokeOpacity: 0,
-                        zIndex: -1,
-                        icons: []
-                      },
-                      preserveViewport: true
-                    });
-                    // Explicitly don't set map - we use custom polyline instead
-                    debugLog('? DirectionsRenderer created (not on map - using custom polyline)');
-                  }
-                  
-                  // Extract route path directly from directionsResult (don't use DirectionsRenderer - it adds dots)
-                  try {
-                    // Validate directionsResult is a valid DirectionsResult object
-                    if (!directionsResult || typeof directionsResult !== 'object' || !directionsResult.routes || !Array.isArray(directionsResult.routes) || directionsResult.routes.length === 0) {
-                      debugError('? Invalid directionsResult:', directionsResult);
-                      return;
-                    }
-
-                    // Validate it's a Google Maps DirectionsResult (has request and legs)
-                    if (!directionsResult.request || !directionsResult.routes[0]?.legs || !Array.isArray(directionsResult.routes[0].legs)) {
-                      debugError('? directionsResult is not a valid Google Maps DirectionsResult');
-                      return;
-                    }
-
-                    debugLog('?? Route details:', {
-                      routes: directionsResult.routes?.length || 0,
-                      legs: directionsResult.routes?.[0]?.legs?.length || 0,
-                      distance: directionsResult.routes?.[0]?.legs?.[0]?.distance?.text,
-                      duration: directionsResult.routes?.[0]?.legs?.[0]?.duration?.text
-                    });
-                    
-                    // Don't create main route polyline - only live tracking polyline will be shown
-                    // Remove old custom polyline if exists (cleanup)
-                    try {
-                      if (routePolylineRef.current) {
-                        routePolylineRef.current.setMap(null);
-                        routePolylineRef.current = null;
-                      }
-                      
-                      // Completely remove DirectionsRenderer from map to prevent any dots/icons
-                      if (directionsRendererRef.current) {
-                        directionsRendererRef.current.setMap(null);
-                      }
-                    } catch (e) {
-                      debugWarn('?? Error cleaning up polyline:', e);
-                    }
-                    
-                    // Fit bounds to show entire route - but preserve zoom if user has zoomed in
-                    const bounds = directionsResult.routes[0].bounds;
-                    if (bounds) {
-                      const currentZoom = window.deliveryMapInstance.getZoom();
-                      window.deliveryMapInstance.fitBounds(bounds, { padding: 100 });
-                      // Restore zoom if user had zoomed in more than fitBounds would set
-                      setTimeout(() => {
-                        const newZoom = window.deliveryMapInstance.getZoom();
-                        if (currentZoom > newZoom && currentZoom >= 18) {
-                          window.deliveryMapInstance.setZoom(currentZoom);
-                        }
-                      }, 100);
-                      debugLog('? Map bounds fitted to route');
-                    }
-                    
-                    debugLog('? Route displayed on main map using custom polyline');
-                  } catch (error) {
-                    debugError('? Error extracting route path:', error);
-                    debugError('? directionsResult type:', typeof directionsResult);
-                    debugError('? directionsResult:', directionsResult);
-                  }
-                } else if (routeCoordinates && routeCoordinates.length > 0) {
-                  // Fallback: Use polyline if Directions API result not available
-                  // setRoutePolyline will trigger useEffect that calls updateRoutePolyline
-                  debugLog('?? Using fallback polyline with', routeCoordinates.length, 'points');
-                  setRoutePolyline(routeCoordinates);
-                  debugLog('? Route polyline state set, will be displayed via useEffect');
-                } else {
-                  debugWarn('?? No route data available to display (neither Directions API result nor coordinates)');
-                }
-                
-                // Add restaurant marker to main map
-                if (restaurantInfo.lat && restaurantInfo.lng) {
-                  const restaurantLocation = {
-                    lat: restaurantInfo.lat,
-                    lng: restaurantInfo.lng
-                  };
-                  
-                  createRestaurantMapMarker(restaurantLocation, restaurantInfo.name || 'Kitchen')
-                  
-                  debugLog('? Restaurant marker added to main map');
-                }
-              } else {
-                debugWarn('?? Main map not ready, will show route when map loads');
-              }
-              
-              // Save accepted order to localStorage for refresh handling
-              try {
-                const activeOrderData = {
-                  orderId: restaurantInfo.id || restaurantInfo.orderId,
-                  restaurantInfo: restaurantInfo,
-                  // Don't save directionsResponse - Google Maps objects can't be serialized to JSON
-                  // Route will be recalculated on restore using Directions API
-                  routeCoordinates: routeCoordinates, // Save coordinates for fallback polyline
-                  acceptedAt: new Date().toISOString(),
-                  hasDirectionsAPI: !!directionsResultForMap, // Flag to indicate we should recalculate with Directions API
-                  uiStage: 'en_route_to_pickup'
-                };
-                localStorage.setItem(DELIVERY_ACTIVE_ORDER_KEY, JSON.stringify(activeOrderData));
-                debugLog('?? Saved active order to localStorage for refresh handling');
-              } catch (storageError) {
-                debugError('? Error saving active order to localStorage:', storageError);
-              }
-
-              // Keep the pickup slider visible after acceptance.
-              // The swipe action stays locked until the rider is actually near the restaurant.
-              setShowreachedPickupPopup(true)
-            }, 300); // Wait for popup close animation
-
-          } else {
-            debugError('? Failed to accept order:', response.data)
-            // Show error message to user
-            toast.error(response.data?.message || 'Failed to accept order. Please try again.')
-            // Still close popup
-            setShowNewOrderPopup(false)
-            setIsNewOrderPopupMinimized(false) // Reset minimized state
-            setNewOrderDragY(0) // Reset drag position
-          }
-        } catch (error) {
-          debugError('? Error accepting order:', error)
-          debugError('? Error details:', {
-            message: error.message,
-            response: error.response?.data,
-            status: error.response?.status,
-            orderId: orderId || 'unknown',
-            code: error.code,
-            isNetworkError: error.code === 'ERR_NETWORK',
-            currentLocation: currentLocation && currentLocation.length === 2 ? 'available' : 'not available'
-          })
-          
-          // Log full error response for debugging
-          if (error.response?.data) {
-            debugError('? Backend error response:', JSON.stringify(error.response.data, null, 2))
-          }
-          
-          // Show user-friendly error message
-          let errorMessage = 'Failed to accept order. Please try again.'
-          if (error.code === 'ERR_NETWORK') {
-            errorMessage = 'Network error. Please check your internet connection and try again.'
-          } else if (error.response?.data?.message) {
-            errorMessage = error.response.data.message
-            // Also log the full error if available
-            if (error.response.data.error) {
-              debugError('? Backend error details:', error.response.data.error)
-            }
-          } else if (error.message) {
-            errorMessage = error.message
-          }
-          
-          toast.error(errorMessage)
-          
-          // Close popup even on error
-          setShowNewOrderPopup(false)
-          setIsNewOrderPopupMinimized(false) // Reset minimized state
-          setNewOrderDragY(0) // Reset drag position
-        } finally {
-          isAcceptingNewOrderRef.current = false
-          setIsAcceptingNewOrder(false)
-          // Reset after animation
-          setTimeout(() => {
-            setNewOrderAcceptButtonProgress(0)
-            setNewOrderIsAnimatingToComplete(false)
-          }, 500)
-        }
-      }
-
-      // Start accepting order
-      acceptOrderAndShowRoute()
-    } else {
-      // Reset smoothly
-      setNewOrderAcceptButtonProgress(0)
-    }
-
-    newOrderAcceptButtonSwipeStartX.current = 0
-    newOrderAcceptButtonSwipeStartY.current = 0
-    newOrderAcceptButtonIsSwiping.current = false
-  }
-
-  const handleNewOrderAcceptTouchCancel = () => {
-    if (isAcceptingNewOrderRef.current) return
-    newOrderAcceptButtonSwipeStartX.current = 0
-    newOrderAcceptButtonSwipeStartY.current = 0
-    newOrderAcceptButtonIsSwiping.current = false
-    setNewOrderAcceptButtonProgress(0)
-    setNewOrderIsAnimatingToComplete(false)
-  }
+  const {
+    handlereachedPickupTouchStart,
+    handlereachedPickupTouchMove,
+    handlereachedPickupTouchEnd,
+    handlereachedPickupTouchCancel,
+    handleReachedPickupMouseDown,
+  } = useReachedPickupSwipe({
+    reachedPickupButtonRef,
+    reachedPickupSwipeStartX,
+    reachedPickupSwipeStartY,
+    reachedPickupIsSwiping,
+    setreachedPickupIsAnimatingToComplete,
+    setreachedPickupButtonProgress,
+    setShowreachedPickupPopup,
+    setShowOrderIdConfirmationPopup,
+    selectedRestaurant,
+    newOrder,
+    deliveryAPI,
+    debugLog,
+    debugWarn,
+    debugError,
+    toast,
+    setSelectedRestaurant,
+    isDraggingReachedPickup,
+    setIsDraggingReachedPickup,
+  })
 
   // Handle new order popup swipe down to minimize (not close)
   // Popup should stay visible until accept/reject is clicked
@@ -3154,283 +2449,6 @@ export default function DeliveryHome() {
     newOrderIsSwiping.current = false
     newOrderSwipeStartY.current = 0
   }
-
-  // Handle Reached Pickup button swipe
-  const handlereachedPickupTouchStart = (e) => {
-    const touch = getTouchPoint(e)
-    if (!touch) return
-    reachedPickupSwipeStartX.current = touch.x
-    reachedPickupSwipeStartY.current = touch.y
-    reachedPickupIsSwiping.current = false
-    setreachedPickupIsAnimatingToComplete(false)
-    setreachedPickupButtonProgress(0)
-  }
-
-  const handlereachedPickupTouchMove = (e) => {
-    const touch = getTouchPoint(e)
-    if (!touch) return
-    const deltaX = touch.x - reachedPickupSwipeStartX.current
-    const deltaY = touch.y - reachedPickupSwipeStartY.current
-
-    // Only handle horizontal swipes (swipe right)
-    if (Math.abs(deltaX) > 5 && Math.abs(deltaX) > Math.abs(deltaY) && deltaX > 0) {
-      reachedPickupIsSwiping.current = true
-      // Don't call preventDefault - CSS touch-action handles scrolling prevention
-      // safePreventDefault(e) // Removed to avoid passive listener error
-
-      // Calculate max swipe distance
-      const buttonWidth = reachedPickupButtonRef.current?.offsetWidth || 300
-      const circleWidth = 56 // w-14 = 56px
-      const padding = 16 // px-4 = 16px
-      const maxSwipe = buttonWidth - circleWidth - (padding * 2)
-
-      const progress = Math.min(Math.max(deltaX / maxSwipe, 0), 1)
-      setreachedPickupButtonProgress(progress)
-    }
-  }
-
-  const handlereachedPickupTouchEnd = (e) => {
-    if (!reachedPickupIsSwiping.current) {
-      setreachedPickupButtonProgress(0)
-      return
-    }
-
-    const touch = getTouchPoint(e)
-    const deltaX = (touch?.x || reachedPickupSwipeStartX.current) - reachedPickupSwipeStartX.current
-    const buttonWidth = reachedPickupButtonRef.current?.offsetWidth || 300
-    const circleWidth = 56
-    const padding = 16
-    const maxSwipe = buttonWidth - circleWidth - (padding * 2)
-    const threshold = maxSwipe * 0.7 // 70% of max swipe
-
-    if (deltaX > threshold) {
-      // Animate to completion
-      setreachedPickupIsAnimatingToComplete(true)
-      setreachedPickupButtonProgress(1)
-
-      // Close popup after animation, confirm reached pickup, then show order ID confirmation popup
-      setTimeout(async () => {
-        setShowreachedPickupPopup(false)
-        
-        // Get order ID - prioritize orderId (string) over id (MongoDB _id) for better compatibility
-        // Backend accepts both _id and orderId, but orderId is more reliable
-        const orderId = selectedRestaurant?.orderId || selectedRestaurant?.id || newOrder?.orderId || newOrder?.orderMongoId
-        
-        debugLog('?? Order ID lookup for reached pickup:', {
-          selectedRestaurantId: selectedRestaurant?.id,
-          selectedRestaurantOrderId: selectedRestaurant?.orderId,
-          newOrderMongoId: newOrder?.orderMongoId,
-          newOrderId: newOrder?.orderId,
-          finalOrderId: orderId
-        })
-        
-        // CRITICAL: Check if order is already delivered/completed - don't call API
-        const orderStatus = selectedRestaurant?.orderStatus || selectedRestaurant?.status || ''
-        const deliveryPhase = selectedRestaurant?.deliveryPhase || selectedRestaurant?.deliveryState?.currentPhase || ''
-        const deliveryStateStatus = selectedRestaurant?.deliveryState?.status || ''
-        
-        const isDelivered = orderStatus === 'delivered' || 
-                            deliveryPhase === 'completed' || 
-                            deliveryPhase === 'delivered' ||
-                            deliveryStateStatus === 'delivered'
-        
-        if (isDelivered) {
-          debugWarn('?? Order is already delivered, skipping reached pickup confirmation')
-          toast.error('Order is already delivered. Cannot confirm reached pickup.')
-          setShowreachedPickupPopup(false)
-          return
-        }
-        
-        // CRITICAL: Check if order is already past pickup phase (order ID confirmed or out for delivery)
-        const isPastPickupPhase = orderStatus === 'out_for_delivery' ||
-                                  deliveryPhase === 'en_route_to_delivery' ||
-                                  deliveryPhase === 'picked_up' ||
-                                  deliveryStateStatus === 'order_confirmed' ||
-                                  deliveryStateStatus === 'reached_pickup' ||
-                                  deliveryPhase === 'at_pickup'
-        
-        if (isPastPickupPhase) {
-          debugWarn('?? Order is already past pickup phase, skipping reached pickup confirmation:', {
-            orderStatus,
-            deliveryPhase,
-            deliveryStateStatus
-          })
-          // If already at pickup or order ID confirmed, just show order ID popup after delay
-          if (deliveryPhase === 'at_pickup' || deliveryStateStatus === 'reached_pickup') {
-            // Ensure reached pickup popup is closed first
-            setShowreachedPickupPopup(false)
-            setTimeout(() => {
-              setShowOrderIdConfirmationPopup(true)
-            }, 300) // Delay to ensure reached pickup popup closes first
-            toast.info('Order is already at pickup. Showing order ID confirmation.')
-          } else {
-            toast.info('Order is already out for delivery.')
-          }
-          return
-        }
-        
-        if (orderId) {
-          try {
-            // Call backend API to confirm reached pickup and save status in database
-            debugLog('?? Confirming reached pickup for order:', orderId)
-            debugLog('?? API endpoint: /delivery/orders/:orderId/reached-pickup')
-            const response = await deliveryAPI.confirmReachedPickup(orderId)
-            
-            debugLog('?? Reached pickup API response:', response.data)
-            
-            if (response.data?.success) {
-              debugLog('? Reached pickup confirmed and status saved in database')
-              toast.success('Reached pickup confirmed!')
-              
-              // Update local state to reflect the new status
-              if (selectedRestaurant) {
-                setSelectedRestaurant(prev => ({
-                  ...prev,
-                  deliveryState: {
-                    ...(prev?.deliveryState || {}),
-                    currentPhase: 'at_pickup',
-                    status: 'reached_pickup'
-                  }
-                }))
-              }
-              
-              // Ensure reached pickup popup is closed first
-              setShowreachedPickupPopup(false)
-              // Wait for reached pickup popup to close, then show order ID confirmation popup
-              setTimeout(() => {
-                setShowOrderIdConfirmationPopup(true)
-                debugLog('? Showing Order ID confirmation popup')
-              }, 300) // 300ms delay for smooth transition
-            } else {
-              debugError('? Failed to confirm reached pickup:', response.data)
-              toast.error(response.data?.message || 'Failed to confirm reached pickup. Please try again.')
-              // Ensure reached pickup popup is closed
-              setShowreachedPickupPopup(false)
-              // Still show order ID popup even if API call fails, after delay
-              setTimeout(() => {
-                setShowOrderIdConfirmationPopup(true)
-                debugLog('?? Showing Order ID confirmation popup despite API failure')
-              }, 300)
-            }
-          } catch (error) {
-            debugError('? Error confirming reached pickup:', error)
-            debugError('? Error details:', {
-              message: error.message,
-              response: error.response?.data,
-              status: error.response?.status,
-              orderId: orderId || 'unknown',
-              selectedRestaurant: selectedRestaurant
-            })
-            
-            // Show specific error message
-            const errorMessage = error.response?.data?.message || 
-                               (error.response?.status === 404 ? 'Order not found. Please refresh and try again.' : 'Failed to confirm reached pickup. Please try again.')
-            toast.error(errorMessage)
-            
-            // Ensure reached pickup popup is closed
-            setShowreachedPickupPopup(false)
-            // Still show order ID popup even if API call fails, after delay
-            setTimeout(() => {
-              setShowOrderIdConfirmationPopup(true)
-              debugLog('?? Showing Order ID confirmation popup despite error')
-            }, 300)
-          }
-        } else {
-          debugError('? No order ID found for reached pickup confirmation')
-          toast.error('Order ID not found. Please refresh and try again.')
-          // Ensure reached pickup popup is closed
-          setShowreachedPickupPopup(false)
-          // Show order ID popup even if no order ID (fallback), after delay
-          setTimeout(() => {
-            setShowOrderIdConfirmationPopup(true)
-            debugLog('?? Showing Order ID confirmation popup without order ID (fallback)')
-          }, 300)
-        }
-        
-        // DO NOT show reached drop here - it will only show after order ID is confirmed
-        
-        // Reset after animation
-        setTimeout(() => {
-          setreachedPickupButtonProgress(0)
-          setreachedPickupIsAnimatingToComplete(false)
-        }, 500)
-      }, 200)
-    } else {
-      // Reset smoothly
-      setreachedPickupButtonProgress(0)
-    }
-
-    reachedPickupSwipeStartX.current = 0
-    reachedPickupSwipeStartY.current = 0
-    reachedPickupIsSwiping.current = false
-  }
-
-  const handlereachedPickupTouchCancel = () => {
-    reachedPickupSwipeStartX.current = 0
-    reachedPickupSwipeStartY.current = 0
-    reachedPickupIsSwiping.current = false
-    setreachedPickupButtonProgress(0)
-    setreachedPickupIsAnimatingToComplete(false)
-  }
-
-  const handleReachedPickupMouseDown = (e) => {
-    reachedPickupSwipeStartX.current = e.clientX
-    reachedPickupSwipeStartY.current = e.clientY
-    reachedPickupIsSwiping.current = false
-    setIsDraggingReachedPickup(true)
-    setreachedPickupIsAnimatingToComplete(false)
-    setreachedPickupButtonProgress(0)
-  }
-
-  const handleReachedPickupMouseMove = (e) => {
-    if (!isDraggingReachedPickup) return
-
-    const deltaX = e.clientX - reachedPickupSwipeStartX.current
-    const deltaY = e.clientY - reachedPickupSwipeStartY.current
-
-    if (Math.abs(deltaX) > 5 && Math.abs(deltaX) > Math.abs(deltaY) && deltaX > 0) {
-      reachedPickupIsSwiping.current = true
-
-      const buttonWidth = reachedPickupButtonRef.current?.offsetWidth || 300
-      const circleWidth = 56
-      const padding = 16
-      const maxSwipe = buttonWidth - circleWidth - (padding * 2)
-
-      const progress = Math.min(Math.max(deltaX / maxSwipe, 0), 1)
-      setreachedPickupButtonProgress(progress)
-    }
-  }
-
-  const handleReachedPickupMouseUp = (e) => {
-    if (!isDraggingReachedPickup) return
-    setIsDraggingReachedPickup(false)
-
-    if (!reachedPickupIsSwiping.current) {
-      setreachedPickupButtonProgress(0)
-      return
-    }
-
-    handlereachedPickupTouchEnd({
-      changedTouches: [
-        {
-          clientX: e.clientX,
-          clientY: e.clientY
-        }
-      ]
-    })
-  }
-
-  useEffect(() => {
-    if (!isDraggingReachedPickup) return undefined
-
-    document.addEventListener('mousemove', handleReachedPickupMouseMove)
-    document.addEventListener('mouseup', handleReachedPickupMouseUp)
-
-    return () => {
-      document.removeEventListener('mousemove', handleReachedPickupMouseMove)
-      document.removeEventListener('mouseup', handleReachedPickupMouseUp)
-    }
-  }, [isDraggingReachedPickup])
 
   const HOLD_TO_CONFIRM_MS = 3000
 
@@ -4358,8 +3376,15 @@ export default function DeliveryHome() {
       setShowreachedPickupPopup(false)
       setShowOrderIdConfirmationPopup(false)
 
-      // Show customer review popup after successful slide + OTP verification
-      setShowCustomerReviewPopup(true)
+      // Complete delivery immediately (no customer review flow in delivery partner app)
+      try {
+        await deliveryAPI.completeDelivery(orderIdForApi, { rating: null, review: "" })
+      } catch (error) {
+        // Even if completion API fails, proceed to payment page to avoid blocking the rider UI
+        debugError("? Failed to complete delivery:", error)
+      }
+
+      setShowPaymentPage(true)
 
       setTimeout(() => {
         setOrderDeliveredButtonProgress(0)
@@ -4910,7 +3935,7 @@ export default function DeliveryHome() {
       
       setSelectedRestaurant(restaurantData)
       setShowNewOrderPopup(true)
-      setCountdownSeconds(300) // Reset countdown to 5 minutes
+      setCountdownSeconds(NEW_ORDER_COUNTDOWN_SECONDS) // Reset countdown to 5 minutes
     }
   }, [newOrder, calculateTimeAway, riderLocation, clearNewOrder])
 
@@ -5340,7 +4365,7 @@ export default function DeliveryHome() {
           
           setSelectedRestaurant(restaurantData)
           setShowNewOrderPopup(true)
-          setCountdownSeconds(300) // Reset countdown to 5 minutes
+          setCountdownSeconds(NEW_ORDER_COUNTDOWN_SECONDS) // Reset countdown to 5 minutes
           debugLog('? Showing pending order notification:', orderId)
         } else {
           debugLog('?? No pending orders found')
@@ -7368,7 +6393,8 @@ export default function DeliveryHome() {
             } else if (restoredStage === 'order_delivered') {
               setShowOrderDeliveredAnimation(true)
             } else if (restoredStage === 'review') {
-              setShowCustomerReviewPopup(true)
+              // Review flow removed; continue to payment stage
+              setShowPaymentPage(true)
             } else if (restoredStage === 'payment') {
               setShowPaymentPage(true)
             }
@@ -8470,6 +7496,46 @@ selectedRestaurant?.lng || null,
     updateLiveTrackingPolyline
   ]);
 
+  useEffect(() => {
+    updateLiveTrackingPolylineFnRef.current = updateLiveTrackingPolyline
+  }, [updateLiveTrackingPolyline])
+
+  // Proximity triggers depend on `calculateRouteWithDirectionsAPI`, so must be declared AFTER it.
+  useDeliveryProximityTriggers({
+    riderLocation,
+    lastLocationRef,
+    selectedRestaurant,
+    setSelectedRestaurant,
+    newOrder,
+    showPaymentPage,
+    showCustomerReviewPopup,
+    showOrderDeliveredAnimation,
+    showNewOrderPopup,
+    showreachedPickupPopup,
+    setShowreachedPickupPopup,
+    showOrderIdConfirmationPopup,
+    setShowOrderIdConfirmationPopup,
+    showReachedDropPopup,
+    setShowReachedDropPopup,
+    setShowDirectionsMap,
+    setShowRoutePath,
+    directionsResponseRef,
+    setDirectionsResponse,
+    calculateRouteWithDirectionsAPI,
+    updateLiveTrackingPolyline,
+    calculateDistanceInMeters,
+    deliveryAPI,
+    fetchedOrderDetailsForDropRef,
+    clearNewOrder,
+    acceptedOrderIdsRef,
+    routePolylineRef,
+    liveTrackingPolylineRef,
+    directionsRendererRef,
+    DELIVERY_ACTIVE_ORDER_KEY,
+    debugLog,
+    debugWarn,
+  })
+
   // When out_for_delivery but customerLat/customerLng missing, fetch order details and set them
   useEffect(() => {
     if (!selectedRestaurant) {
@@ -8655,272 +7721,20 @@ selectedRestaurant?.lng || null,
     calculateDistanceInMeters
   ])
 
-  // Calculate heading from two coordinates (in degrees, 0-360)
-  const calculateHeading = (lat1, lng1, lat2, lng2) => {
-    const dLng = (lng2 - lng1) * Math.PI / 180
-    const lat1Rad = lat1 * Math.PI / 180
-    const lat2Rad = lat2 * Math.PI / 180
-    
-    const y = Math.sin(dLng) * Math.cos(lat2Rad)
-    const x = Math.cos(lat1Rad) * Math.sin(lat2Rad) - Math.sin(lat1Rad) * Math.cos(lat2Rad) * Math.cos(dLng)
-    
-    let heading = Math.atan2(y, x) * 180 / Math.PI
-    heading = (heading + 360) % 360 // Normalize to 0-360
-    
-    return heading
-  }
+  // (moved) bike heading + rotated icon + marker updates now live in `useBikeMarker`
 
-  // Cache for rotated icons to avoid recreating them
-  const rotatedIconCache = useRef(new Map());
+  const { updateRoutePolyline } = useRoutePolyline({
+    selectedRestaurant,
+    routePolyline,
+    routePolylineRef,
+    directionsRendererRef,
+    debugLog,
+    debugWarn,
+  })
 
-  // Function to rotate bike logo image based on heading
-  const getRotatedBikeIcon = (heading = 0) => {
-    // Round heading to nearest 5 degrees for caching
-    const roundedHeading = Math.round(heading / 5) * 5;
-    const cacheKey = `${roundedHeading}`;
-    
-    // Check cache first
-    if (rotatedIconCache.current.has(cacheKey)) {
-      return Promise.resolve(rotatedIconCache.current.get(cacheKey));
-    }
-
-    return new Promise((resolve) => {
-      const img = new Image();
-      // Don't set crossOrigin for local images - it causes CORS issues
-      img.onload = () => {
-        try {
-          const canvas = document.createElement('canvas');
-          const size = 60; // Icon size
-          canvas.width = size;
-          canvas.height = size;
-          const ctx = canvas.getContext('2d');
-          
-          // Clear canvas
-          ctx.clearRect(0, 0, size, size);
-          
-          // Move to center, rotate, then draw image
-          ctx.save();
-          ctx.translate(size / 2, size / 2);
-          ctx.rotate((roundedHeading * Math.PI) / 180); // Convert degrees to radians
-          ctx.drawImage(img, -size / 2, -size / 2, size, size);
-          ctx.restore();
-          
-          // Get data URL and cache it
-          const dataUrl = canvas.toDataURL();
-          rotatedIconCache.current.set(cacheKey, dataUrl);
-          resolve(dataUrl);
-        } catch (error) {
-          debugWarn('?? Error rotating bike icon:', error);
-          // Fallback to original image if rotation fails
-          resolve(bikeLogo);
-        }
-      };
-      img.onerror = () => {
-        debugWarn('?? Bike logo image failed to load:', bikeLogo);
-        // Fallback to original image if loading fails
-        resolve(bikeLogo);
-      };
-      img.src = bikeLogo;
-      
-      // If image is already loaded (cached), resolve immediately
-      if (img.complete) {
-        // Image already loaded, process it
-        img.onload();
-      }
-    });
-  };
-
-  // Google Maps marker functions - Zomato style exact location tracking
-  const createOrUpdateBikeMarker = async (latitude, longitude, heading = null, shouldCenterMap = true) => {
-    if (!window.google || !window.google.maps || !window.deliveryMapInstance) {
-      debugWarn("?? Google Maps not available");
-      return;
-    }
-
-    const position = new window.google.maps.LatLng(latitude, longitude);
-    const map = window.deliveryMapInstance;
-
-    // Get rotated icon URL
-    const rotatedIconUrl = await getRotatedBikeIcon(heading || 0);
-
-    if (!bikeMarkerRef.current) {
-      debugLog('?? Creating new bike marker at:', { lat: latitude, lng: longitude });
-      // Create bike marker with rotated icon - exact position
-      const bikeIcon = {
-        url: rotatedIconUrl,
-        scaledSize: new window.google.maps.Size(60, 60), // Larger size for better visibility
-        anchor: new window.google.maps.Point(30, 30) // Center point
-      };
-
-      bikeMarkerRef.current = new window.google.maps.Marker({
-        position: position,
-        map: map,
-        icon: bikeIcon,
-        optimized: false, // Disable optimization for exact positioning
-        animation: window.google.maps.Animation.DROP, // Drop animation on first appearance
-        zIndex: 1000 // High z-index to ensure it's above other markers
-      });
-      
-      debugLog('? Bike marker created:', {
-        position: { lat: latitude, lng: longitude },
-        map: map,
-        iconUrl: rotatedIconUrl,
-        marker: bikeMarkerRef.current
-      });
-      
-      // Center map on bike location initially - preserve current zoom if user has zoomed in
-      if (shouldCenterMap) {
-        const currentZoom = map.getZoom();
-        map.setCenter(position);
-        // Only set zoom to 18 if current zoom is less than 18 (don't reduce user's zoom)
-        if (currentZoom < 18) {
-          map.setZoom(18); // Full zoom in for better visibility
-        }
-      }
-      
-      // Remove animation after drop completes
-      setTimeout(() => {
-        if (bikeMarkerRef.current) {
-          bikeMarkerRef.current.setAnimation(null);
-        }
-      }, 2000);
-    } else {
-      // ALWAYS ensure marker is on the map (prevent it from disappearing)
-      const currentMap = bikeMarkerRef.current.getMap();
-      if (currentMap === null || currentMap !== map) {
-        debugWarn('?? Bike marker not on correct map, re-adding...', {
-          currentMap: currentMap,
-          expectedMap: map
-        });
-        bikeMarkerRef.current.setMap(map);
-      }
-      
-      // Update position EXACTLY - use setPosition for precise location
-      // Verify coordinates are correct before setting
-      debugLog('?? Updating bike marker position:', { 
-        lat: latitude, 
-        lng: longitude,
-        heading: heading || 0,
-        currentMarkerPos: bikeMarkerRef.current.getPosition() 
-          ? { lat: bikeMarkerRef.current.getPosition().lat(), lng: bikeMarkerRef.current.getPosition().lng() }
-          : 'null'
-      });
-      
-      // Validate coordinates before setting
-      if (typeof latitude === 'number' && typeof longitude === 'number' &&
-          !isNaN(latitude) && !isNaN(longitude) &&
-          latitude >= -90 && latitude <= 90 && longitude >= -180 && longitude <= 180) {
-        bikeMarkerRef.current.setPosition(position);
-        debugLog('? Bike marker position updated successfully');
-      } else {
-        debugError('? Invalid coordinates for bike marker:', { latitude, longitude });
-        return; // Don't update if coordinates are invalid
-      }
-      
-      // Update icon with rotation for smooth movement
-      const currentHeading = heading !== null && heading !== undefined ? heading : 0;
-      const rotatedIconUrl = await getRotatedBikeIcon(currentHeading);
-      const bikeIcon = {
-        url: rotatedIconUrl,
-        scaledSize: new window.google.maps.Size(60, 60),
-        anchor: new window.google.maps.Point(30, 30)
-      };
-      bikeMarkerRef.current.setIcon(bikeIcon);
-      
-      // Ensure z-index is high
-      bikeMarkerRef.current.setZIndex(1000);
-      
-      // Auto-center map on bike location (like Zomato) - only if user hasn't manually panned
-      if (shouldCenterMap && !isUserPanningRef.current) {
-        // Smooth pan to bike location
-        map.panTo(position);
-      }
-      
-      // Double-check marker is still on map after update
-      if (bikeMarkerRef.current.getMap() === null) {
-        debugWarn('?? Bike marker lost map reference after update, re-adding...');
-        bikeMarkerRef.current.setMap(map);
-      }
-    }
-  }
-
-  // Create or update route polyline (blue line showing traveled path) - LEGACY/FALLBACK
-  // Accepts optional coordinates parameter to draw route immediately without waiting for state update
-  // This is a FALLBACK polyline - should only be used when DirectionsRenderer is NOT available
-  const updateRoutePolyline = (coordinates = null) => {
-    // Only show route if there's an active order (selectedRestaurant)
-    if (!selectedRestaurant) {
-      // Clear route if no active order
-      if (routePolylineRef.current) {
-        routePolylineRef.current.setMap(null);
-      }
-      return;
-    }
-
-    // Keep DirectionsRenderer detached so Firebase/custom polyline remains the visible source of truth.
-    if (directionsRendererRef.current && directionsRendererRef.current.getMap()) {
-      directionsRendererRef.current.setMap(null);
-    }
-
-    if (!window.google || !window.google.maps || !window.deliveryMapInstance) {
-      debugWarn('?? Map not ready for polyline update');
-      return;
-    }
-
-    const map = window.deliveryMapInstance;
-
-    // Use provided coordinates or fallback to state
-    const coordsToUse = coordinates || routePolyline;
-
-    if (coordsToUse && coordsToUse.length > 0) {
-      // Convert coordinates to Google Maps LatLng format
-      const path = coordsToUse.map(coord => {
-        if (Array.isArray(coord) && coord.length >= 2) {
-          return new window.google.maps.LatLng(coord[0], coord[1]);
-        }
-        return null;
-      }).filter(coord => coord !== null);
-
-      if (path.length > 0) {
-        if (routePolylineRef.current) {
-          routePolylineRef.current.setMap(null);
-          routePolylineRef.current = null;
-        }
-
-        routePolylineRef.current = new window.google.maps.Polyline({
-          path,
-          geodesic: true,
-          strokeColor: '#2563eb',
-          strokeOpacity: 0.9,
-          strokeWeight: 5,
-          map,
-          zIndex: 980
-        });
-
-        // Fit map bounds to show entire route - but preserve zoom if user has zoomed in
-        if (path.length > 1) {
-          const bounds = new window.google.maps.LatLngBounds();
-          path.forEach(point => bounds.extend(point));
-          // Add padding to bounds for better visibility
-          const currentZoomBeforeFit = map.getZoom();
-          map.fitBounds(bounds, { padding: 50 });
-          // Preserve zoom if user had zoomed in more than fitBounds would set
-          setTimeout(() => {
-            const newZoom = map.getZoom();
-            if (currentZoomBeforeFit > newZoom && currentZoomBeforeFit >= 18) {
-              map.setZoom(currentZoomBeforeFit);
-            }
-          }, 100);
-          debugLog('? Map bounds adjusted to show route');
-        }
-      }
-    } else {
-      // Hide polyline if no route data
-      if (routePolylineRef.current) {
-        routePolylineRef.current.setMap(null);
-      }
-    }
-  }
+  useEffect(() => {
+    updateRoutePolylineFnRef.current = updateRoutePolyline
+  }, [updateRoutePolyline])
 
   // Removed createOrUpdateBlueDotMarker - not needed, using bike icon instead
 
@@ -10463,432 +9277,40 @@ selectedRestaurant?.lng || null,
         </div>
       </BottomPopup>
 
-      {/* New Order Popup with Countdown Timer - Custom Implementation */}
-      <AnimatePresence>
-        {showNewOrderPopup && (newOrder || selectedRestaurant) && isOnline && (
-          <>
-            {/* Backdrop */}
-            {!isNewOrderPopupMinimized && (
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.2 }}
-                className="fixed inset-0 bg-black/50 z-[100]"
-              />
-            )}
+      <DeliveryNewOrderPopup
+        isOpen={showNewOrderPopup}
+        isOnline={isOnline}
+        newOrder={newOrder}
+        selectedRestaurant={selectedRestaurant}
+        countdownSeconds={countdownSeconds}
+        isMinimized={isNewOrderPopupMinimized}
+        isDragging={isDraggingNewOrderPopup}
+        dragY={newOrderDragY}
+        newOrderPopupRef={newOrderPopupRef}
+        onTouchStart={handleNewOrderPopupTouchStart}
+        onTouchMove={handleNewOrderPopupTouchMove}
+        onTouchEnd={handleNewOrderPopupTouchEnd}
+        acceptButtonRef={newOrderAcceptButtonRef}
+        acceptProgress={newOrderAcceptButtonProgress}
+        acceptAnimating={newOrderIsAnimatingToComplete}
+        isAccepting={isAcceptingNewOrder}
+        onAcceptTouchStart={handleNewOrderAcceptTouchStart}
+        onAcceptTouchMove={handleNewOrderAcceptTouchMove}
+        onAcceptTouchEnd={handleNewOrderAcceptTouchEnd}
+        onAcceptTouchCancel={handleNewOrderAcceptTouchCancel}
+        onDeny={handleRejectConfirm}
+      />
 
-            {/* Minimized Handle - Show when minimized for swipe up */}
-            {isNewOrderPopupMinimized && (
-              <motion.div
-                initial={{ y: 100, opacity: 0 }}
-                animate={{ y: 0, opacity: 1 }}
-                exit={{ y: 100, opacity: 0 }}
-                transition={{ duration: 0.3 }}
-                className="fixed bottom-0 left-0 right-0 z-[115] flex justify-center pb-2"
-                onTouchStart={handleNewOrderPopupTouchStart}
-                onTouchMove={handleNewOrderPopupTouchMove}
-                onTouchEnd={handleNewOrderPopupTouchEnd}
-                style={{ touchAction: 'none' }}
-              >
-                <div className="bg-green-500 rounded-t-2xl px-6 py-3 shadow-lg cursor-grab active:cursor-grabbing">
-                  <div className="flex items-center gap-2">
-                    <div className="w-8 h-1 bg-white/80 rounded-full" />
-                    <span className="text-white text-sm font-semibold">Swipe up to view order</span>
-                    <div className="w-8 h-1 bg-white/80 rounded-full" />
-                  </div>
-                </div>
-              </motion.div>
-            )}
-
-            {/* Popup */}
-            <motion.div
-              ref={newOrderPopupRef}
-              initial={{ y: "100%" }}
-              animate={{ 
-                y: isDraggingNewOrderPopup 
-                  ? newOrderDragY 
-                  : isNewOrderPopupMinimized 
-                    ? (newOrderPopupRef.current?.offsetHeight || 600)
-                    : 0
-              }}
-              transition={isDraggingNewOrderPopup 
-                ? { duration: 0 } 
-                : isNewOrderPopupMinimized
-                  ? { duration: 0.3, ease: "easeOut" } // Smooth transition when minimizing
-                  : { 
-                      type: "spring", 
-                      damping: 30, 
-                      stiffness: 300 
-                    }
-              }
-              exit={{ y: "100%" }}
-              onTouchStart={handleNewOrderPopupTouchStart}
-              onTouchMove={handleNewOrderPopupTouchMove}
-              onTouchEnd={handleNewOrderPopupTouchEnd}
-              className="fixed bottom-0 left-0 right-0 bg-transparent rounded-t-3xl z-[110] overflow-visible"
-              style={{ touchAction: 'none' }}
-            >
-              {/* Swipe Handle */}
-              <div className="flex justify-center pt-4 pb-2 cursor-grab active:cursor-grabbing">
-                <div className="w-12 h-1.5 bg-white/30 rounded-full" />
-              </div>
-
-              {/* Green Countdown Header */}
-              <div className="relative scale-110 mb-0 bg-green-500 rounded-t-3xl overflow-visible">
-                {/* Small countdown badge - positioned at center edge, half above popup */}
-                <div className="absolute left-1/2 -translate-x-1/2 -top-5 z-20">
-                  <div className="relative inline-flex items-center justify-center">
-                    {/* Animated green border around badge - positioned behind badge, wider */}
-                    <svg 
-                      className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
-                      style={{ 
-                        width: 'calc(100% + 10px)', 
-                        height: 'calc(100% + 10px)',
-                        zIndex: 35
-                      }}
-                      viewBox="0 0 200 60"
-                      preserveAspectRatio="xMidYMid meet"
-                    >
-                      <defs>
-                        <linearGradient id="newOrderCountdownGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                          <stop offset="0%" stopColor="#22c55e" stopOpacity="1" />
-                          <stop offset="100%" stopColor="#16a34a" stopOpacity="1" />
-                        </linearGradient>
-                      </defs>
-                      
-                      {/* Full white border path - rounded rectangle (background) */}
-                      <path
-                        d="M 30,5 L 170,5 A 25,25 0 0,1 195,30 L 195,30 A 25,25 0 0,1 170,55 L 30,55 A 25,25 0 0,1 5,30 L 5,30 A 25,25 0 0,1 30,5 Z"
-                        fill="none"
-                        stroke="white"
-                        strokeWidth="8"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                      
-                      {/* Animated green progress border - starts from top center, decreases clockwise */}
-                      <motion.path
-                        d="M 100,5 L 170,5 A 25,25 0 0,1 195,30 L 195,30 A 25,25 0 0,1 170,55 L 30,55 A 25,25 0 0,1 5,30 L 5,30 A 25,25 0 0,1 30,5 L 100,5"
-                        fill="none"
-                        stroke="#22c55e"
-                        strokeWidth="8"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeDasharray="450"
-                        initial={{ strokeDashoffset: 0 }}
-                        animate={{
-                          strokeDashoffset: `${450 * (1 - countdownSeconds / 300)}`
-                        }}
-                        transition={{ duration: 1, ease: "linear" }}
-                      />
-                      
-                      {/* White segment indicator at top center */}
-                      <rect
-                        x="95"
-                        y="0"
-                        width="10"
-                        height="8"
-                        fill="white"
-                        rx="1"
-                      />
-                    </svg>
-                    
-                    {/* White pill-shaped badge - positioned above SVG */}
-                    <div className="relative bg-white rounded-full px-6 py-2 shadow-lg" style={{ zIndex: 30 }}>
-                      <div className="text-sm font-bold text-gray-900">
-                        New order
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* White Content Card */}
-              <div className="bg-white rounded-t-3xl">
-                <div className="p-6">
-                  {/* Estimated Earnings */}
-
-                  <div className="mb-5">
-                    <p className="text-gray-500 text-sm mb-1">Estimated earnings</p>
-                    <p className="text-4xl font-bold text-gray-900 mb-2">
-                      ₹{(() => {
-                        const earnings = newOrder?.estimatedEarnings || selectedRestaurant?.estimatedEarnings || 0;
-                        const fallback =
-                          Number(newOrder?.deliveryFee ?? selectedRestaurant?.deliveryFee ?? selectedRestaurant?.amount) || 0;
-                        let value = 0;
-                        
-                        debugLog('?? Display earnings calculation:', {
-                          earnings,
-                          earningsType: typeof earnings,
-                          newOrderEarnings: newOrder?.estimatedEarnings,
-                          selectedRestaurantEarnings: selectedRestaurant?.estimatedEarnings,
-                          fallback
-                        });
-                        
-                        if (earnings) {
-                          if (typeof earnings === 'object') {
-                            // Handle earnings object
-                            if (earnings.totalEarning != null) {
-                              value = Number(earnings.totalEarning) || 0;
-                            } else if (earnings.basePayout != null) {
-                              // If only basePayout is available, use it
-                              value = Number(earnings.basePayout) || 0;
-                            }
-                          } else if (typeof earnings === 'number') {
-                            value = earnings > 0 ? earnings : 0;
-                          }
-                        }
-                        
-                        // If value is still 0, try fallback
-                        if (value <= 0 && fallback > 0) {
-                          value = Number(fallback);
-                        }
-                        
-                        debugLog('?? Final earnings value to display:', value);
-                        return value > 0 ? value.toFixed(2) : '0.00';
-                      })()}
-                    </p>
-                    {/* Earnings Breakdown */}
-                    {(() => {
-                      const earnings = newOrder?.estimatedEarnings || selectedRestaurant?.estimatedEarnings || 0;
-                      if (typeof earnings === 'object' && earnings.breakdown) {
-                        return (
-                          <div className="bg-green-50 rounded-lg p-3 mb-2">
-                            <p className="text-green-800 text-xs font-medium mb-1">Earnings Breakdown:</p>
-                            <p className="text-green-700 text-xs">
-                              Base: ₹{earnings.basePayout?.toFixed(0) || '0'}
-                              {earnings.distanceCommission > 0 && (
-                                <> + Extra Distance ({Math.max(0, (earnings.distance || 0) - (earnings.minDistance || 0)).toFixed(1)} km × ₹{earnings.commissionPerKm?.toFixed(0)}/km) = ₹{earnings.distanceCommission?.toFixed(0)}</>
-                              )}
-                            </p>
-                            {earnings.distance <= earnings.minDistance && earnings.distanceCommission === 0 && (
-                              <p className="text-green-600 text-xs mt-1">
-                                Note: Distance {earnings.distance?.toFixed(1)} km = {earnings.minDistance} km, per km commission not applicable
-                              </p>
-                            )}
-                          </div>
-                        );
-                      }
-                      return null;
-                    })()}
-                    <p className="text-gray-400 text-xs">
-                      Pickup: {newOrder?.pickupDistance || selectedRestaurant?.pickupDistance || '0 km'} | Drop: {newOrder?.deliveryDistance || selectedRestaurant?.dropDistance || '0 km'}
-                    </p>
-                  </div>
-
-                  {/* Order ID */}
-                  <div className="mb-4">
-                    <p className="text-gray-500 text-xs mb-1">Order ID</p>
-                    <p className="text-base font-semibold text-gray-900">
-                      {newOrder?.orderId || selectedRestaurant?.orderId || 'ORD1234567890'}
-                    </p>
-                  </div>
-
-                  {/* Pickup Details */}
-                  <div className="bg-gray-50 rounded-xl p-4 mb-6">
-                    <div className="mb-3">
-                      <span className="bg-gray-200 text-gray-700 text-xs font-medium px-2 py-1 rounded-lg">
-                        Pick up
-                      </span>
-                    </div>
-                    
-                    <h3 className="text-lg font-bold text-gray-900 mb-1">
-                      {newOrder?.restaurantName || selectedRestaurant?.name || 'Restaurant'}
-                    </h3>
-                    <p className="text-sm text-gray-600 mb-3 leading-relaxed">
-                      {newOrder?.restaurantLocation?.address || selectedRestaurant?.address || 'Address'}
-                    </p>
-                    
-                    <div className="flex items-center gap-1.5 text-gray-500 text-sm mb-2">
-                      <Clock className="w-4 h-4" />
-                      <span>
-                        {selectedRestaurant?.timeAway && selectedRestaurant.timeAway !== 'Calculating...' 
-                          ? `${selectedRestaurant.timeAway} away`
-                          : (newOrder?.pickupDistance && newOrder.pickupDistance !== '0 km' && newOrder.pickupDistance !== 'Calculating...'
-                            ? `${calculateTimeAway(newOrder.pickupDistance)} away`
-                            : 'Calculating...')}
-                      </span>
-                    </div>
-                    
-                    <div className="flex items-center gap-1.5 text-gray-500 text-sm">
-                      <MapPin className="w-4 h-4" />
-                      <span>
-                        {selectedRestaurant?.distance && selectedRestaurant.distance !== '0 km' && selectedRestaurant.distance !== 'Calculating...'
-                          ? `${selectedRestaurant.distance} away`
-                          : (newOrder?.pickupDistance && newOrder.pickupDistance !== '0 km' && newOrder.pickupDistance !== 'Calculating...'
-                            ? `${newOrder.pickupDistance} away`
-                            : 'Calculating...')}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Accept Order Button with Swipe */}
-                  <div className="relative w-full">
-                    <motion.div
-                      ref={newOrderAcceptButtonRef}
-                      className="relative w-full bg-green-600 rounded-full overflow-hidden shadow-xl"
-                      style={{ touchAction: 'pan-x' }} // Prevent vertical scrolling, allow horizontal pan
-                      onTouchStart={handleNewOrderAcceptTouchStart}
-                      onTouchMove={handleNewOrderAcceptTouchMove}
-                      onTouchEnd={handleNewOrderAcceptTouchEnd}
-                      onTouchCancel={handleNewOrderAcceptTouchCancel}
-                      whileTap={{ scale: 0.98 }}
-                    >
-                      {/* Swipe progress background */}
-                      <motion.div
-                        className="absolute inset-0 bg-green-500 rounded-full"
-                        animate={{
-                          width: `${newOrderAcceptButtonProgress * 100}%`
-                        }}
-                        transition={newOrderIsAnimatingToComplete ? {
-                          type: "spring",
-                          stiffness: 200,
-                          damping: 25
-                        } : { duration: 0 }}
-                      />
-
-                      {/* Button content container */}
-                      <div className="relative flex items-center h-[64px] px-1">
-                        {/* Left: Black circle with arrow */}
-                        <motion.div
-                          className="w-14 h-14 bg-gray-900 rounded-full flex items-center justify-center shrink-0 relative z-20 shadow-2xl"
-                          animate={{
-                            x: newOrderAcceptButtonProgress * (newOrderAcceptButtonRef.current ? (newOrderAcceptButtonRef.current.offsetWidth - 56 - 32) : 240)
-                          }}
-                          transition={newOrderIsAnimatingToComplete ? {
-                            type: "spring",
-                            stiffness: 300,
-                            damping: 30
-                          } : { duration: 0 }}
-                        >
-                          <ArrowRight className="w-5 h-5 text-white" />
-                        </motion.div>
-
-                        {/* Text - centered and stays visible */}
-                        <div className="absolute inset-0 flex items-center justify-center left-16 right-4 pointer-events-none">
-                          <motion.span
-                            className="text-white font-semibold flex items-center justify-center text-center text-base select-none"
-                            animate={{
-                              opacity: newOrderAcceptButtonProgress > 0.5 ? Math.max(0.2, 1 - newOrderAcceptButtonProgress * 0.8) : 1,
-                              x: newOrderAcceptButtonProgress > 0.5 ? newOrderAcceptButtonProgress * 15 : 0
-                            }}
-                            transition={newOrderIsAnimatingToComplete ? {
-                              type: "spring",
-                              stiffness: 200,
-                              damping: 25
-                            } : { duration: 0 }}
-                          >
-                            {isAcceptingNewOrder ? 'Accepting...' : (newOrderAcceptButtonProgress > 0.5 ? 'Release to Accept' : 'Accept order')}
-                          </motion.span>
-                        </div>
-                      </div>
-                    </motion.div>
-                  </div>
-                </div>
-              </div>
-            </motion.div>
-
-            {/* Reject Button - Outside the popup, positioned below */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 20 }}
-              transition={{ duration: 0.3, delay: 0.1 }}
-              className="fixed top-4 right-4 z-[115]"
-            >
-              <button
-                onClick={handleRejectConfirm}
-                className="  bg-black border-2 border-white text-white text-bold px-5 p-2 rounded-full font-semibold text-sm hover:bg-red-50 transition-colors shadow-2xl"
-              >
-                Deny
-              </button>
-            </motion.div>
-          </>
-        )}
-      </AnimatePresence>
-
+      {/* New Order popup extracted to `DeliveryNewOrderPopup` */}
       {/* Reject Order Popup */}
-      <AnimatePresence>
-        {showRejectPopup && (
-          <>
-            <motion.div
-              className="fixed inset-0 z-[120] bg-black/60 flex items-center justify-center p-4"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={handleRejectCancel}
-            >
-              <motion.div
-                className="w-[90%] max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden"
-                initial={{ scale: 0.9, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                exit={{ scale: 0.9, opacity: 0 }}
-                onClick={(e) => e.stopPropagation()}
-              >
-                {/* Header */}
-                <div className="px-4 py-4 border-b border-gray-200">
-                  <h3 className="text-lg font-bold text-gray-900">Can't Accept Order</h3>
-                  <p className="text-sm text-gray-500 mt-1">Please select a reason for not accepting this order</p>
-                </div>
-
-                {/* Content */}
-                <div className="px-4 py-4 max-h-[60vh] overflow-y-auto">
-                  <div className="space-y-2">
-                    {rejectReasons.map((reason) => (
-                      <button
-                        key={reason}
-                        onClick={() => setRejectReason(reason)}
-                        className={`w-full text-left p-4 rounded-lg border-2 transition-all ${
-                          rejectReason === reason
-                            ? "border-black bg-red-50"
-                            : "border-gray-200 bg-white hover:border-gray-300"
-                        }`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className={`text-sm font-medium ${
-                            rejectReason === reason ? "text-black" : "text-gray-900"
-                          }`}>
-                            {reason}
-                          </span>
-                          {rejectReason === reason && (
-                            <div className="w-5 h-5 rounded-full bg-black flex items-center justify-center">
-                              <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                              </svg>
-                            </div>
-                          )}
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Footer */}
-                <div className="px-4 py-4 bg-gray-50 border-t border-gray-200 flex gap-3">
-                  <button
-                    onClick={handleRejectCancel}
-                    className="flex-1 bg-white border-2 border-gray-300 text-gray-700 py-3 rounded-lg font-semibold text-sm hover:bg-gray-50 transition-colors"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleRejectConfirm}
-                    disabled={!rejectReason}
-                    className={`flex-1 py-3 rounded-lg font-semibold text-sm transition-colors ${
-                      rejectReason
-                        ? "!bg-black !text-white"
-                        : "bg-gray-200 text-gray-400 cursor-not-allowed"
-                    }`}
-                  >
-                    Confirm
-                  </button>
-                </div>
-              </motion.div>
-            </motion.div>
-          </>
-        )}
-      </AnimatePresence>
+      <DeliveryRejectOrderModal
+        isOpen={showRejectPopup}
+        rejectReasons={rejectReasons}
+        rejectReason={rejectReason}
+        setRejectReason={setRejectReason}
+        onCancel={handleRejectCancel}
+        onConfirm={handleRejectConfirm}
+      />
 
       {/* Directions Map View */}
       <AnimatePresence>
@@ -10917,781 +9339,91 @@ selectedRestaurant?.lng || null,
         )}
       </AnimatePresence>
 
-      {/* Reached Pickup Popup - shown when order is ready (from order_ready socket) or when rider is within 500m */}
-      {/* Don't show if Order ID confirmation popup is showing */}
-      <BottomPopup
+      <DeliveryReachedPickupPopup
         isOpen={showreachedPickupPopup && !showOrderIdConfirmationPopup}
         onClose={() => setShowreachedPickupPopup(false)}
-        showCloseButton={false}
-        closeOnBackdropClick={false}
-        disableSwipeToClose={true}
-        maxHeight="70vh"
-        showHandle={false}
-        showBackdrop={false}
-        backdropBlocksInteraction={false}
-      >
-        <div className="">
-          {/* Pickup Label */}
-          <div className="mb-4">
-            <span className="bg-gray-500 text-white text-xs font-medium px-3 py-1.5 rounded-lg">
-              Pick up
-            </span>
-          </div>
+        selectedRestaurant={selectedRestaurant}
+        setSelectedRestaurant={setSelectedRestaurant}
+        deliveryAPI={deliveryAPI}
+        restaurantAPI={restaurantAPI}
+        debugLog={debugLog}
+        dialPhoneNumber={dialPhoneNumber}
+        openGoogleMapsNavigation={openGoogleMapsNavigation}
+        getRestaurantDestination={getRestaurantNavigationTarget}
+        handleReachedPickupMouseDown={handleReachedPickupMouseDown}
+        reachedPickupButtonRef={reachedPickupButtonRef}
+        reachedPickupButtonProgress={reachedPickupButtonProgress}
+        reachedPickupIsAnimatingToComplete={reachedPickupIsAnimatingToComplete}
+        handlereachedPickupTouchStart={handlereachedPickupTouchStart}
+        handlereachedPickupTouchMove={handlereachedPickupTouchMove}
+        handlereachedPickupTouchEnd={handlereachedPickupTouchEnd}
+        handlereachedPickupTouchCancel={handlereachedPickupTouchCancel}
+      />
 
-          {/* Restaurant Info */}
-          <div className="mb-6">
-            <h2 className="text-2xl font-bold text-gray-900 mb-2">
-              {selectedRestaurant?.name || 'Restaurant Name'}
-            </h2>
-            <p className="text-gray-600 mb-2 leading-relaxed">
-              {(() => {
-                const address = selectedRestaurant?.address;
-                
-                // If address is default or missing, try to find it in other fields
-                if (!address || address === 'Restaurant Address' || address === 'Restaurant address') {
-                  // Check if address might be in a different field
-                  const possibleAddress = 
-                    selectedRestaurant?.restaurantAddress ||
-                    selectedRestaurant?.restaurant?.address ||
-                    selectedRestaurant?.restaurantId?.address ||
-                    selectedRestaurant?.restaurantId?.location?.formattedAddress ||
-                    selectedRestaurant?.restaurantId?.location?.address ||
-                    selectedRestaurant?.location?.address ||
-                    selectedRestaurant?.location?.formattedAddress;
-                  
-                  if (possibleAddress && possibleAddress !== 'Restaurant Address' && possibleAddress !== 'Restaurant address') {
-                    return possibleAddress;
-                  }
-                }
-                
-                return address && address !== 'Restaurant Address' && address !== 'Restaurant address' 
-                  ? address 
-                  : 'Address will be updated...';
-              })()}
-            </p>
-            <p className="text-gray-500 text-sm font-medium">
-              Order ID: {selectedRestaurant?.orderId || 'ORD1234567890'}
-            </p>
-          </div>
-
-          {/* Action Buttons */}
-          <div className="flex gap-3 mb-6">
-            <button 
-              onClick={async () => {
-                // Try multiple paths to find restaurant phone number
-                let restaurantPhone = selectedRestaurant?.phone || 
-                                    selectedRestaurant?.restaurantId?.phone || 
-                                    selectedRestaurant?.ownerPhone ||
-                                    selectedRestaurant?.restaurant?.phone ||
-                                    null
-                
-                debugLog('?? Checking phone in selectedRestaurant:', {
-                  phone: selectedRestaurant?.phone,
-                  restaurantIdPhone: selectedRestaurant?.restaurantId?.phone,
-                  ownerPhone: selectedRestaurant?.ownerPhone,
-                  restaurantPhone: selectedRestaurant?.restaurant?.phone,
-                  found: !!restaurantPhone
-                })
-                
-                // If phone not found in selectedRestaurant, try to fetch order details from backend
-                if (!restaurantPhone && selectedRestaurant?.orderId) {
-                  try {
-                    debugLog('?? [CALL] Phone not found in selectedRestaurant, fetching order details from backend...')
-                    const orderId = selectedRestaurant.orderId || selectedRestaurant.id
-                    debugLog('?? [CALL] Fetching order details for orderId:', orderId)
-                    
-                    const response = await deliveryAPI.getOrderDetails(orderId)
-                    debugLog('?? [CALL] Order details API response:', JSON.stringify(response.data, null, 2))
-                    
-                    // Check multiple response formats
-                    const order = response.data?.data?.order || response.data?.order || null
-                    
-                    if (order) {
-                      debugLog('?? [CALL] Order data extracted from API:', {
-                        hasRestaurantId: !!order.restaurantId,
-                        restaurantIdType: typeof order.restaurantId,
-                        restaurantIdPhone: order.restaurantId?.phone,
-                        restaurantIdOwnerPhone: order.restaurantId?.ownerPhone,
-                        restaurantIdObject: order.restaurantId ? Object.keys(order.restaurantId) : null
-                      })
-                      
-                      // Try all possible paths in the API response
-                      // Restaurant model has both 'phone' and 'ownerPhone' fields
-                      restaurantPhone = order.restaurantId?.phone || 
-                                       order.restaurantId?.ownerPhone ||
-                                       order.restaurant?.phone ||
-                                       order.restaurant?.ownerPhone ||
-                                       order.restaurantId?.contact?.phone ||
-                                       order.restaurantId?.owner?.phone ||
-                                       null
-                      
-                      debugLog('?? [CALL] Phone extracted from order:', restaurantPhone)
-                      
-                      // If phone found, update selectedRestaurant for future use
-                      if (restaurantPhone && selectedRestaurant) {
-                        setSelectedRestaurant({
-                          ...selectedRestaurant,
-                          phone: restaurantPhone,
-                          ownerPhone: order.restaurantId?.ownerPhone || order.restaurant?.ownerPhone || restaurantPhone
-                        })
-                        debugLog('? [CALL] Updated selectedRestaurant with phone:', restaurantPhone)
-                      }
-                      
-                      // If still not found, try restaurant API directly
-                      if (!restaurantPhone && order.restaurantId) {
-                        const restaurantId = typeof order.restaurantId === 'string' 
-                          ? order.restaurantId 
-                          : (order.restaurantId._id || order.restaurantId.id || order.restaurantId.toString())
-                        
-                        if (restaurantId) {
-                          try {
-                            debugLog('?? [CALL] Trying restaurant API directly with ID:', restaurantId)
-                            const restaurantResponse = await restaurantAPI.getRestaurantById(restaurantId)
-                            if (restaurantResponse.data?.success && restaurantResponse.data.data) {
-                              const restaurant = restaurantResponse.data.data.restaurant || restaurantResponse.data.data
-                              restaurantPhone = restaurant.phone || restaurant.ownerPhone || restaurant.primaryContactNumber
-                              
-                              if (restaurantPhone) {
-                                setSelectedRestaurant({
-                                  ...selectedRestaurant,
-                                  phone: restaurantPhone,
-                                  ownerPhone: restaurant.ownerPhone || restaurantPhone
-                                })
-                                debugLog('? [CALL] Updated selectedRestaurant with phone from restaurant API:', restaurantPhone)
-                              }
-                            }
-                          } catch (restaurantError) {
-                            debugError('? [CALL] Error fetching restaurant by ID:', restaurantError)
-                          }
-                        }
-                      }
-                      
-                      if (!restaurantPhone) {
-                        debugWarn('?? [CALL] Phone not found in order.restaurantId object:', order.restaurantId)
-                      }
-                    } else {
-                      debugWarn('?? [CALL] Order details API response format unexpected - order not found in response:', {
-                        responseKeys: Object.keys(response.data || {}),
-                        responseData: response.data
-                      })
-                    }
-                  } catch (error) {
-                    debugError('? [CALL] Error fetching order details for phone:', error)
-                    debugError('? [CALL] Error message:', error.message)
-                    debugError('? [CALL] Error response:', error.response?.data)
-                    debugError('? [CALL] Error status:', error.response?.status)
-                  }
-                } else if (!selectedRestaurant?.orderId) {
-                  debugWarn('?? [CALL] Cannot fetch phone - orderId not found in selectedRestaurant:', selectedRestaurant)
-                }
-                
-                if (restaurantPhone) {
-                  const dialed = dialPhoneNumber(restaurantPhone, 'Restaurant phone number not available')
-                  if (dialed) {
-                    debugLog('?? Calling restaurant:', { original: restaurantPhone })
-                  }
-                } else {
-                  toast.error('Restaurant phone number not available')
-                  debugError('? Restaurant phone not found in any path:', { 
-                    selectedRestaurant,
-                    hasPhone: !!selectedRestaurant?.phone,
-                    hasRestaurantIdPhone: !!selectedRestaurant?.restaurantId?.phone,
-                    hasOwnerPhone: !!selectedRestaurant?.ownerPhone,
-                    orderId: selectedRestaurant?.orderId
-                  })
-                }
-              }}
-              className="flex-1 flex items-center justify-center gap-2 px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-            >
-              <Phone className="w-5 h-5 text-gray-700" />
-              <span className="text-gray-700 font-medium">Call</span>
-            </button>
-            <button 
-              onClick={() => {
-                const target = getRestaurantNavigationTarget(selectedRestaurant)
-                const addressFallback =
-                  selectedRestaurant?.address ||
-                  selectedRestaurant?.restaurantAddress ||
-                  selectedRestaurant?.restaurantId?.location?.formattedAddress ||
-                  selectedRestaurant?.restaurantId?.location?.address ||
-                  ""
-
-                openGoogleMapsNavigation(target, {
-                  label: "restaurant",
-                  fallbackAddress: addressFallback
-                })
-              }}
-              className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors"
-            >
-              <MapPin className="w-5 h-5 text-white" />
-              <span className="text-white font-medium">Map</span>
-            </button>
-          </div>
-
-          {/* Reached Pickup Button with Swipe */}
-          <div className="relative w-full">
-            <motion.div
-              ref={reachedPickupButtonRef}
-              className="relative w-full bg-green-600 rounded-full overflow-hidden shadow-xl"
-              style={{ touchAction: 'pan-x' }} // Prevent vertical scrolling, allow horizontal pan
-              onTouchStart={handlereachedPickupTouchStart}
-              onTouchMove={handlereachedPickupTouchMove}
-              onTouchEnd={handlereachedPickupTouchEnd}
-              onTouchCancel={handlereachedPickupTouchCancel}
-              onMouseDown={handleReachedPickupMouseDown}
-              whileTap={{ scale: 0.98 }}
-            >
-              {/* Swipe progress background */}
-              <motion.div
-                className="absolute inset-0 bg-green-500 rounded-full"
-                animate={{
-                  width: `${reachedPickupButtonProgress * 100}%`
-                }}
-                transition={reachedPickupIsAnimatingToComplete ? {
-                  type: "spring",
-                  stiffness: 200,
-                  damping: 25
-                } : { duration: 0 }}
-              />
-
-              {/* Button content container */}
-              <div className="relative flex items-center h-[64px] px-1">
-                {/* Left: Black circle with arrow */}
-                <motion.div
-                  className="w-14 h-14 bg-gray-900 rounded-full flex items-center justify-center shrink-0 relative z-20 shadow-2xl"
-                  animate={{
-                    x: reachedPickupButtonProgress * (reachedPickupButtonRef.current ? (reachedPickupButtonRef.current.offsetWidth - 56 - 32) : 240)
-                  }}
-                  transition={reachedPickupIsAnimatingToComplete ? {
-                    type: "spring",
-                    stiffness: 300,
-                    damping: 30
-                  } : { duration: 0 }}
-                >
-                  <ArrowRight className="w-5 h-5 text-white" />
-                </motion.div>
-
-                {/* Text - centered and stays visible */}
-                <div className="absolute inset-0 flex items-center justify-center left-16 right-4 pointer-events-none">
-                  <motion.span
-                    className="text-white font-semibold flex items-center justify-center text-center text-base select-none"
-                    animate={{
-                      opacity: reachedPickupButtonProgress > 0.5 ? Math.max(0.2, 1 - reachedPickupButtonProgress * 0.8) : 1,
-                      x: reachedPickupButtonProgress > 0.5 ? reachedPickupButtonProgress * 15 : 0
-                    }}
-                    transition={reachedPickupIsAnimatingToComplete ? {
-                      type: "spring",
-                      stiffness: 200,
-                      damping: 25
-                    } : { duration: 0 }}
-                  >
-                    {reachedPickupButtonProgress > 0.5 ? 'Release to Confirm' : 'Reached Pickup'}
-                  </motion.span>
-                </div>
-              </div>
-            </motion.div>
-          </div>
-        </div>
-      </BottomPopup>
-
-      {/* Order ID Confirmation Popup - shown after Reached Pickup swipe is confirmed */}
-      <BottomPopup
+      <DeliveryOrderIdConfirmationPopup
         isOpen={showOrderIdConfirmationPopup}
         onClose={() => setShowOrderIdConfirmationPopup(false)}
-        showCloseButton={false}
-        closeOnBackdropClick={false}
-        disableSwipeToClose={true}
-        maxHeight="60vh"
-        showHandle={false}
-        showBackdrop={false}
-        backdropBlocksInteraction={false}
-      >
-        <div className="">
-          <div className="text-center mb-6">
-            <h2 className="text-xl font-bold text-gray-900 mb-2">
-              Confirm Order ID
-            </h2>
-            <p className="text-gray-600 text-sm mb-4">
-              Please verify the order ID with the restaurant before pickup
-            </p>
-            
-            {/* Order ID Display - single line, scroll horizontally if needed */}
-            <div className="bg-gray-50 rounded-xl p-6 mb-6 overflow-hidden">
-              <p className="text-gray-500 text-xs mb-2">Order ID</p>
-              <p className="text-2xl sm:text-3xl font-bold text-gray-900 tracking-wider whitespace-nowrap overflow-x-auto min-w-0">
-                {selectedRestaurant?.orderId || selectedRestaurant?.id || newOrder?.orderId || newOrder?.orderMongoId || 'ORD1234567890'}
-              </p>
-            </div>
+        selectedRestaurant={selectedRestaurant}
+        newOrder={newOrder}
+        isUploadingBill={isUploadingBill}
+        billImageUploaded={billImageUploaded}
+        handleCameraCapture={handleCameraCapture}
+        cameraInputRef={cameraInputRef}
+        handleBillImageSelect={handleBillImageSelect}
+        orderIdConfirmButtonRef={orderIdConfirmButtonRef}
+        orderIdConfirmButtonProgress={orderIdConfirmButtonProgress}
+        orderIdConfirmIsAnimatingToComplete={orderIdConfirmIsAnimatingToComplete}
+        handleOrderIdConfirmTouchStart={handleOrderIdConfirmTouchStart}
+        handleOrderIdConfirmTouchMove={handleOrderIdConfirmTouchMove}
+        handleOrderIdConfirmTouchEnd={handleOrderIdConfirmTouchEnd}
+        handleOrderIdConfirmTouchCancel={handleOrderIdConfirmTouchCancel}
+      />
 
-            {/* Bill Image Upload Section */}
-            <div className="mb-6">
-              <p className="text-gray-600 text-sm mb-3 text-center">
-                {billImageUploaded ? '? Bill image uploaded' : 'Please capture bill image'}
-              </p>
-              
-              {/* Camera Button */}
-              <div className="flex justify-center mb-4">
-                <button
-                  onClick={handleCameraCapture}
-                  disabled={isUploadingBill}
-                  className={`flex items-center justify-center gap-2 px-6 py-3 rounded-lg transition-colors ${
-                    isUploadingBill
-                      ? 'bg-gray-400 cursor-not-allowed'
-                      : billImageUploaded
-                      ? 'bg-green-600 hover:bg-green-700'
-                      : 'bg-blue-600 hover:bg-blue-700'
-                  } text-white font-medium`}
-                >
-                  {isUploadingBill ? (
-                    <>
-                      <Loader2 className="w-5 h-5 animate-spin" />
-                      <span>Uploading...</span>
-                    </>
-                  ) : billImageUploaded ? (
-                    <>
-                      <CheckCircle className="w-5 h-5" />
-                      <span>Bill Uploaded</span>
-                    </>
-                  ) : (
-                    <>
-                      <Camera className="w-5 h-5" />
-                      <span>Capture Bill</span>
-                    </>
-                  )}
-                </button>
-              </div>
-
-              {/* Hidden file input for camera (sr-only keeps it in DOM for mobile camera) */}
-              <input
-                id="bill-camera-input"
-                ref={cameraInputRef}
-                type="file"
-                accept="image/*"
-                capture="environment"
-                onChange={handleBillImageSelect}
-                className="sr-only"
-              />
-            </div>
-
-            {/* Order Picked Up Button with Swipe */}
-            <div className="relative w-full">
-              <motion.div
-                ref={orderIdConfirmButtonRef}
-                className={`relative w-full rounded-full overflow-hidden shadow-xl ${
-                  billImageUploaded ? 'bg-green-600' : 'bg-gray-400 cursor-not-allowed'
-                }`}
-                style={{ 
-                  touchAction: billImageUploaded ? 'pan-x' : 'none',
-                  opacity: billImageUploaded ? 1 : 0.6
-                }}
-                onTouchStart={billImageUploaded ? handleOrderIdConfirmTouchStart : undefined}
-                onTouchMove={billImageUploaded ? handleOrderIdConfirmTouchMove : undefined}
-                onTouchEnd={billImageUploaded ? handleOrderIdConfirmTouchEnd : undefined}
-                onTouchCancel={billImageUploaded ? handleOrderIdConfirmTouchCancel : undefined}
-                whileTap={billImageUploaded ? { scale: 0.98 } : {}}
-              >
-                {/* Swipe progress background */}
-                <motion.div
-                  className="absolute inset-0 bg-green-500 rounded-full"
-                  animate={{
-                    width: `${orderIdConfirmButtonProgress * 100}%`
-                  }}
-                  transition={orderIdConfirmIsAnimatingToComplete ? {
-                    type: "spring",
-                    stiffness: 200,
-                    damping: 25
-                  } : { duration: 0 }}
-                />
-
-                {/* Button content container */}
-                <div className="relative flex items-center h-[64px] px-1">
-                  {/* Left: Black circle with arrow */}
-                  <motion.div
-                    className="w-14 h-14 bg-gray-900 rounded-full flex items-center justify-center shrink-0 relative z-20 shadow-2xl"
-                    animate={{
-                      x: orderIdConfirmButtonProgress * (orderIdConfirmButtonRef.current ? (orderIdConfirmButtonRef.current.offsetWidth - 56 - 32) : 240)
-                    }}
-                    transition={orderIdConfirmIsAnimatingToComplete ? {
-                      type: "spring",
-                      stiffness: 300,
-                      damping: 30
-                    } : { duration: 0 }}
-                  >
-                    <ArrowRight className="w-5 h-5 text-white" />
-                  </motion.div>
-
-                  {/* Text - centered and stays visible */}
-                  <div className="absolute inset-0 flex items-center justify-center left-16 right-4 pointer-events-none">
-                    <motion.span
-                      className="text-white font-semibold flex items-center justify-center text-center text-base select-none"
-                      animate={{
-                        opacity: orderIdConfirmButtonProgress > 0.5 ? Math.max(0.2, 1 - orderIdConfirmButtonProgress * 0.8) : 1,
-                        x: orderIdConfirmButtonProgress > 0.5 ? orderIdConfirmButtonProgress * 15 : 0
-                      }}
-                      transition={orderIdConfirmIsAnimatingToComplete ? {
-                        type: "spring",
-                        stiffness: 200,
-                        damping: 25
-                      } : { duration: 0 }}
-                    >
-                      {!billImageUploaded 
-                        ? 'Upload Bill First' 
-                        : orderIdConfirmButtonProgress > 0.5 
-                        ? 'Release to Confirm' 
-                        : 'Order Picked Up'}
-                    </motion.span>
-                  </div>
-                </div>
-              </motion.div>
-            </div>
-          </div>
-        </div>
-      </BottomPopup>
-
-      {/* Reached Drop Popup - shown instantly after Order Picked Up confirmation */}
-      <BottomPopup
+      <DeliveryReachedDropPopup
         isOpen={showReachedDropPopup}
         onClose={() => setShowReachedDropPopup(false)}
-        showCloseButton={false}
-        closeOnBackdropClick={false}
-        disableSwipeToClose={true}
-        maxHeight="70vh"
-        showHandle={false}
-        showBackdrop={false}
-        backdropBlocksInteraction={false}
-      >
-        <div className="">
-          {/* Drop Label */}
-          <div className="mb-4">
-            <span className="bg-teal-600 text-white text-xs font-medium px-3 py-1.5 rounded-lg">
-              Drop
-            </span>
-          </div>
+        selectedRestaurant={selectedRestaurant}
+        dialPhoneNumber={dialPhoneNumber}
+        getCustomerDestination={getCustomerDestination}
+        openGoogleMapsNavigation={openGoogleMapsNavigation}
+        reachedDropButtonRef={reachedDropButtonRef}
+        reachedDropButtonProgress={reachedDropButtonProgress}
+        reachedDropIsAnimatingToComplete={reachedDropIsAnimatingToComplete}
+        handleReachedDropTouchStart={handleReachedDropTouchStart}
+        handleReachedDropTouchMove={handleReachedDropTouchMove}
+        handleReachedDropTouchEnd={handleReachedDropTouchEnd}
+        handleReachedDropTouchCancel={handleReachedDropTouchCancel}
+      />
 
-          {/* Customer Info */}
-          <div className="mb-6">
-            <h2 className="text-2xl font-bold text-gray-900 mb-2">
-              {selectedRestaurant?.customerName || 'Customer Name'}
-            </h2>
-            <p className="text-gray-600 mb-2 leading-relaxed">
-              {selectedRestaurant?.customerAddress || 'Customer Address'}
-            </p>
-            <p className="text-gray-500 text-sm font-medium">
-              Order ID: {selectedRestaurant?.orderId || 'ORD1234567890'}
-            </p>
-          </div>
-
-          {/* Action Buttons */}
-          <div className="flex gap-3 mb-6">
-            <button
-              onClick={() => {
-                const phone = selectedRestaurant?.customerPhone || selectedRestaurant?.userId?.phone || null
-                dialPhoneNumber(phone, "Customer phone number not available")
-              }}
-              className="flex-1 flex items-center justify-center gap-2 px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-            >
-              <Phone className="w-5 h-5 text-gray-700" />
-              <span className="text-gray-700 font-medium">Call</span>
-            </button>
-            <button
-              onClick={() => {
-                const customerDestination = getCustomerDestination(selectedRestaurant)
-                openGoogleMapsNavigation(customerDestination, {
-                  label: "customer",
-                  fallbackAddress: selectedRestaurant?.customerAddress || ""
-                })
-              }}
-              className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors"
-            >
-              <MapPin className="w-5 h-5 text-white" />
-              <span className="text-white font-medium">Map</span>
-            </button>
-          </div>
-
-          {/* Reached Drop Button with Swipe */}
-          <div className="relative w-full">
-            <motion.div
-              ref={reachedDropButtonRef}
-              className="relative w-full bg-green-600 rounded-full overflow-hidden shadow-xl"
-              style={{ touchAction: 'pan-x' }} // Prevent vertical scrolling, allow horizontal pan
-              onTouchStart={handleReachedDropTouchStart}
-              onTouchMove={handleReachedDropTouchMove}
-              onTouchEnd={handleReachedDropTouchEnd}
-              onTouchCancel={handleReachedDropTouchCancel}
-              whileTap={{ scale: 0.98 }}
-            >
-              {/* Swipe progress background */}
-              <motion.div
-                className="absolute inset-0 bg-green-500 rounded-full"
-                animate={{
-                  width: `${reachedDropButtonProgress * 100}%`
-                }}
-                transition={reachedDropIsAnimatingToComplete ? {
-                  type: "spring",
-                  stiffness: 200,
-                  damping: 25
-                } : { duration: 0 }}
-              />
-
-              {/* Button content container */}
-              <div className="relative flex items-center h-[64px] px-1">
-                {/* Left: Black circle with arrow */}
-                <motion.div
-                  className="w-14 h-14 bg-gray-900 rounded-full flex items-center justify-center shrink-0 relative z-20 shadow-2xl"
-                  animate={{
-                    x: reachedDropButtonProgress * (reachedDropButtonRef.current ? (reachedDropButtonRef.current.offsetWidth - 56 - 32) : 240)
-                  }}
-                  transition={reachedDropIsAnimatingToComplete ? {
-                    type: "spring",
-                    stiffness: 300,
-                    damping: 30
-                  } : { duration: 0 }}
-                >
-                  <ArrowRight className="w-5 h-5 text-white" />
-                </motion.div>
-
-                {/* Text - centered and stays visible */}
-                <div className="absolute inset-0 flex items-center justify-center left-16 right-4 pointer-events-none">
-                  <motion.span
-                    className="text-white font-semibold flex items-center justify-center text-center text-base select-none"
-                    animate={{
-                      opacity: reachedDropButtonProgress > 0.5 ? Math.max(0.2, 1 - reachedDropButtonProgress * 0.8) : 1,
-                      x: reachedDropButtonProgress > 0.5 ? reachedDropButtonProgress * 15 : 0
-                    }}
-                    transition={reachedDropIsAnimatingToComplete ? {
-                      type: "spring",
-                      stiffness: 200,
-                      damping: 25
-                    } : { duration: 0 }}
-                  >
-                    {reachedDropButtonProgress > 0.5 ? 'Release to Confirm' : 'Reached Drop'}
-                  </motion.span>
-                </div>
-              </div>
-            </motion.div>
-          </div>
-        </div>
-      </BottomPopup>
-
-      <BottomPopup
+      <DeliveryOtpModal
         isOpen={showDeliveryOtpModal}
+        otpLength={DELIVERY_DROP_OTP_LENGTH}
+        otpValue={deliveryOtpValue}
+        otpError={deliveryOtpError}
+        otpInputRef={deliveryOtpSingleInputRef}
         onClose={() => closeDeliveryOtpModal(null)}
-        showCloseButton={false}
-        closeOnBackdropClick={false}
-        maxHeight="78vh"
-        showHandle={false}
-        disableSwipeToClose={true}
-      >
-        <div className="px-1 min-h-full flex flex-col">
-          <div className="text-center mb-5">
-            <div className="w-14 h-14 mx-auto mb-3 rounded-2xl bg-emerald-100 flex items-center justify-center">
-              <Lock className="w-7 h-7 text-emerald-600" />
-            </div>
-            <h3 className="text-xl font-bold text-gray-900">Verify Delivery OTP</h3>
-            <p className="text-sm text-gray-600 mt-1">Enter the 4-digit OTP from customer (or paste it)</p>
-          </div>
+        onChange={handleDeliveryOtpSingleChange}
+        onPaste={handleDeliveryOtpSinglePaste}
+        onSubmit={submitDeliveryOtpModal}
+      />
 
-          <div className="mb-4">
-            <input
-              ref={deliveryOtpSingleInputRef}
-              type="tel"
-              inputMode="numeric"
-              pattern="[0-9]*"
-              autoComplete="one-time-code"
-              maxLength={DELIVERY_DROP_OTP_LENGTH}
-              value={deliveryOtpValue}
-              onChange={handleDeliveryOtpSingleChange}
-              onPaste={handleDeliveryOtpSinglePaste}
-              onFocus={(e) => e.currentTarget.scrollIntoView({ block: "center", behavior: "smooth" })}
-              placeholder="0000"
-              className="w-full h-14 rounded-xl border border-gray-300 text-center text-2xl font-bold text-gray-900 tracking-[0.5em] focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-              aria-label="Delivery OTP"
-            />
-          </div>
-
-          {deliveryOtpError && (
-            <p className="text-center text-sm text-red-500 mb-4">{deliveryOtpError}</p>
-          )}
-
-          <div className="mt-auto sticky bottom-0 bg-white pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-            <div className="grid grid-cols-2 gap-3">
-            <button
-              type="button"
-              onClick={() => closeDeliveryOtpModal(null)}
-              className="h-12 rounded-xl border border-gray-300 text-gray-700 font-semibold"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={submitDeliveryOtpModal}
-              disabled={deliveryOtpValue.length !== DELIVERY_DROP_OTP_LENGTH}
-              className="h-12 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold"
-            >
-              Verify OTP
-            </button>
-            </div>
-          </div>
-        </div>
-      </BottomPopup>
-
-      {/* Order Delivered Bottom Popup - shown instantly after Reached Drop is confirmed */}
-      <BottomPopup
+      <DeliveryOrderDeliveredPopup
         isOpen={showOrderDeliveredAnimation}
         onClose={() => {
           setShowOrderDeliveredAnimation(false)
-          setShowCustomerReviewPopup(true)
+          setShowPaymentPage(true)
         }}
-        showCloseButton={false}
-        closeOnBackdropClick={false}
-        maxHeight="80vh"
-        showHandle={false}
-        disableSwipeToClose={true}
-        showBackdrop={false}
-        backdropBlocksInteraction={false}
-      >
-        <div className="">
-          {/* Success Icon and Title */}
-          <div className="text-center mb-6">
-            <div className="w-20 h-20 bg-green-500 rounded-full flex items-center justify-center mx-auto mb-4">
-              <svg className="w-12 h-12 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={3}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-              </svg>
-            </div>
-            <h1 className="text-2xl font-bold text-gray-900 mb-2">
-              Great job! Delivery complete ??
-            </h1>
-          </div>
-
-          {/* Trip Details */}
-          <div className="bg-gray-50 rounded-xl p-4 mb-6">
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <MapPin className="w-4 h-4 text-gray-600" />
-                  <span className="text-gray-600 text-sm">Trip distance</span>
-                </div>
-                <span className="text-gray-900 font-semibold">
-                  {tripDistance !== null 
-                    ? (tripDistance >= 1000 
-                        ? `${(tripDistance / 1000).toFixed(1)} kms` 
-                        : `${tripDistance.toFixed(0)} m`)
-                    : (selectedRestaurant?.tripDistance || 'Calculating...')}
-                </span>
-              </div>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Clock className="w-4 h-4 text-gray-600" />
-                  <span className="text-gray-600 text-sm">Trip time</span>
-                </div>
-                <span className="text-gray-900 font-semibold">
-                  {tripTime !== null 
-                    ? (tripTime >= 60 
-                        ? `${Math.round(tripTime / 60)} mins` 
-                        : `${tripTime} secs`)
-                    : (selectedRestaurant?.tripTime || 'Calculating...')}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Payment info: Online = amount paid, COD = collect from customer */}
-          {(() => {
-            const m = String(
-              selectedRestaurant?.paymentMethod ||
-              selectedRestaurant?.payment ||
-              selectedRestaurant?.payment?.method ||
-              ''
-            ).toLowerCase().trim()
-            const isCod = m === 'cash' || m === 'cod' || m === 'cash_on_delivery'
-            const total = Number(
-              selectedRestaurant?.total ??
-              selectedRestaurant?.pricing?.total ??
-              selectedRestaurant?.payment?.amount ??
-              0
-            ) || 0
-            if (!Number.isFinite(total) || total < 0) return null
-            return (
-              <div className={`rounded-xl p-4 mb-6 ${isCod ? 'bg-amber-50 border border-amber-200' : 'bg-emerald-50 border border-emerald-200'}`}>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <IndianRupee className={`w-4 h-4 ${isCod ? 'text-amber-600' : 'text-emerald-600'}`} />
-                    <span className={`text-sm font-medium ${isCod ? 'text-amber-800' : 'text-emerald-800'}`}>
-                      {isCod ? 'Collect from customer (COD)' : 'Amount paid (Online)'}
-                    </span>
-                  </div>
-                  <span className={`text-lg font-bold ${isCod ? 'text-amber-700' : 'text-emerald-700'}`}>
-                    ₹{total.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </span>
-                </div>
-              </div>
-            )
-          })()}
-
-          {/* Order Delivered Button with Swipe */}
-          <div className="relative w-full">
-            <motion.div
-              ref={orderDeliveredButtonRef}
-              className="relative w-full bg-green-600 rounded-full overflow-hidden shadow-xl"
-              style={{ touchAction: 'pan-x' }} // Prevent vertical scrolling, allow horizontal pan
-              onTouchStart={handleOrderDeliveredTouchStart}
-              onTouchMove={handleOrderDeliveredTouchMove}
-              onTouchEnd={handleOrderDeliveredTouchEnd}
-              onTouchCancel={handleOrderDeliveredTouchCancel}
-              whileTap={{ scale: 0.98 }}
-            >
-              {/* Swipe progress background */}
-              <motion.div
-                className="absolute inset-0 bg-green-500 rounded-full"
-                animate={{
-                  width: `${orderDeliveredButtonProgress * 100}%`
-                }}
-                transition={orderDeliveredIsAnimatingToComplete ? {
-                  type: "spring",
-                  stiffness: 200,
-                  damping: 25
-                } : { duration: 0 }}
-              />
-
-              {/* Button content container */}
-              <div className="relative flex items-center h-[64px] px-1">
-                {/* Left: Black circle with arrow */}
-                <motion.div
-                  className="w-14 h-14 bg-gray-900 rounded-full flex items-center justify-center shrink-0 relative z-20 shadow-2xl"
-                  animate={{
-                    x: orderDeliveredButtonProgress * (orderDeliveredButtonRef.current ? (orderDeliveredButtonRef.current.offsetWidth - 56 - 32) : 240)
-                  }}
-                  transition={orderDeliveredIsAnimatingToComplete ? {
-                    type: "spring",
-                    stiffness: 300,
-                    damping: 30
-                  } : { duration: 0 }}
-                >
-                  <ArrowRight className="w-5 h-5 text-white" />
-                </motion.div>
-
-                {/* Text - centered and stays visible */}
-                <div className="absolute inset-0 flex items-center justify-center left-16 right-4 pointer-events-none">
-                  <motion.span
-                    className="text-white font-semibold flex items-center justify-center text-center text-base select-none"
-                    animate={{
-                      opacity: orderDeliveredButtonProgress > 0.5 ? Math.max(0.2, 1 - orderDeliveredButtonProgress * 0.8) : 1,
-                      x: orderDeliveredButtonProgress > 0.5 ? orderDeliveredButtonProgress * 15 : 0
-                    }}
-                    transition={orderDeliveredIsAnimatingToComplete ? {
-                      type: "spring",
-                      stiffness: 200,
-                      damping: 25
-                    } : { duration: 0 }}
-                  >
-                    {orderDeliveredButtonProgress > 0.5 ? 'Release to Confirm' : 'Order Delivered'}
-                  </motion.span>
-                </div>
-              </div>
-            </motion.div>
-          </div>
-        </div>
-      </BottomPopup>
+        selectedRestaurant={selectedRestaurant}
+        tripDistance={tripDistance}
+        tripTime={tripTime}
+        orderDeliveredButtonRef={orderDeliveredButtonRef}
+        orderDeliveredButtonProgress={orderDeliveredButtonProgress}
+        orderDeliveredIsAnimatingToComplete={orderDeliveredIsAnimatingToComplete}
+        handleOrderDeliveredTouchStart={handleOrderDeliveredTouchStart}
+        handleOrderDeliveredTouchMove={handleOrderDeliveredTouchMove}
+        handleOrderDeliveredTouchEnd={handleOrderDeliveredTouchEnd}
+        handleOrderDeliveredTouchCancel={handleOrderDeliveredTouchCancel}
+      />
 
       {/* Customer Review Popup - shown after Order Delivered */}
       <BottomPopup
@@ -11762,11 +9494,10 @@ selectedRestaurant?.lng || null,
                     })
                     
                     // Call completeDelivery API with rating and review
-                    const response = await deliveryAPI.completeDelivery(
-                      orderIdForApi,
-                      customerRating > 0 ? customerRating : null,
-                      customerReviewText.trim() || ''
-                    )
+                    const response = await deliveryAPI.completeDelivery(orderIdForApi, {
+                      rating: customerRating > 0 ? customerRating : null,
+                      review: customerReviewText.trim() || "",
+                    })
                     
                     if (response.data?.success) {
                       // Get updated earnings from response
@@ -11815,163 +9546,54 @@ selectedRestaurant?.lng || null,
         </div>
       </BottomPopup>
 
-      {/* Payment Page - shown after Customer Review is submitted */}
-      <AnimatePresence>
-        {showPaymentPage && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.3 }}
-            className="fixed inset-0 z-[200] bg-white overflow-y-auto"
-          >
-            {/* Header */}
-            <div className="bg-green-500 text-white px-6 py-6">
-              <h1 className="text-2xl font-bold mb-2">Payment</h1>
-              <p className="text-white/90 text-sm">Order ID: {selectedRestaurant?.orderId || 'ORD1234567890'}</p>
-            </div>
+      <DeliveryPaymentOverlay
+        isOpen={showPaymentPage}
+        selectedRestaurant={selectedRestaurant}
+        newOrder={newOrder}
+        orderEarnings={orderEarnings}
+        collectQrLink={collectQrLink}
+        setCollectQrLink={setCollectQrLink}
+        collectQrError={collectQrError}
+        setCollectQrError={setCollectQrError}
+        isGeneratingCollectQr={isGeneratingCollectQr}
+        setIsGeneratingCollectQr={setIsGeneratingCollectQr}
+        deliveryAPI={deliveryAPI}
+        onComplete={() => {
+          setShowPaymentPage(false)
+          // CRITICAL: Clear all order-related popups and states when completing
+          setShowreachedPickupPopup(false)
+          setShowOrderIdConfirmationPopup(false)
+          setShowReachedDropPopup(false)
+          setShowOrderDeliveredAnimation(false)
+          setShowCustomerReviewPopup(false)
 
-            {/* Payment Amount */}
-            <div className="px-6 py-8 text-center bg-gray-50">
-              <p className="text-gray-600 text-sm mb-2">Earnings from this order</p>
-              <p className="text-5xl font-bold text-gray-900">
-                ₹{(() => {
-                  if (orderEarnings > 0) {
-                    return orderEarnings.toFixed(2);
-                  }
-                  // Handle estimatedEarnings - can be number or object
-                  const earnings = selectedRestaurant?.amount || selectedRestaurant?.estimatedEarnings || 0;
-                  if (typeof earnings === 'object' && earnings.totalEarning) {
-                    return earnings.totalEarning.toFixed(2);
-                  }
-                  return typeof earnings === 'number' ? earnings.toFixed(2) : '0.00';
-                })()}
-              </p>
-              <p className="text-green-600 text-sm mt-2">₹ Added to your wallet</p>
-            </div>
+          // Clear selected restaurant/order to prevent showing popups for delivered order
+          setSelectedRestaurant(null)
 
-            {/* Payment Details */}
-            <div className="px-6 py-6 pb-6 h-full flex flex-col justify-between">
-              <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 mb-6">
-                <h3 className="text-lg font-bold text-gray-900 mb-4">Payment Details</h3>
-                
-                <div className="space-y-3">
-                  <div className="flex justify-between items-center py-2 border-b border-gray-100">
-                    <span className="text-gray-600">Trip pay</span>
-                    <span className="text-gray-900 font-semibold">₹{(() => {
-                      let earnings = 0;
-                      if (orderEarnings > 0) {
-                        earnings = orderEarnings;
-                      } else {
-                        const estEarnings = selectedRestaurant?.amount || selectedRestaurant?.estimatedEarnings || 0;
-                        if (typeof estEarnings === 'object' && estEarnings.totalEarning) {
-                          earnings = estEarnings.totalEarning;
-                        } else if (typeof estEarnings === 'number') {
-                          earnings = estEarnings;
-                        }
-                      }
-                      return (earnings - 5).toFixed(2);
-                    })()}</span>
-                  </div>
-                  
-                  <div className="flex justify-between items-center py-2 border-b border-gray-100">
-                    <span className="text-gray-600">Long distance return pay</span>
-                    <span className="text-gray-900 font-semibold">₹5.00</span>
-                  </div>
+          // CRITICAL: Clear active order from localStorage to prevent it from showing again
+          localStorage.removeItem(DELIVERY_ACTIVE_ORDER_KEY)
+          localStorage.removeItem('activeOrder')
 
-                  {(() => {
-                    const paymentMethod = String(
-                      selectedRestaurant?.paymentMethod ||
-                      selectedRestaurant?.payment ||
-                      selectedRestaurant?.payment?.method ||
-                      ''
-                    ).toLowerCase().trim()
-                    const isCod = paymentMethod === 'cash' || paymentMethod === 'cod' || paymentMethod === 'cash_on_delivery'
-                    const collectAmount = Number(
-                      selectedRestaurant?.amountToCollect ??
-                      selectedRestaurant?.codAmount ??
-                      selectedRestaurant?.codCollectedAmount ??
-                      selectedRestaurant?.orderTotal ??
-                      selectedRestaurant?.total ??
-                      selectedRestaurant?.pricing?.total ??
-                      selectedRestaurant?.payment?.amount ??
-                      0
-                    )
-                    const safeAmount = Number.isFinite(collectAmount) && collectAmount > 0 ? collectAmount : 0
+          // Clear newOrder from notifications hook (if available)
+          if (typeof clearNewOrder === 'function') {
+            clearNewOrder()
+          }
 
-                    return (
-                      <div className="flex justify-between items-center py-2 border-b border-gray-100">
-                        <span className={`${isCod ? 'text-amber-700 font-medium' : 'text-gray-600'}`}>
-                          {isCod ? 'Amount to collect from customer' : 'Amount paid by customer'}
-                        </span>
-                        <span className={`${isCod ? 'text-amber-700 font-semibold' : 'text-gray-900 font-semibold'}`}>
-                          ₹{safeAmount.toFixed(2)}
-                        </span>
-                      </div>
-                    )
-                  })()}
-                  
-                  <div className="flex justify-between items-center py-2">
-                    <span className="text-lg font-bold text-gray-900">Total Earnings</span>
-                    <span className="text-lg font-bold text-gray-900">₹{(() => {
-                      if (orderEarnings > 0) {
-                        return orderEarnings.toFixed(2);
-                      }
-                      // Handle estimatedEarnings - can be number or object
-                      const earnings = selectedRestaurant?.amount || selectedRestaurant?.estimatedEarnings || 0;
-                      if (typeof earnings === 'object' && earnings.totalEarning) {
-                        return earnings.totalEarning.toFixed(2);
-                      }
-                      return typeof earnings === 'number' ? earnings.toFixed(2) : '0.00';
-                    })()}</span>
-                  </div>
-                </div>
-              </div>
+          // Clear accepted orders list when order is completed
+          acceptedOrderIdsRef.current.clear();
 
-
-              {/* Complete Button */}
-              <button
-                onClick={() => {
-                  setShowPaymentPage(false)
-                  // CRITICAL: Clear all order-related popups and states when completing
-                  setShowreachedPickupPopup(false)
-                  setShowOrderIdConfirmationPopup(false)
-                  setShowReachedDropPopup(false)
-                  setShowOrderDeliveredAnimation(false)
-                  setShowCustomerReviewPopup(false)
-                  
-                  // Clear selected restaurant/order to prevent showing popups for delivered order
-                  setSelectedRestaurant(null)
-                  
-                  // CRITICAL: Clear active order from localStorage to prevent it from showing again
-                  localStorage.removeItem(DELIVERY_ACTIVE_ORDER_KEY)
-                  localStorage.removeItem('activeOrder')
-                  
-                  // Clear newOrder from notifications hook (if available)
-                  if (typeof clearNewOrder === 'function') {
-                    clearNewOrder()
-                  }
-                  
-                  // Clear accepted orders list when order is completed
-                  acceptedOrderIdsRef.current.clear();
-                  
-                  navigate("/delivery")
-                  // Reset states
-                  setTimeout(() => {
-                    setReachedDropButtonProgress(0)
-                    setReachedDropIsAnimatingToComplete(false)
-                    setCustomerRating(0)
-                    setCustomerReviewText("")
-                  }, 500)
-                }}
-                className="w-full sticky bottom-4 bg-black text-white py-4 rounded-xl font-semibold text-lg hover:bg-gray-800 transition-colors shadow-lg "
-              >
-                Complete
-              </button>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+          navigate("/delivery")
+          // Reset states
+          setTimeout(() => {
+            setReachedDropButtonProgress(0)
+            setReachedDropIsAnimatingToComplete(false)
+            setCustomerRating(0)
+            setCustomerReviewText("")
+            setCollectQrLink(null)
+            setCollectQrError("")
+          }, 500)
+        }}
+      />
 
       <AnimatePresence>
         {isVerifyingDeliveryOtp && (

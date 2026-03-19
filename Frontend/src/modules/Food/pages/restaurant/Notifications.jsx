@@ -38,7 +38,7 @@ export default function Notifications() {
     try {
       setLoading(true)
       const response = await restaurantAPI.getOrders({ page: 1, limit: 30 })
-      const rows = response?.data?.data?.orders || []
+      const rows = response?.data?.data?.orders || response?.data?.data?.data?.orders || []
       setOrders(rows)
     } catch (error) {
       if (error.response?.status !== 401) {
@@ -66,7 +66,7 @@ export default function Notifications() {
         return {
           id,
           orderId: order.orderId || "N/A",
-          message: getStatusLabel(order.status),
+          message: getStatusLabel(order.orderStatus || order.status),
           timeValue: timestamp ? new Date(timestamp).getTime() : 0,
           time: timestamp
             ? new Date(timestamp).toLocaleString("en-IN", {

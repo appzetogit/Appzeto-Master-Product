@@ -79,7 +79,13 @@ const DeliveryTrackingMap = ({
   const customerMarkerRef = useRef(null);
   const restaurantMarkerRef = useRef(null);
 
-  const backendUrl = API_BASE_URL.replace('/api', '');
+  const backendUrl = useMemo(() => {
+    const raw = String(API_BASE_URL || '').trim();
+    if (!raw) return '';
+    // API_BASE_URL is typically like: http://localhost:5000/api/v1
+    // Socket.IO server runs on the backend origin (http://localhost:5000)
+    return raw.replace(/\/api\/v1\/?$/i, '').replace(/\/api\/?$/i, '');
+  }, []);
   const ENABLE_GOOGLE_DIRECTIONS = import.meta.env.VITE_ENABLE_GOOGLE_DIRECTIONS === 'true';
   const [GOOGLE_MAPS_API_KEY, setGOOGLE_MAPS_API_KEY] = useState("");
   const trackingIds = useMemo(() => {
@@ -1050,10 +1056,53 @@ const DeliveryTrackingMap = ({
       socketRef.current.on(`route-initialized-${trackingId}`, handleRouteInitialized);
     });
 
+    const statusToMessage = (payload) => {
+      const orderStatus = String(payload?.orderStatus || payload?.status || '').toLowerCase();
+      const deliveryStatus = String(payload?.deliveryState?.status || payload?.deliveryStatus || '').toLowerCase();
+      const phase = String(payload?.deliveryState?.currentPhase || payload?.currentPhase || '').toLowerCase();
+
+      const key = deliveryStatus || phase || orderStatus;
+      switch (key) {
+        case 'confirmed':
+          return 'Order confirmed by restaurant';
+        case 'preparing':
+          return 'Restaurant started preparing your order';
+        case 'ready_for_pickup':
+          return 'Order is ready — delivery partner will pick it up soon';
+        case 'reached_pickup':
+        case 'at_pickup':
+          return 'Delivery partner reached the restaurant';
+        case 'picked_up':
+        case 'en_route_to_delivery':
+          return 'Order picked up — on the way to you';
+        case 'reached_drop':
+        case 'at_drop':
+          return 'Delivery partner arrived near your location';
+        case 'delivered':
+        case 'completed':
+          return 'Order delivered';
+        default:
+          return payload?.message || '';
+      }
+    };
+
     socketRef.current.on('order_status_update', (data) => {
-      if (window.dispatchEvent && data.message) {
+      // Only surface updates for the order(s) this map is tracking
+      const id = String(data?.orderId || data?.orderMongoId || data?._id || '').trim();
+      const isForThisOrder =
+        !id ||
+        trackingIds.some((t) => String(t) === id) ||
+        (data?.orderMongoId && trackingIds.some((t) => String(t) === String(data.orderMongoId)));
+
+      if (!isForThisOrder) return;
+
+      if (window.dispatchEvent) {
         window.dispatchEvent(new CustomEvent('orderStatusNotification', {
-          detail: data
+          detail: {
+            ...data,
+            status: data?.deliveryState?.status || data?.orderStatus || data?.status,
+            message: statusToMessage(data),
+          }
         }));
       }
     });

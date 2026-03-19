@@ -4,9 +4,21 @@ import { API_BASE_URL } from '@food/api/config';
 import { deliveryAPI } from '@food/api';
 import alertSound from '@food/assets/audio/alert.mp3';
 import originalSound from '@food/assets/audio/original.mp3';
-const debugLog = (...args) => {}
-const debugWarn = (...args) => {}
-const debugError = (...args) => {}
+const debugLog = (...args) => {
+  if (import.meta.env.DEV) {
+    console.log('?? [DeliverySocket]', ...args);
+  }
+}
+const debugWarn = (...args) => {
+  if (import.meta.env.DEV) {
+    console.warn('?? [DeliverySocket]', ...args);
+  }
+}
+const debugError = (...args) => {
+  if (import.meta.env.DEV) {
+    console.error('?? [DeliverySocket]', ...args);
+  }
+}
 
 const resolveAudioSource = (source) => source;
 
@@ -407,7 +419,7 @@ export const useDeliveryNotifications = () => {
   useEffect(() => {
     const fetchDeliveryPartnerId = async () => {
       try {
-        const response = await deliveryAPI.getCurrentDelivery();
+        const response = await deliveryAPI.getMe();
         if (response.data?.success && response.data.data) {
           const deliveryPartner = response.data.data.user || response.data.data.deliveryPartner;
           if (deliveryPartner) {
@@ -444,44 +456,22 @@ export const useDeliveryNotifications = () => {
       return;
     }
 
-    // Normalize backend URL - use simpler, more robust approach
+    // IMPORTANT: Socket.IO server is on the origin (not /api/v1).
+    // Our API baseURL is typically like: http://localhost:5000/api/v1
+    // So for sockets we always connect to: http://localhost:5000
     let backendUrl = API_BASE_URL;
-    
-    // Step 1: Extract protocol and hostname using URL parsing if possible
     try {
-      const urlObj = new URL(backendUrl);
-      // Remove /api from pathname
-      let pathname = urlObj.pathname.replace(/^\/api\/?$/, '');
-      // Reconstruct clean URL
-      backendUrl = `${urlObj.protocol}//${urlObj.hostname}${urlObj.port ? `:${urlObj.port}` : ''}${pathname}`;
-    } catch (e) {
-      // If URL parsing fails, use regex-based normalization
-      // Remove /api suffix first
-      backendUrl = backendUrl.replace(/\/api\/?$/, '');
-      backendUrl = backendUrl.replace(/\/+$/, ''); // Remove trailing slashes
-      
-      // Normalize protocol - ensure exactly two slashes after protocol
-      // Fix patterns: https:/, https:///, https://https://
-      if (backendUrl.startsWith('https:') || backendUrl.startsWith('http:')) {
-        // Extract protocol
-        const protocolMatch = backendUrl.match(/^(https?):/i);
-        if (protocolMatch) {
-          const protocol = protocolMatch[1].toLowerCase();
-          // Remove everything up to and including the first valid domain part
-          const afterProtocol = backendUrl.substring(protocol.length + 1);
-          // Remove leading slashes
-          const cleanPath = afterProtocol.replace(/^\/+/, '');
-          // Reconstruct with exactly two slashes
-          backendUrl = `${protocol}://${cleanPath}`;
-        }
-      }
+      backendUrl = new URL(backendUrl).origin;
+    } catch {
+      // best-effort fallback: strip common API prefixes
+      backendUrl = String(backendUrl || "")
+        .replace(/\/api\/v\d+\/?$/i, "")
+        .replace(/\/api\/?$/i, "")
+        .replace(/\/+$/, "");
     }
     
-    // Final cleanup: ensure exactly two slashes after protocol
-    backendUrl = backendUrl.replace(/^(https?):\/+/gi, '$1://');
-    backendUrl = backendUrl.replace(/\/+$/, ''); // Remove trailing slashes
-    
-    const socketUrl = `${backendUrl}/delivery`;
+    // Backend uses default namespace; rooms handle role separation.
+    const socketUrl = `${backendUrl}`;
     
     debugLog('?? Attempting to connect to Delivery Socket.IO:', socketUrl);
     debugLog('?? Backend URL:', backendUrl);
@@ -489,14 +479,11 @@ export const useDeliveryNotifications = () => {
     debugLog('?? Delivery Partner ID:', deliveryPartnerId);
     debugLog('?? Environment: (ui-only mode)');
     
-    // Warn if trying to connect to localhost in production
-    if (backendUrl.includes('localhost')) {
+    // Block localhost only in production builds. In dev, localhost is expected.
+    if (import.meta.env.PROD && backendUrl.includes('localhost')) {
       debugError('? CRITICAL: Trying to connect Socket.IO to localhost in production!');
       debugError('?? Current socketUrl:', socketUrl);
       debugError('?? Current API_BASE_URL:', API_BASE_URL);
-      debugError('?? Backend URL config is disabled in this build.');
-      
-      // Don't try to connect to localhost in production - it will fail
       setIsConnected(false);
       return;
     }

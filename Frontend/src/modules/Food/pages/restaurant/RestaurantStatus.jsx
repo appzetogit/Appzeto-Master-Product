@@ -165,12 +165,18 @@ export default function RestaurantStatus() {
         const restaurant = response?.data?.data?.restaurant || response?.data?.restaurant
         if (restaurant?.isAcceptingOrders !== undefined) {
           setDeliveryStatus(restaurant.isAcceptingOrders)
+          try {
+            localStorage.setItem('restaurant_online_status', JSON.stringify(Boolean(restaurant.isAcceptingOrders)))
+          } catch {}
           // Dispatch event to update navbar
           window.dispatchEvent(new CustomEvent('restaurantStatusChanged', { 
             detail: { isOnline: restaurant.isAcceptingOrders } 
           }))
         } else {
           setDeliveryStatus(false)
+          try {
+            localStorage.setItem('restaurant_online_status', JSON.stringify(false))
+          } catch {}
           window.dispatchEvent(new CustomEvent('restaurantStatusChanged', { 
             detail: { isOnline: false } 
           }))
@@ -181,6 +187,9 @@ export default function RestaurantStatus() {
           debugError("Error loading delivery status:", error)
         }
         setDeliveryStatus(false)
+        try {
+          localStorage.setItem('restaurant_online_status', JSON.stringify(false))
+        } catch {}
         window.dispatchEvent(new CustomEvent('restaurantStatusChanged', { 
           detail: { isOnline: false } 
         }))
@@ -217,6 +226,10 @@ export default function RestaurantStatus() {
         return
       }
       
+      try {
+        localStorage.setItem('restaurant_online_status', JSON.stringify(Boolean(checked)))
+      } catch {}
+
       // Dispatch custom event for navbar to listen
       window.dispatchEvent(new CustomEvent('restaurantStatusChanged', { 
         detail: { isOnline: checked } 

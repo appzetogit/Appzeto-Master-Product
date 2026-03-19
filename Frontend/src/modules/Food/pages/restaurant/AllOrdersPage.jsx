@@ -14,6 +14,7 @@ import {
 } from "lucide-react"
 import { DateRangeCalendar } from "@food/components/ui/date-range-calendar"
 import { restaurantAPI } from "@food/api"
+import { useRestaurantNotifications } from "@food/hooks/useRestaurantNotifications"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -263,6 +264,7 @@ export default function AllOrdersPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [restaurantData, setRestaurantData] = useState(null)
+  const { newOrder } = useRestaurantNotifications()
 
   // Fetch restaurant data
   useEffect(() => {
@@ -289,11 +291,13 @@ export default function AllOrdersPage() {
     const date = createdAt.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
     const time = createdAt.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })
     
-    // Format address
-    const address = order.address?.formattedAddress || 
-                    order.address?.address || 
-                    (order.address?.street ? `${order.address.street}, ${order.address.city || ''}`.trim() : '') ||
-                    'Address not available'
+    // Format address (backend: deliveryAddress)
+    const addr = order.deliveryAddress || order.address || null
+    const address =
+      addr?.formattedAddress ||
+      addr?.address ||
+      (addr?.street ? `${addr.street}, ${addr.city || ""}`.trim() : "") ||
+      "Address not available"
     
     // Get restaurant name
     const restaurantName = restaurantData?.name || order.restaurantId?.name || 'Restaurant'
@@ -308,8 +312,8 @@ export default function AllOrdersPage() {
       price: item.price || 0
     }))
     
-    // Determine status
-    let status = order.status?.toUpperCase() || 'PENDING'
+    // Determine status (backend: orderStatus)
+    let status = (order.orderStatus || order.status || "created").toUpperCase()
     if (status === 'CANCELLED') status = 'CANCELLED'
     else if (status === 'REJECTED') status = 'REJECTED'
     else if (status === 'DELIVERED') status = 'DELIVERED'
@@ -406,6 +410,21 @@ export default function AllOrdersPage() {
     
     fetchOrders()
   }, [startDate, endDate, restaurantData, transformOrder])
+
+  // Realtime: instantly prepend new orders (no refresh)
+  useEffect(() => {
+    if (!newOrder) return
+    // Transform & prepend if not already present.
+    setOrders((prev) => {
+      const id = String(newOrder?.orderId || newOrder?._id || "")
+      if (!id) return prev
+      if (prev.some((o) => String(o.id) === id || String(o.mongoId) === String(newOrder?._id))) {
+        return prev
+      }
+      const transformed = transformOrder(newOrder)
+      return [transformed, ...prev]
+    })
+  }, [newOrder, transformOrder])
 
   // Close calendar when clicking outside
   useEffect(() => {
@@ -866,7 +885,7 @@ export default function AllOrdersPage() {
 
       {/* Calendar Popup */}
       {showCalendar && (
-        <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4" onClick={() => setShowCalendar(false)}>
+        <div className="fixed inset-0 bg-black/50 z-60 flex items-center justify-center p-4" onClick={() => setShowCalendar(false)}>
           <div ref={calendarRef} onClick={(e) => e.stopPropagation()} className="bg-white rounded-lg shadow-lg">
             <DateRangeCalendar
               startDate={startDate}
@@ -1074,7 +1093,7 @@ export default function AllOrdersPage() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 50 }}
             transition={{ duration: 0.3 }}
-            className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[60] bg-gray-900 text-white px-4 py-3 rounded-lg shadow-lg flex items-center gap-2"
+            className="fixed bottom-24 left-1/2 -translate-x-1/2 z-60 bg-gray-900 text-white px-4 py-3 rounded-lg shadow-lg flex items-center gap-2"
           >
             <svg className="w-5 h-5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />

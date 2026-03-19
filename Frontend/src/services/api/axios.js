@@ -8,10 +8,12 @@
 
 import axios from "axios";
 
-// Prefer explicit env; fallback to local backend for dev convenience.
-const baseURL = typeof import.meta !== "undefined" && import.meta.env?.VITE_API_BASE_URL
-  ? String(import.meta.env.VITE_API_BASE_URL).replace(/\/$/, "")
-  : "http://localhost:5001/api/v1";
+// Prefer explicit env. If not set, use same-origin (works with a Vite proxy).
+// This avoids hardcoding ports like 5000 that may conflict with local setups.
+const baseURL =
+  typeof import.meta !== "undefined" && import.meta.env?.VITE_API_BASE_URL
+    ? String(import.meta.env.VITE_API_BASE_URL).replace(/\/$/, "")
+    : "";
 
 const apiClient = axios.create({
   baseURL: baseURL || undefined,
@@ -36,7 +38,7 @@ function getAccessToken(config) {
   const module = getModuleFromConfig(config);
   const key = `${module}_accessToken`;
   try {
-    return localStorage.getItem(key) || null;
+    return localStorage.getItem(key) || localStorage.getItem("accessToken") || null;
   } catch {
     return null;
   }

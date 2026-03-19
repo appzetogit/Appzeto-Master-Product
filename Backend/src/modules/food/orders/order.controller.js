@@ -150,6 +150,63 @@ export async function rejectOrderDeliveryController(req, res, next) {
     }
 }
 
+export async function confirmReachedPickupDeliveryController(req, res, next) {
+    try {
+        const deliveryPartnerId = req.user?.userId;
+        const orderId = req.params.orderId;
+        const order = await orderService.confirmReachedPickupDelivery(orderId, deliveryPartnerId);
+        return sendResponse(res, 200, 'Reached pickup confirmed', { order });
+    } catch (err) {
+        next(err);
+    }
+}
+
+export async function confirmPickupDeliveryController(req, res, next) {
+    try {
+        const deliveryPartnerId = req.user?.userId;
+        const orderId = req.params.orderId;
+        const { billImageUrl } = req.body;
+        const order = await orderService.confirmPickupDelivery(orderId, deliveryPartnerId, billImageUrl);
+        return sendResponse(res, 200, 'Pickup confirmed', { order });
+    } catch (err) {
+        next(err);
+    }
+}
+
+export async function confirmReachedDropDeliveryController(req, res, next) {
+    try {
+        const deliveryPartnerId = req.user?.userId;
+        const orderId = req.params.orderId;
+        const order = await orderService.confirmReachedDropDelivery(orderId, deliveryPartnerId);
+        return sendResponse(res, 200, 'Reached drop confirmed', { order });
+    } catch (err) {
+        next(err);
+    }
+}
+
+export async function verifyDropOtpDeliveryController(req, res, next) {
+    try {
+        const deliveryPartnerId = req.user?.userId;
+        const orderId = req.params.orderId;
+        const { otp } = req.body;
+        const result = await orderService.verifyDropOtpDelivery(orderId, deliveryPartnerId, otp);
+        return sendResponse(res, 200, 'OTP verified', result);
+    } catch (err) {
+        next(err);
+    }
+}
+
+export async function completeDeliveryController(req, res, next) {
+    try {
+        const deliveryPartnerId = req.user?.userId;
+        const orderId = req.params.orderId;
+        const order = await orderService.completeDelivery(orderId, deliveryPartnerId);
+        return sendResponse(res, 200, 'Delivery completed', { order });
+    } catch (err) {
+        next(err);
+    }
+}
+
 export async function updateOrderStatusDeliveryController(req, res, next) {
     try {
         const deliveryPartnerId = req.user?.userId;

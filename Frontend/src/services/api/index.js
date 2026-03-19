@@ -653,6 +653,141 @@ export const restaurantAPI = {
     apiClient.patch(`/food/restaurant/foods/${String(id)}`, body ?? {}, {
       contextModule: "restaurant",
     }),
+  /** Orders (restaurant dashboard) */
+  getOrders: (() => {
+    // Single-flight de-dupe to avoid duplicate GETs in React StrictMode / double-mount.
+    let inFlight = null;
+    let inFlightKey = "";
+    let cache = null;
+    let cacheKey = "";
+    let cacheAt = 0;
+    const CACHE_MS = 800;
+
+    const buildKey = (p = {}) => JSON.stringify({ limit: 50, page: 1, ...p });
+
+    return (params = {}) => {
+      const key = buildKey(params);
+      const now = Date.now();
+
+      if (cache && cacheKey === key && now - cacheAt < CACHE_MS) {
+        return Promise.resolve(cache);
+      }
+
+      if (inFlight && inFlightKey === key) return inFlight;
+
+      inFlightKey = key;
+      inFlight = apiClient
+      .get("/food/restaurant/orders", {
+        params: { limit: 50, page: 1, ...params },
+        contextModule: "restaurant",
+      })
+      .then((res) => {
+        // Backend paginated shape: { data: { data: [...], meta: {...} } }
+        // Normalize to { data: { data: { orders: [...], meta } } } for restaurant UI pages.
+        const payload = res?.data?.data || {};
+        const rowsRaw = Array.isArray(payload.data) ? payload.data : [];
+
+        // Normalize backend order fields to match existing restaurant UI expectations.
+        // UI historically uses: order.status, order.address, order.total, order.paymentMethod
+        const normalizeStatus = (s) => {
+          const v = String(s || "").toLowerCase();
+          // Backend: created -> treat as confirmed/new in UI
+          if (v === "created") return "confirmed";
+          // Backend: ready_for_pickup -> ready
+          if (v === "ready_for_pickup") return "ready";
+          // Backend: picked_up -> out_for_delivery (restaurant handed over)
+          if (v === "picked_up") return "out_for_delivery";
+          return v || "confirmed";
+        };
+
+        const rows = rowsRaw.map((o) => {
+          const status = normalizeStatus(o.orderStatus || o.status);
+          const address = o.deliveryAddress || o.address;
+          const total = o.pricing?.total ?? o.total ?? 0;
+          const paymentMethod = o.payment?.method || o.paymentMethod || null;
+          return { ...o, status, address, total, paymentMethod };
+        });
+        const meta = payload.meta || {};
+        const normalized = {
+          ...res,
+          data: {
+            ...res.data,
+            data: { orders: rows, meta },
+          },
+        };
+
+        cache = normalized;
+        cacheKey = key;
+        cacheAt = Date.now();
+        return normalized;
+      })
+      .finally(() => {
+        inFlight = null;
+        inFlightKey = "";
+      });
+
+      return inFlight;
+    };
+  })(),
+  updateOrderStatus: (orderId, body) => {
+    const raw = body ?? {};
+    const outgoing = { ...raw };
+
+    // Translate UI-friendly statuses to backend enum values.
+    const normalizeOutgoingStatus = (s) => {
+      const v = String(s || "").toLowerCase().trim();
+      if (!v) return v;
+      if (v === "ready") return "ready_for_pickup";
+      if (v === "out_for_delivery") return "picked_up";
+      if (v === "cancelled") return "cancelled_by_restaurant";
+      return v;
+    };
+
+    if (outgoing.orderStatus) {
+      outgoing.orderStatus = normalizeOutgoingStatus(outgoing.orderStatus);
+    }
+
+    return apiClient.patch(
+      `/food/restaurant/orders/${String(orderId)}/status`,
+      outgoing,
+      { contextModule: "restaurant" }
+    );
+  },
+  /**
+   * Accept an incoming order (restaurant).
+   * UI expects this to move order into "preparing" bucket.
+   * Backend supports PATCH /food/restaurant/orders/:orderId/status with { orderStatus }.
+   */
+  acceptOrder: (orderId, _prepTimeMins = null) =>
+    restaurantAPI.updateOrderStatus(orderId, { orderStatus: "preparing" }),
+  /**
+   * Reject/cancel order by restaurant.
+   * Backend orderStatus enum: cancelled_by_restaurant.
+   */
+  rejectOrder: (orderId, _reason = "") =>
+    restaurantAPI.updateOrderStatus(orderId, { orderStatus: "cancelled_by_restaurant" }),
+  /** Mark order ready (restaurant handoff). */
+  markOrderReady: (orderId) =>
+    restaurantAPI.updateOrderStatus(orderId, { orderStatus: "ready_for_pickup" }),
+  /**
+   * Get a single order by id for restaurant screens.
+   * Backend doesn't yet expose GET /food/restaurant/orders/:id in this repo,
+   * so we fallback to list+filter to keep UI working.
+   */
+  getOrderById: async (orderId) => {
+    const res = await restaurantAPI.getOrders({ page: 1, limit: 100 });
+    const orders = res?.data?.data?.orders || [];
+    const match = orders.find(
+      (o) => String(o._id) === String(orderId) || String(o.orderId) === String(orderId)
+    );
+    return {
+      ...res,
+      data: {
+        ...res.data,
+        data: { order: match || null },
+      },
+    };
+  },
   logout: (refreshToken) => {
     restaurantCurrentInFlight = null;
     restaurantCurrentCached = null;
@@ -859,6 +994,86 @@ export const deliveryAPI = {
       { status: isOnline ? "online" : "offline", latitude, longitude },
       { contextModule: "delivery" },
     ),
+  /** Orders */
+  getOrders: (params = {}) =>
+    apiClient.get("/food/delivery/orders/available", {
+      params: { limit: 50, page: 1, ...params },
+      contextModule: "delivery",
+    }),
+  getOrderDetails: (orderId) =>
+    apiClient.get(`/food/delivery/orders/${String(orderId)}`, {
+      contextModule: "delivery",
+    }),
+  /** GET /food/delivery/current - fallback for some UI hooks */
+  getCurrentDelivery: () =>
+    getDeliveryMeOnce(),
+  acceptOrder: (orderId, body = {}) =>
+    apiClient.patch(`/food/delivery/orders/${String(orderId)}/accept`, body ?? {}, {
+      contextModule: "delivery",
+    }),
+  rejectOrder: (orderId, body = {}) =>
+    apiClient.patch(`/food/delivery/orders/${String(orderId)}/reject`, body ?? {}, {
+      contextModule: "delivery",
+    }),
+  /**
+   * PATCH /food/delivery/orders/:orderId/reached-pickup
+   * Marks "reached pickup" (arrival at restaurant) in backend order deliveryState.
+   */
+  confirmReachedPickup: (orderId) =>
+    apiClient.patch(
+      `/food/delivery/orders/${String(orderId)}/reached-pickup`,
+      {},
+      { contextModule: "delivery" },
+    ),
+  /** 
+   * Confirm order ID and upload bill image (Picked Up slide).
+   * Backend endpoint: PATCH /food/delivery/orders/:id/confirm-pickup
+   */
+  confirmOrderId: (orderId, confirmedOrderId, location = {}, data = {}) =>
+    apiClient.patch(`/food/delivery/orders/${String(orderId)}/confirm-pickup`, {
+      confirmedOrderId,
+      latitude: location.lat,
+      longitude: location.lng,
+      billImageUrl: data.billImageUrl
+    }, {
+      contextModule: "delivery",
+    }),
+  confirmReachedDrop: (orderId) =>
+    apiClient.patch(`/food/delivery/orders/${String(orderId)}/reached-drop`, {}, {
+      contextModule: "delivery",
+    }),
+  verifyDropOtp: (orderId, otp) =>
+    apiClient.post(`/food/delivery/orders/${String(orderId)}/verify-drop-otp`, { otp: String(otp) }, {
+      contextModule: "delivery",
+    }),
+  /** POST /food/delivery/orders/:orderId/collect/qr - create Razorpay payment link (COD collection) */
+  createCollectQr: (orderId, body = {}) =>
+    apiClient.post(`/food/delivery/orders/${String(orderId)}/collect/qr`, body ?? {}, {
+      contextModule: "delivery",
+    }),
+  /** GET /food/delivery/orders/:orderId/payment-status - check COD/QR payment status */
+  getPaymentStatus: (orderId) =>
+    apiClient.get(`/food/delivery/orders/${String(orderId)}/payment-status`, {
+      contextModule: "delivery",
+    }),
+  completeDelivery: (orderId, body = {}) => {
+    // Backward-compatible: older UI calls completeDelivery(orderId, rating, review)
+    // where rating is a number (sent as raw JSON like "3"). Normalize to an object.
+    let payload = body ?? {};
+    if (typeof payload === "number" || typeof payload === "string" || payload == null) {
+      payload = { rating: payload == null ? null : Number(payload) };
+    }
+    return apiClient.patch(`/food/delivery/orders/${String(orderId)}/complete`, payload, {
+      contextModule: "delivery",
+    });
+  },
+  updateOrderStatus: (orderId, body = {}) =>
+    apiClient.patch(`/food/delivery/orders/${String(orderId)}/status`, body ?? {}, {
+      contextModule: "delivery",
+    }),
+  /** Registration Re-verification */
+  reverify: () =>
+    apiClient.post("/food/delivery/reverify", {}, { contextModule: "delivery" }),
   /** GET /food/delivery/wallet - wallet for Pocket/requests page (backend) */
   getWallet: () =>
     apiClient.get("/food/delivery/wallet", { contextModule: "delivery" }),
@@ -868,6 +1083,9 @@ export const deliveryAPI = {
       params: params ?? {},
       contextModule: "delivery",
     }),
+  /** Earning Addons (Hotspots/Bonus) */
+  getActiveEarningAddons: () =>
+    apiClient.get("/food/delivery/earning-addons/active", { contextModule: "delivery" }),
   /** GET /food/delivery/trip-history - completed/cancelled/pending trips for delivery partner */
   getTripHistory: (params) =>
     apiClient.get("/food/delivery/trip-history", {
@@ -901,6 +1119,12 @@ export const deliveryAPI = {
         },
       },
     })),
+  /** Zone discovery */
+  getZonesInRadius: (lat, lng, radiusKm = 10) =>
+    apiClient.get("/food/zones/nearby", {
+      params: { lat, lng, radius: radiusKm },
+      contextModule: "delivery",
+    }),
 };
 
 export const userAPI = {

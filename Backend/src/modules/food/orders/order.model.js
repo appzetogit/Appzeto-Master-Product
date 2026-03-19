@@ -36,6 +36,7 @@ const pricingSchema = new mongoose.Schema(
         tax: { type: Number, default: 0, min: 0 },
         packagingFee: { type: Number, default: 0, min: 0 },
         deliveryFee: { type: Number, default: 0, min: 0 },
+        platformFee: { type: Number, default: 0, min: 0 },
         discount: { type: Number, default: 0, min: 0 },
         total: { type: Number, required: true, min: 0 },
         currency: { type: String, default: 'INR' }
@@ -92,6 +93,29 @@ const dispatchSchema = new mongoose.Schema(
         deliveryPartnerId: { type: mongoose.Schema.Types.ObjectId, ref: 'FoodDeliveryPartner', default: null },
         assignedAt: { type: Date },
         acceptedAt: { type: Date }
+    },
+    { _id: false }
+);
+
+const deliveryStateSchema = new mongoose.Schema(
+    {
+        currentPhase: {
+            type: String,
+            enum: [
+                'en_route_to_pickup',
+                'at_pickup',
+                'en_route_to_delivery',
+                'at_drop',
+                'delivered',
+                'completed'
+            ],
+            default: 'en_route_to_pickup'
+        },
+        status: { type: String, default: '' },
+        reachedPickupAt: { type: Date, default: null },
+        reachedDropAt: { type: Date, default: null },
+        pickedUpAt: { type: Date, default: null },
+        deliveredAt: { type: Date, default: null }
     },
     { _id: false }
 );
@@ -169,6 +193,10 @@ const orderSchema = new mongoose.Schema(
         },
         dispatch: {
             type: dispatchSchema,
+            default: () => ({})
+        },
+        deliveryState: {
+            type: deliveryStateSchema,
             default: () => ({})
         },
         statusHistory: {

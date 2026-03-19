@@ -37,6 +37,15 @@ export default function OrdersPage() {
   // Restaurant notifications hook
   const { newOrder, clearNewOrder, isConnected } = useRestaurantNotifications()
 
+  const notificationOrder = newOrder
+    ? {
+        ...newOrder,
+        orderMongoId: newOrder.orderMongoId || newOrder._id || newOrder.id,
+        total: newOrder.total ?? newOrder.pricing?.total ?? 0,
+        customerAddress: newOrder.customerAddress || newOrder.deliveryAddress || newOrder.address,
+      }
+    : null
+
   // Lenis smooth scrolling
   useEffect(() => {
     const lenis = new Lenis({
@@ -430,7 +439,7 @@ export default function OrdersPage() {
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
                 onClick={() => setActiveFilterTab(tab.id)}
-                className={`relative z-10 flex-shrink-0 px-4 py-2 rounded-full text-sm md:text-base font-medium transition-colors ${
+                className={`relative z-10 shrink-0 px-4 py-2 rounded-full text-sm md:text-base font-medium transition-colors ${
                   activeFilterTab === tab.id
                     ? "text-white"
                     : "bg-white text-gray-600 hover:bg-gray-100"
@@ -497,7 +506,7 @@ export default function OrdersPage() {
                         Order #{order.id}
                       </p>
                       <p className="text-gray-500 text-xs md:text-sm mb-1.5">
-                        {order.items} Item{order.items !== 1 ? 's' : ''} • {order.customerName}
+                        {order.items} Item{order.items !== 1 ? 's' : ''} ï¿½ {order.customerName}
                       </p>
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className={`inline-flex items-center gap-1 ${getStatusBadgeColor(order.status)} text-[10px] md:text-xs font-medium px-2 py-0.5 rounded-full`}>
@@ -539,7 +548,7 @@ export default function OrdersPage() {
 
       {/* New Order Notification */}
       <NewOrderNotification
-        order={newOrder}
+        order={notificationOrder}
         onClose={clearNewOrder}
         onViewOrder={(order) => {
           navigate(`/restaurant/orders/${order.orderMongoId || order.orderId}`)

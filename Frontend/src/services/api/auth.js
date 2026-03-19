@@ -126,7 +126,52 @@ export function logout(refreshToken) {
  * @param {string} [module] - "user" | "admin" | "restaurant" | "delivery" (which token to send; default "user")
  */
 export function getMe(module = "user") {
-  return apiClient.get(AUTH.ME, { contextModule: module });
+  const m = String(module || "user");
+  // Deduplicate /me calls to avoid request storms (and accidental 429s)
+  // across multiple components mounting at once.
+  return getMeOnce(m);
+}
+
+// ---- /me in-flight + short cache (per module) ----
+const ME_CACHE_MS = 3000;
+const meCache = new Map(); // module -> { at, res }
+const meInFlight = new Map(); // module -> Promise
+
+function hasAccessToken(module) {
+  try {
+    return Boolean(localStorage.getItem(`${module}_accessToken`));
+  } catch {
+    return false;
+  }
+}
+
+function getMeOnce(module) {
+  const now = Date.now();
+  const cached = meCache.get(module);
+  if (cached && now - cached.at < ME_CACHE_MS) {
+    return Promise.resolve(cached.res);
+  }
+
+  // If not logged in, don't hammer backend with /me calls.
+  if (!hasAccessToken(module)) {
+    return Promise.reject(new Error("Not authenticated"));
+  }
+
+  const existing = meInFlight.get(module);
+  if (existing) return existing;
+
+  const p = apiClient
+    .get(AUTH.ME, { contextModule: module })
+    .then((res) => {
+      meCache.set(module, { at: Date.now(), res });
+      return res;
+    })
+    .finally(() => {
+      meInFlight.delete(module);
+    });
+
+  meInFlight.set(module, p);
+  return p;
 }
 
 /**
