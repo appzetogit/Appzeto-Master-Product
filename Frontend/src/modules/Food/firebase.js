@@ -3,8 +3,15 @@ import { getAuth, GoogleAuthProvider } from 'firebase/auth';
 import { getDatabase } from 'firebase/database';
 
 // Firebase configuration - fallback to hardcoded values if env vars are not available
+const FALLBACK_FIREBASE_API_KEY = "AIzaSyC_TqpDR7LNHxFEPd8cGjl_ka_Rj0ebECA";
+const isValidFirebaseApiKey = (value) =>
+  typeof value === "string" && /^AIza[0-9A-Za-z_-]{30,}$/.test(value.trim());
+
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyC_TqpDR7LNHxFEPd8cGjl_ka_Rj0ebECA",
+  // If an env key is present but invalid/malformed, fall back to the known-good default.
+  apiKey: isValidFirebaseApiKey(import.meta.env.VITE_FIREBASE_API_KEY)
+    ? import.meta.env.VITE_FIREBASE_API_KEY
+    : FALLBACK_FIREBASE_API_KEY,
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "zomato-607fa.firebaseapp.com",
   projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "zomato-607fa",
   appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:1065631021082:web:7424afd0ad2054ed6879a3",

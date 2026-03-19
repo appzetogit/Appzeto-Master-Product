@@ -1266,6 +1266,7 @@ export default function Cart() {
         toast.success("Order placed with Cash on Delivery")
         setPlacedOrderId(order?.orderId || order?.id || null)
         setShowOrderSuccess(true)
+        window.dispatchEvent(new CustomEvent('order-placed', { detail: { order } }))
         clearCart()
         setIsPlacingOrder(false)
         return
@@ -1276,6 +1277,7 @@ export default function Cart() {
         toast.success("Order placed with Wallet payment")
         setPlacedOrderId(order?.orderId || order?.id || null)
         setShowOrderSuccess(true)
+        window.dispatchEvent(new CustomEvent('order-placed', { detail: { order } }))
         clearCart()
         setIsPlacingOrder(false)
         // Refresh wallet balance
@@ -1363,6 +1365,7 @@ export default function Cart() {
               })
               setPlacedOrderId(order.orderId)
               setShowOrderSuccess(true)
+              window.dispatchEvent(new CustomEvent('order-placed', { detail: { order } }))
               clearCart()
               setIsPlacingOrder(false)
             } else {

@@ -13,6 +13,8 @@ const SearchOverlay = lazy(() => import("./SearchOverlay"))
 const LocationSelectorOverlay = lazy(() => import("./LocationSelectorOverlay"))
 import BottomNavigation from "./BottomNavigation"
 import DesktopNavbar from "./DesktopNavbar"
+import OrderTrackingCard from "./OrderTrackingCard"
+import { useUserNotifications } from "../../hooks/useUserNotifications"
 
 // Create SearchOverlay context with default value
 const SearchOverlayContext = createContext({
@@ -120,6 +122,8 @@ export default function UserLayout() {
     window.scrollTo({ top: 0, left: 0, behavior: 'auto' })
   }, [location.pathname, location.search, location.hash])
 
+  useUserNotifications()
+
   // Note: Authentication checks and redirects are handled by ProtectedRoute components
   // UserLayout should not interfere with authentication redirects
 
@@ -156,6 +160,7 @@ export default function UserLayout() {
                 <main className={showBottomNav ? "md:pt-40" : ""}>
                   <Outlet />
                 </main>
+                <OrderTrackingCard hasBottomNav={showBottomNav} />
                 {showBottomNav && <BottomNavigation />}
               </LocationSelectorProvider>
             </SearchOverlayProvider>
