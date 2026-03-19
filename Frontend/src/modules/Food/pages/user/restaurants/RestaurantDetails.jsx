@@ -49,6 +49,7 @@ import { getCompanyNameAsync } from "@food/utils/businessSettings"
 import { isModuleAuthenticated } from "@food/utils/auth"
 import { getRestaurantAvailabilityStatus } from "@food/utils/restaurantAvailability"
 import fssaiLogo from "@food/assets/fssai.png"
+import { RestaurantDetailSkeleton } from "@food/components/ui/loading-skeletons"
 
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
@@ -1561,31 +1562,7 @@ function RestaurantDetailsContent() {
 
   // Show loading state
   if (loadingRestaurant) {
-    return (
-      <AnimatedPage>
-        <div className="min-h-screen bg-white dark:bg-[#0a0a0a] animate-pulse">
-          <div className="px-4 pt-3 pb-2 flex items-center justify-between">
-            <div className="h-10 w-10 rounded-full bg-gray-200 dark:bg-gray-800" />
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-24 rounded-full bg-gray-200 dark:bg-gray-800" />
-              <div className="h-10 w-10 rounded-full bg-gray-200 dark:bg-gray-800" />
-            </div>
-          </div>
-
-          <div className="px-4 pt-4 space-y-4">
-            <div className="h-8 w-3/4 rounded-lg bg-gray-200 dark:bg-gray-800" />
-            <div className="h-4 w-1/2 rounded bg-gray-200 dark:bg-gray-800" />
-            <div className="h-28 w-full rounded-2xl bg-gray-200 dark:bg-gray-800" />
-
-            <div className="space-y-3 pt-2">
-              <div className="h-24 w-full rounded-2xl bg-gray-200 dark:bg-gray-800" />
-              <div className="h-24 w-full rounded-2xl bg-gray-200 dark:bg-gray-800" />
-              <div className="h-24 w-full rounded-2xl bg-gray-200 dark:bg-gray-800" />
-            </div>
-          </div>
-        </div>
-      </AnimatedPage>
-    )
+    return <RestaurantDetailSkeleton />
   }
 
   // Show error state if restaurant not found or network error

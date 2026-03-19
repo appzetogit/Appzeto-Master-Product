@@ -1,5 +1,10 @@
 import mongoose from 'mongoose';
 import { FoodOrder, FoodSettings } from './order.model.js';
+import {
+    recordFoodOrderPaymentEvent,
+    paymentSnapshotFromOrder
+} from './foodOrderPayment.service.js';
+import { logger } from '../../../utils/logger.js';
 import { FoodUser } from '../../../core/users/user.model.js';
 import { FoodRestaurant } from '../restaurant/models/restaurant.model.js';
 import { FoodDeliveryPartner } from '../delivery/models/deliveryPartner.model.js';
@@ -419,6 +424,18 @@ export async function createOrder(userId, dto) {
 
     await order.save();
 
+    await appendOrderPaymentLedger(order, 'order_placed', {
+        recordedByRole: 'USER',
+        recordedById: new mongoose.Types.ObjectId(userId),
+        metadata: { dispatchMode, paymentMethod }
+    });
+    if (paymentMethod === 'razorpay' && order.payment?.razorpay?.orderId) {
+        await appendOrderPaymentLedger(order, 'razorpay_order_created', {
+            recordedByRole: 'SYSTEM',
+            metadata: { razorpayOrderId: order.payment.razorpay.orderId }
+        });
+    }
+
     // Real-time: notify restaurant instantly (Zomato-style).
     try {
         const io = getIO();
@@ -480,6 +497,15 @@ export async function verifyPayment(userId, dto) {
     order.payment.razorpay.signature = dto.razorpaySignature;
     pushStatusHistory(order, { byRole: 'USER', byId: userId, from: order.orderStatus, to: 'created', note: 'Payment verified' });
     await order.save();
+
+    await appendOrderPaymentLedger(order, 'online_payment_verified', {
+        recordedByRole: 'USER',
+        recordedById: new mongoose.Types.ObjectId(userId),
+        metadata: {
+            razorpayPaymentId: dto.razorpayPaymentId,
+            razorpayOrderId: dto.razorpayOrderId
+        }
+    });
 
     const settings = await getDispatchSettings();
     if (settings.dispatchMode === 'auto') {
@@ -674,12 +700,14 @@ export async function updateOrderStatusRestaurant(orderId, restaurantId, orderSt
     try {
         const io = getIO();
         if (io) {
-            console.log(`[DEBUG] Emitting status update to restaurant ${restaurantId}: ${orderStatus}`);
-            io.to(rooms.restaurant(restaurantId)).emit('order_status_update', {
+            console.log(`[DEBUG] Emitting status update to restaurant ${restaurantId} and user ${order.userId}: ${orderStatus}`);
+            const payload = {
                 orderMongoId: order._id?.toString?.(),
                 orderId: order.orderId,
                 orderStatus: order.orderStatus
-            });
+            };
+            io.to(rooms.restaurant(restaurantId)).emit('order_status_update', payload);
+            io.to(rooms.user(order.userId)).emit('order_status_update', payload);
         }
     } catch (err) {
         console.error('[DEBUG] Error emitting status update to restaurant:', err);
@@ -832,6 +860,12 @@ export async function acceptOrderDelivery(orderId, deliveryPartnerId) {
                 orderStatus: order.orderStatus,
                 dispatchStatus: order.dispatch?.status
             });
+            io.to(rooms.user(order.userId)).emit('order_status_update', {
+                orderMongoId: order._id?.toString?.(),
+                orderId: order.orderId,
+                orderStatus: order.orderStatus,
+                dispatchStatus: order.dispatch?.status
+            });
         }
     } catch {}
 
@@ -969,6 +1003,8 @@ export async function completeDelivery(orderId, deliveryPartnerId) {
     if (order.dispatch?.deliveryPartnerId?.toString() !== deliveryPartnerId.toString()) throw new ForbiddenError('Not your order');
 
     const from = order.orderStatus;
+    const prevPayStatus = order.payment.status;
+    const payMethod = order.payment.method;
     order.orderStatus = 'delivered';
     order.payment.status = 'paid'; // Mark as paid upon delivery
     order.deliveryState = {
@@ -1061,6 +1097,15 @@ export async function createCollectQr(orderId, deliveryPartnerId, customerInfo =
             }
         }
     });
+
+    const updated = await FoodOrder.findById(orderId).select('orderId userId payment pricing').lean();
+    if (updated) {
+        await appendOrderPaymentLedger(updated, 'cod_collect_qr_created', {
+            recordedByRole: 'DELIVERY_PARTNER',
+            recordedById: deliveryPartnerId,
+            metadata: { paymentLinkId: link.id, shortUrl: link.short_url }
+        });
+    }
 
     return {
         shortUrl: link.short_url,

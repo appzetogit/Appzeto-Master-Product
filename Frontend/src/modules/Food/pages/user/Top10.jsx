@@ -1,12 +1,14 @@
 import { useState, useEffect } from "react"
 import { Link, useNavigate } from "react-router-dom"
-import { ArrowLeft, Star, Clock, Bookmark, BadgePercent, Trophy, Loader2 } from "lucide-react"
+import { ArrowLeft, Star, Clock, Bookmark, BadgePercent, Trophy } from "lucide-react"
 import { Button } from "@food/components/ui/button"
 import { Card, CardContent } from "@food/components/ui/card"
 import api from "@food/api"
 import { toast } from "sonner"
 import { API_BASE_URL } from "@food/api/config"
 import OptimizedImage from "@food/components/OptimizedImage"
+import { RestaurantGridSkeleton } from "@food/components/ui/loading-skeletons"
+import { useDelayedLoading } from "@food/hooks/useDelayedLoading"
 
 // Import banner
 import top10Banner from "@food/assets/top10pagebanner.png"
@@ -21,6 +23,7 @@ export default function Top10() {
   const [top10Restaurants, setTop10Restaurants] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const showTop10Skeleton = useDelayedLoading(loading)
 
   const backendOrigin = (API_BASE_URL || "").replace(/\/api\/v1\/?$/, "")
 
@@ -104,12 +107,7 @@ export default function Top10() {
           </div>
 
           {/* Loading State */}
-          {loading && (
-            <div className="flex flex-col items-center justify-center py-20">
-              <Loader2 className="h-10 w-10 animate-spin text-gray-400" />
-              <p className="mt-4 text-gray-500 dark:text-gray-400">Loading Top 10 restaurants...</p>
-            </div>
-          )}
+          {showTop10Skeleton && <RestaurantGridSkeleton count={4} />}
 
           {/* Error State */}
           {error && !loading && (
@@ -120,7 +118,7 @@ export default function Top10() {
           )}
 
           {/* Restaurant Cards */}
-          {!loading && !error && (
+          {!showTop10Skeleton && !error && (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
               {top10Restaurants.length === 0 ? (
                 <div className="col-span-full text-center py-12">

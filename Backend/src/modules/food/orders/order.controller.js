@@ -1,5 +1,6 @@
 import { sendResponse } from '../../../utils/response.js';
 import * as orderService from './order.service.js';
+import * as foodOrderPaymentService from './foodOrderPayment.service.js';
 import {
     validateCalculateOrderDto,
     validateCreateOrderDto,
@@ -60,6 +61,18 @@ export async function getOrderByIdUserController(req, res, next) {
         const orderId = req.params.orderId;
         const order = await orderService.getOrderById(orderId, { userId });
         return sendResponse(res, 200, 'Order retrieved', { order });
+    } catch (err) {
+        next(err);
+    }
+}
+
+/** Ledger rows from `food_order_payments` (append-only audit trail) */
+export async function getOrderPaymentsUserController(req, res, next) {
+    try {
+        const userId = req.user?.userId;
+        const orderId = req.params.orderId;
+        const result = await foodOrderPaymentService.listFoodOrderPaymentsForUser(orderId, userId);
+        return sendResponse(res, 200, 'Payment history', result);
     } catch (err) {
         next(err);
     }

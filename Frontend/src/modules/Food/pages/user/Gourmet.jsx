@@ -1,12 +1,14 @@
 import { useState, useEffect } from "react"
 import { Link, useNavigate } from "react-router-dom"
-import { ArrowLeft, Star, Clock, Bookmark, BadgePercent, Loader2 } from "lucide-react"
+import { ArrowLeft, Star, Clock, Bookmark, BadgePercent } from "lucide-react"
 import { Button } from "@food/components/ui/button"
 import { Card, CardContent } from "@food/components/ui/card"
 import api from "@food/api"
 import { toast } from "sonner"
 import { API_BASE_URL } from "@food/api/config"
 import OptimizedImage from "@food/components/OptimizedImage"
+import { RestaurantGridSkeleton } from "@food/components/ui/loading-skeletons"
+import { useDelayedLoading } from "@food/hooks/useDelayedLoading"
 
 // Import banner
 import gourmetBanner from "@food/assets/groumetpagebanner.png"
@@ -21,6 +23,7 @@ export default function Gourmet() {
   const [gourmetRestaurants, setGourmetRestaurants] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const showGourmetSkeleton = useDelayedLoading(loading)
 
   const backendOrigin = (API_BASE_URL || "").replace(/\/api\/v1\/?$/, "")
 
@@ -102,16 +105,11 @@ export default function Gourmet() {
 
           {/* Restaurant Count */}
           <p className="text-xs sm:text-sm font-semibold text-gray-400 dark:text-gray-500 tracking-widest uppercase">
-            {loading ? '...' : gourmetRestaurants.length} GOURMET RESTAURANTS
+            {showGourmetSkeleton ? '...' : gourmetRestaurants.length} GOURMET RESTAURANTS
           </p>
 
           {/* Loading State */}
-          {loading && (
-            <div className="flex flex-col items-center justify-center py-20">
-              <Loader2 className="h-10 w-10 animate-spin text-gray-400" />
-              <p className="mt-4 text-gray-500 dark:text-gray-400">Loading Gourmet restaurants...</p>
-            </div>
-          )}
+          {showGourmetSkeleton && <RestaurantGridSkeleton count={4} />}
 
           {/* Error State */}
           {error && !loading && (
@@ -122,7 +120,7 @@ export default function Gourmet() {
           )}
 
           {/* Restaurant Cards */}
-          {!loading && !error && (
+          {!showGourmetSkeleton && !error && (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
               {gourmetRestaurants.length === 0 ? (
                 <div className="col-span-full text-center py-12">

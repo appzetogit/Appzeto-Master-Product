@@ -188,6 +188,10 @@ const orderSchema = new mongoose.Schema(
             type: pricingSchema,
             required: true
         },
+        /**
+         * Denormalized payment snapshot for fast reads & legacy clients.
+         * Authoritative audit trail: collection `food_order_payments` (FoodOrderPayment model).
+         */
         payment: {
             type: paymentSchema,
             required: true

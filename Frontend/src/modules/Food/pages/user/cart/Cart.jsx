@@ -769,7 +769,7 @@ export default function Cart() {
   const discount = pricing?.discount || (appliedCoupon ? Math.min(appliedCoupon.discount, subtotal * 0.5) : 0)
   const totalBeforeDiscount = subtotal + deliveryFee + platformFee + gstCharges
   const total = pricing?.total || (totalBeforeDiscount - discount)
-  const savings = pricing?.savings || (discount + (subtotal > 500 ? 32 : 0))
+  const savings = pricing?.savings ?? Math.max(0, totalBeforeDiscount - total)
   const selectedPaymentLabel =
     selectedPaymentMethod === "wallet"
       ? "Wallet"
@@ -1266,6 +1266,7 @@ export default function Cart() {
         toast.success("Order placed with Cash on Delivery")
         setPlacedOrderId(order?.orderId || order?.id || null)
         setShowOrderSuccess(true)
+        window.dispatchEvent(new CustomEvent('order-placed', { detail: { order } }))
         clearCart()
         setIsPlacingOrder(false)
         return
@@ -1276,6 +1277,7 @@ export default function Cart() {
         toast.success("Order placed with Wallet payment")
         setPlacedOrderId(order?.orderId || order?.id || null)
         setShowOrderSuccess(true)
+        window.dispatchEvent(new CustomEvent('order-placed', { detail: { order } }))
         clearCart()
         setIsPlacingOrder(false)
         // Refresh wallet balance
@@ -1363,6 +1365,7 @@ export default function Cart() {
               })
               setPlacedOrderId(order.orderId)
               setShowOrderSuccess(true)
+              window.dispatchEvent(new CustomEvent('order-placed', { detail: { order } }))
               clearCart()
               setIsPlacingOrder(false)
             } else {

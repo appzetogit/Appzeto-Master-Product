@@ -1357,15 +1357,102 @@ export const deliveryAPI = {
       { contextModule: "delivery" },
     ),
   /** Orders */
-  getOrders: (params = {}) =>
-    apiClient.get("/food/delivery/orders/available", {
-      params: { limit: 50, page: 1, ...params },
-      contextModule: "delivery",
-    }),
-  getOrderDetails: (orderId) =>
-    apiClient.get(`/food/delivery/orders/${String(orderId)}`, {
-      contextModule: "delivery",
-    }),
+  getOrders: (() => {
+    // Collapse duplicate list fetches triggered by multiple effects + StrictMode.
+    let inFlight = new Map(); // key -> Promise
+    let cache = new Map(); // key -> { at, res }
+    const CACHE_MS = 2500;
+
+    const stableKey = (p = {}) => {
+      const safe = p && typeof p === "object" ? { ...p } : {};
+      // Ensure stable ordering + defaults.
+      const normalized = { limit: 50, page: 1, ...safe };
+      // Remove cache-busters if any.
+      delete normalized._ts;
+      return JSON.stringify(
+        Object.keys(normalized)
+          .sort()
+          .reduce((acc, k) => {
+            acc[k] = normalized[k];
+            return acc;
+          }, {}),
+      );
+    };
+
+    return (params = {}) => {
+      const key = stableKey(params);
+      const now = Date.now();
+      const cached = cache.get(key);
+      if (cached && now - cached.at < CACHE_MS) return Promise.resolve(cached.res);
+
+      const existing = inFlight.get(key);
+      if (existing) return existing;
+
+      const p = apiClient
+        .get("/food/delivery/orders/available", {
+          params: { limit: 50, page: 1, ...params },
+          contextModule: "delivery",
+        })
+        .then((res) => {
+          cache.set(key, { at: Date.now(), res });
+          return res;
+        })
+        .finally(() => {
+          inFlight.delete(key);
+        });
+
+      inFlight.set(key, p);
+      return p;
+    };
+  })(),
+  getOrderDetails: (() => {
+    // Collapse duplicate calls coming from multiple effects (and React StrictMode in dev).
+    let inFlight = new Map(); // key -> Promise
+    let cache = new Map(); // key -> { at, res }
+    const CACHE_MS = 1200;
+
+    const isProbablyOrderIdentity = (value) => {
+      const raw = String(value || "").trim();
+      if (!raw) return false;
+      // Mongo ObjectId OR our display orderId (FOD-xxxxxx)
+      if (/^[a-f0-9]{24}$/i.test(raw)) return true;
+      if (/^FOD-[A-Z0-9]{4,}$/i.test(raw)) return true;
+      return false;
+    };
+
+    return (orderId) => {
+      const key = String(orderId || "").trim();
+      if (!isProbablyOrderIdentity(key)) {
+        return Promise.resolve({
+          data: { success: false, message: "Invalid order id", data: null },
+          status: 200,
+          statusText: "OK",
+          headers: {},
+          config: {},
+        });
+      }
+
+      const now = Date.now();
+      const cached = cache.get(key);
+      if (cached && now - cached.at < CACHE_MS) return Promise.resolve(cached.res);
+
+      const existing = inFlight.get(key);
+      if (existing) return existing;
+
+      const p = apiClient
+        .get(`/food/delivery/orders/${key}`, { contextModule: "delivery" })
+        .then((res) => {
+          cache.set(key, { at: Date.now(), res });
+          return res;
+        })
+        .finally(() => {
+          inFlight.delete(key);
+        });
+
+      inFlight.set(key, p);
+      return p;
+    };
+  })(),
   /** GET /food/delivery/current - fallback for some UI hooks */
   getCurrentDelivery: () =>
     getDeliveryMeOnce(),

@@ -1,18 +1,13 @@
 import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { Suspense, lazy, useEffect } from 'react'
+import { AppShellSkeleton } from '@food/components/ui/loading-skeletons'
 
 // Lazy load the Food service module (Quick-spicy app)
 const FoodApp = lazy(() => import('../modules/Food/routes'))
 const AuthApp = lazy(() => import('../modules/auth/routes'))
 import ProtectedRoute from '@food/components/ProtectedRoute'
 
-// Simple loader fallback
-const PageLoader = () => (
-  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh' }}>
-    <div style={{ width: 40, height: 40, border: '3px solid #f3f3f3', borderTop: '3px solid #e63946', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
-    <style>{`@keyframes spin { 0% { transform: rotate(0deg) } 100% { transform: rotate(360deg) } }`}</style>
-  </div>
-)
+const PageLoader = () => <AppShellSkeleton />
 
 /**
  * FoodAppWrapper — Quick-spicy App. को /food prefix के साथ render करता है.

@@ -38,7 +38,8 @@ function getAccessToken(config) {
   const module = getModuleFromConfig(config);
   const key = `${module}_accessToken`;
   try {
-    return localStorage.getItem(key) || localStorage.getItem("accessToken") || null;
+    // Prefer module-scoped tokens only (prevents wrong-role token leakage).
+    return localStorage.getItem(key) || null;
   } catch {
     return null;
   }
@@ -83,7 +84,6 @@ function onRefreshFailed(module) {
 
 apiClient.interceptors.request.use(
   (config) => {
-    if (!baseURL) return config;
     config.contextModule = getModuleFromConfig(config);
 
     // If sending FormData, let the browser set proper multipart boundary.
@@ -133,11 +133,10 @@ apiClient.interceptors.response.use(
     isRefreshing = true;
 
     try {
-      const { data } = await axios.post(
-        `${baseURL}/food/auth/refresh-token`,
-        { refreshToken },
-        { headers: { "Content-Type": "application/json" }, timeout: 10000 }
-      );
+      // Use relative URL so this works both with an explicit baseURL and with a dev proxy.
+      // Use plain axios to avoid interceptor recursion.
+      const refreshUrl = baseURL ? `${baseURL}/food/auth/refresh-token` : "/food/auth/refresh-token";
+      const { data } = await axios.post(refreshUrl, { refreshToken }, { timeout: 10000 });
       const newAccessToken = data?.data?.accessToken || data?.accessToken;
       if (newAccessToken) {
         try {

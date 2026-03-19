@@ -59,7 +59,14 @@ export function useNewOrderAcceptSwipe({
       setNewOrderIsAnimatingToComplete(false);
       setNewOrderAcceptButtonProgress(0);
     },
-    [],
+    [
+      isAcceptingNewOrderRef,
+      newOrderAcceptButtonSwipeStartX,
+      newOrderAcceptButtonSwipeStartY,
+      newOrderAcceptButtonIsSwiping,
+      setNewOrderIsAnimatingToComplete,
+      setNewOrderAcceptButtonProgress,
+    ],
   );
 
   const handleNewOrderAcceptTouchMove = useCallback(
@@ -80,7 +87,14 @@ export function useNewOrderAcceptSwipe({
         setNewOrderAcceptButtonProgress(progress);
       }
     },
-    [],
+    [
+      isAcceptingNewOrderRef,
+      newOrderAcceptButtonSwipeStartX,
+      newOrderAcceptButtonSwipeStartY,
+      newOrderAcceptButtonIsSwiping,
+      newOrderAcceptButtonRef,
+      setNewOrderAcceptButtonProgress,
+    ],
   );
 
   const handleNewOrderAcceptTouchEnd = useCallback(
@@ -357,7 +371,47 @@ export function useNewOrderAcceptSwipe({
       newOrderAcceptButtonSwipeStartY.current = 0;
       newOrderAcceptButtonIsSwiping.current = false;
     },
-    [],
+    [
+      isAcceptingNewOrderRef,
+      newOrderAcceptButtonSwipeStartX,
+      newOrderAcceptButtonSwipeStartY,
+      newOrderAcceptButtonIsSwiping,
+      newOrderAcceptButtonRef,
+      setIsAcceptingNewOrder,
+      setNewOrderIsAnimatingToComplete,
+      setNewOrderAcceptButtonProgress,
+      alertAudioRef,
+      debugLog,
+      debugWarn,
+      debugError,
+      toast,
+      selectedRestaurant,
+      newOrder,
+      riderLocation,
+      lastLocationRef,
+      deliveryAPI,
+      calculateRouteWithDirectionsAPI,
+      updateLiveTrackingPolyline,
+      directionsResponse,
+      setDirectionsResponse,
+      directionsResponseRef,
+      pickupRouteDistanceRef,
+      pickupRouteTimeRef,
+      setRoutePolyline,
+      setSelectedRestaurant,
+      acceptedOrderIdsRef,
+      clearNewOrder,
+      setShowNewOrderPopup,
+      setIsNewOrderPopupMinimized,
+      setNewOrderDragY,
+      setShowRoutePath,
+      setShowDirectionsMap,
+      directionsRendererRef,
+      routePolylineRef,
+      createRestaurantMapMarker,
+      DELIVERY_ACTIVE_ORDER_KEY,
+      setShowreachedPickupPopup,
+    ],
   );
 
   const handleNewOrderAcceptTouchCancel = useCallback(() => {
@@ -367,7 +421,14 @@ export function useNewOrderAcceptSwipe({
     newOrderAcceptButtonIsSwiping.current = false;
     setNewOrderAcceptButtonProgress(0);
     setNewOrderIsAnimatingToComplete(false);
-  }, []);
+  }, [
+    isAcceptingNewOrderRef,
+    newOrderAcceptButtonSwipeStartX,
+    newOrderAcceptButtonSwipeStartY,
+    newOrderAcceptButtonIsSwiping,
+    setNewOrderAcceptButtonProgress,
+    setNewOrderIsAnimatingToComplete,
+  ]);
 
   return {
     handleNewOrderAcceptTouchStart,

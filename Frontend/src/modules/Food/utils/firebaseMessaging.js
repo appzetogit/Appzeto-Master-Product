@@ -553,7 +553,7 @@ function attachServiceWorkerMessageListener() {
         return;
       }
       pushDebugLog(PUSH_DEBUG_PREFIX, "Received service worker message in page", { payload: data.payload });
-      showForegroundNotification(data.payload);
+      scheduleForegroundNotification(data.payload);
     });
   }
 
@@ -564,7 +564,7 @@ function attachServiceWorkerMessageListener() {
       return;
     }
     pushDebugLog(PUSH_DEBUG_PREFIX, "Received native push event", { payload });
-    showForegroundNotification(payload);
+    scheduleForegroundNotification(payload);
   });
 
   window.addEventListener("message", (event) => {
@@ -576,10 +576,25 @@ function attachServiceWorkerMessageListener() {
       return;
     }
     pushDebugLog(PUSH_DEBUG_PREFIX, "Received native postMessage push event", { payload: data.payload });
-    showForegroundNotification(data.payload);
+    scheduleForegroundNotification(data.payload);
   });
 
   serviceWorkerMessageListenerAttached = true;
+}
+
+function scheduleForegroundNotification(payload) {
+  // Keep message handlers fast to avoid Chrome [Violation] warnings.
+  // Defer heavier work (toast, audio) to idle time / next tick.
+  const run = () => showForegroundNotification(payload);
+  try {
+    if (typeof window !== "undefined" && typeof window.requestIdleCallback === "function") {
+      window.requestIdleCallback(run, { timeout: 1000 });
+      return;
+    }
+  } catch {
+    // ignore
+  }
+  setTimeout(run, 0);
 }
 
 export function initPushNotificationClient() {
@@ -616,7 +631,7 @@ async function attachForegroundListener(firebaseAppInstance) {
 
   onMessage(messaging, (payload) => {
     pushDebugLog(PUSH_DEBUG_PREFIX, "Received Firebase foreground message", { payload });
-    showForegroundNotification(payload);
+    scheduleForegroundNotification(payload);
   });
 
   foregroundListenerAttached = true;
