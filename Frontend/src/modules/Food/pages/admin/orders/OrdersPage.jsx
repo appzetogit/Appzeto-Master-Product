@@ -12,6 +12,8 @@ import SettingsDialog from "@food/components/admin/orders/SettingsDialog"
 import RefundModal from "@food/components/admin/orders/RefundModal"
 import { useOrdersManagement } from "@food/components/admin/orders/useOrdersManagement"
 import { Loader2 } from "lucide-react"
+import { OrdersDashboardSkeleton } from "@food/components/ui/loading-skeletons"
+import { useDelayedLoading } from "@food/hooks/useDelayedLoading"
 import alertSound from "@food/assets/audio/alert.mp3"
 import originalSound from "@food/assets/audio/original.mp3"
 const debugLog = (...args) => {}
@@ -44,6 +46,7 @@ export default function OrdersPage({ statusKey = "all" }) {
   const [deletingOrderId, setDeletingOrderId] = useState(null)
   const [refundModalOpen, setRefundModalOpen] = useState(false)
   const [selectedOrderForRefund, setSelectedOrderForRefund] = useState(null)
+  const showLoadingSkeleton = useDelayedLoading(isLoading, { delay: 120, minDuration: 360 })
   const seenOrderIdsRef = useRef(new Set())
   const isFirstLoadRef = useRef(true)
   const fallbackAudioRef = useRef(null)
@@ -728,13 +731,10 @@ export default function OrdersPage({ statusKey = "all" }) {
     resetColumns,
   } = useOrdersManagement(normalizedOrders, statusKey, config.title)
 
-  if (isLoading) {
+  if (showLoadingSkeleton) {
     return (
-      <div className="p-4 lg:p-6 bg-slate-50 min-h-screen w-full max-w-full overflow-x-hidden flex items-center justify-center">
-        <div className="flex flex-col items-center gap-4">
-          <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
-          <p className="text-gray-600">Loading orders...</p>
-        </div>
+      <div className="min-h-screen w-full max-w-full overflow-x-hidden bg-slate-50 p-4 lg:p-6">
+        <OrdersDashboardSkeleton />
       </div>
     )
   }

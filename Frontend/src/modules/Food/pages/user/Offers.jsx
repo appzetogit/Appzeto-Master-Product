@@ -1,10 +1,12 @@
 import { useState, useEffect } from "react"
 import { Link, useNavigate } from "react-router-dom"
-import { ArrowLeft, Star, Clock, Loader2 } from "lucide-react"
+import { ArrowLeft, Star, Clock } from "lucide-react"
 import { Button } from "@food/components/ui/button"
 import { Card, CardContent } from "@food/components/ui/card"
 import { restaurantAPI } from "@food/api"
 import { toast } from "sonner"
+import { RestaurantGridSkeleton } from "@food/components/ui/loading-skeletons"
+import { useDelayedLoading } from "@food/hooks/useDelayedLoading"
 
 // Import banner image
 import offerBanner from "@food/assets/offerpagebanner.png"
@@ -19,6 +21,7 @@ export default function Offers() {
   const [groupedOffers, setGroupedOffers] = useState({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const showOffersSkeleton = useDelayedLoading(loading)
 
   // Fetch offers from API
   useEffect(() => {
@@ -73,12 +76,7 @@ export default function Offers() {
       <div className="px-4 sm:px-6 md:px-8 lg:px-10 py-6 md:py-8 lg:py-10 space-y-6 md:space-y-8">
         <div className="max-w-7xl mx-auto space-y-6 md:space-y-8">
         {/* Loading State */}
-        {loading && (
-          <div className="flex flex-col items-center justify-center py-20">
-            <Loader2 className="h-10 w-10 animate-spin text-gray-400" />
-            <p className="mt-4 text-gray-500 dark:text-gray-400">Loading offers...</p>
-          </div>
-        )}
+        {showOffersSkeleton && <RestaurantGridSkeleton count={4} compact />}
 
         {/* Error State */}
         {error && !loading && (
@@ -89,7 +87,7 @@ export default function Offers() {
         )}
 
         {/* Offers Sections */}
-        {!loading && !error && (
+        {!showOffersSkeleton && !error && (
           <>
             {/* Grouped Offers Sections */}
             {Object.keys(groupedOffers).length > 0 && Object.entries(groupedOffers).map(([offerText, dishes]) => (

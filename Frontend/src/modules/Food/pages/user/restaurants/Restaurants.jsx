@@ -1,17 +1,19 @@
 import { useEffect, useMemo, useState } from "react"
 import { Link } from "react-router-dom"
-import { ArrowLeft, Clock, MapPin, Heart, Star, Loader2 } from "lucide-react"
+import { ArrowLeft, Clock, MapPin, Heart, Star } from "lucide-react"
 import AnimatedPage from "@food/components/user/AnimatedPage"
 import Footer from "@food/components/user/Footer"
 import ScrollReveal from "@food/components/user/ScrollReveal"
 import TextReveal from "@food/components/user/TextReveal"
 import { Card, CardTitle, CardContent } from "@food/components/ui/card"
 import { Button } from "@food/components/ui/button"
+import { RestaurantGridSkeleton } from "@food/components/ui/loading-skeletons"
 import { useProfile } from "@food/context/ProfileContext"
 import { useZone } from "@food/hooks/useZone"
 import { useLocation } from "@food/hooks/useLocation"
 import { restaurantAPI } from "@food/api"
 import { API_BASE_URL } from "@food/api/config"
+import { useDelayedLoading } from "@food/hooks/useDelayedLoading"
 
 const BACKEND_ORIGIN = API_BASE_URL.replace(/\/api\/?$/, "")
 
@@ -45,6 +47,7 @@ export default function Restaurants() {
   const { zoneId } = useZone(userLocation)
   const [restaurants, setRestaurants] = useState([])
   const [loading, setLoading] = useState(true)
+  const showRestaurantsSkeleton = useDelayedLoading(loading)
 
   useEffect(() => {
     let cancelled = false
@@ -124,10 +127,8 @@ export default function Restaurants() {
           </div>
         </ScrollReveal>
 
-        {loading ? (
-          <div className="py-20 flex items-center justify-center">
-            <Loader2 className="h-8 w-8 animate-spin text-orange-500" />
-          </div>
+        {showRestaurantsSkeleton ? (
+          <RestaurantGridSkeleton count={4} />
         ) : !hasRestaurants ? (
           <div className="py-16 text-center text-sm text-gray-500">No restaurants available right now.</div>
         ) : (

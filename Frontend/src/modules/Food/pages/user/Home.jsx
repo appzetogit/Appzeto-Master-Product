@@ -5,9 +5,9 @@ import React, {
   useState,
   useMemo,
   useCallback,
+  startTransition,
 } from "react";
 import { createPortal } from "react-dom";
-import Lenis from "lenis";
 import {
   Star,
   Clock,
@@ -42,6 +42,13 @@ import Footer from "@food/components/user/Footer";
 import AddToCartButton from "@food/components/user/AddToCartButton";
 import StickyCartCard from "@food/components/user/StickyCartCard";
 import OrderTrackingCard from "@food/components/user/OrderTrackingCard";
+import {
+  CategoryChipRowSkeleton,
+  ExploreGridSkeleton,
+  HeroBannerSkeleton,
+  LoadingSkeletonRegion,
+  RestaurantGridSkeleton,
+} from "@food/components/ui/loading-skeletons";
 import { useProfile } from "@food/context/ProfileContext";
 import { useCart } from "@food/context/CartContext";
 import { HorizontalCarousel } from "@food/components/ui/horizontal-carousel";
@@ -85,6 +92,7 @@ import api, { publicGetOnce, restaurantAPI, adminAPI } from "@food/api";
 import { API_BASE_URL } from "@food/api/config";
 import OptimizedImage from "@food/components/OptimizedImage";
 import { getRestaurantAvailabilityStatus } from "@food/utils/restaurantAvailability";
+import { useDelayedLoading } from "@food/hooks/useDelayedLoading";
 // Explore More Icons
 import exploreOffers from "@food/assets/explore more icons/offers.png";
 import exploreGourmet from "@food/assets/explore more icons/gourmet.png";
@@ -409,7 +417,7 @@ export default function Home() {
   const [loadingRealCategories, setLoadingRealCategories] = useState(true);
   const [menuCategories, setMenuCategories] = useState([]);
   const [loadingMenuCategories, setLoadingMenuCategories] = useState(false);
-  const [restaurantDietMeta, setRestaurantDietMeta] = useState({});
+  const [, setRestaurantDietMeta] = useState({});
   const [showAllCategoriesModal, setShowAllCategoriesModal] = useState(false);
   const [availabilityTick, setAvailabilityTick] = useState(Date.now());
   const publicCategoriesCacheRef = useRef(new Map());
@@ -916,27 +924,6 @@ export default function Home() {
     };
   }, [startHeroBannerAutoSlide]);
 
-  // Lenis smooth scrolling initialization
-  useEffect(() => {
-    const lenis = new Lenis({
-      duration: 1.2,
-      easing: (t) => Math.min(1, 1.001 - Math.pow(2, -10 * t)),
-      smoothWheel: true,
-      smoothTouch: true,
-    });
-
-    function raf(time) {
-      lenis.raf(time);
-      requestAnimationFrame(raf);
-    }
-
-    requestAnimationFrame(raf);
-
-    return () => {
-      lenis.destroy();
-    };
-  }, []);
-
   // Helper function to reset auto-slide timer
   const resetAutoSlide = useCallback(() => {
     startHeroBannerAutoSlide();
@@ -1044,6 +1031,15 @@ export default function Home() {
   const [activeFilterTab, setActiveFilterTab] = useState("sort");
   const categoryScrollRef = useRef(null);
   const gsapAnimationsRef = useRef([]);
+  const showBannerSkeleton = useDelayedLoading(loadingBanners);
+  const showCategorySkeleton = useDelayedLoading(
+    loadingRealCategories || loadingMenuCategories,
+  );
+  const showExploreSkeleton = useDelayedLoading(loadingLandingConfig);
+  const showRestaurantSkeleton = useDelayedLoading(
+    isLoadingFilterResults || loadingRestaurants,
+    { delay: 140, minDuration: 360 },
+  );
   // Safely get profile context - handle case when ProfileProvider is not available
   let profileContext = null;
   try {
@@ -1378,8 +1374,6 @@ export default function Home() {
         // Backend treats zoneId as a hard filter (only restaurants in that zone / polygon),
         // but homepage UX is "show all restaurants; optionally style out-of-zone".
         // If in future you add an explicit "Show only my zone" toggle, then pass params.zoneId.
-        // Avoid stale API cache in WebView after admin image updates.
-        params._ts = Date.now();
         // Note: We show all restaurants regardless of zone, but apply grayscale styling if user is out of service
 
         debugLog("Fetching restaurants with params:", params);
@@ -1546,6 +1540,7 @@ export default function Home() {
                 offer: offerText,
                 slug: restaurant.slug,
                 restaurantId: restaurant.restaurantId,
+                pureVegRestaurant: restaurant.pureVegRestaurant === true,
                 location: restaurant.location, // Store location for distance recalculation
                 isActive: restaurant.isActive !== false, // Default to true if not specified
                 isAcceptingOrders: restaurant.isAcceptingOrders !== false, // Default to true if not specified
@@ -1558,35 +1553,9 @@ export default function Home() {
             },
           );
 
-          // Load outlet timings for each restaurant (source of truth for open/close window)
-          const restaurantsWithOutletTimings = await Promise.all(
-            transformedRestaurants.map(async (restaurant) => {
-              try {
-                if (!restaurant.mongoId) return restaurant;
-                const outletResponse =
-                  await restaurantAPI.getOutletTimingsByRestaurantId(
-                    restaurant.mongoId,
-                  );
-                const outletTimings =
-                  outletResponse?.data?.data?.outletTimings ||
-                  outletResponse?.data?.outletTimings ||
-                  null;
-                return {
-                  ...restaurant,
-                  outletTimings:
-                    outletTimings || restaurant.outletTimings || null,
-                };
-              } catch (_) {
-                return restaurant;
-              }
-            }),
-          );
-
-          if (requestSeq !== restaurantsRequestSeqRef.current) return;
-
-          // Sort restaurants by distance (nearby first) - only if user location is available
-          if (userLat && userLng) {
-            restaurantsWithOutletTimings.sort((a, b) => {
+          const sortRestaurantsForDisplay = (restaurants) => {
+            if (!userLat || !userLng) return restaurants;
+            return [...restaurants].sort((a, b) => {
               // Available restaurants first, then unavailable
               const aAvailable = getRestaurantAvailabilityStatus(
                 a,
@@ -1610,13 +1579,70 @@ export default function Home() {
                 b.distanceInKm !== null ? b.distanceInKm : Infinity;
               return aDistance - bDistance;
             });
-          }
+          };
 
           debugLog(
             "Transformed and sorted restaurants:",
-            restaurantsWithOutletTimings,
+            transformedRestaurants,
           );
-          setRestaurantsData(restaurantsWithOutletTimings);
+          startTransition(() => {
+            setRestaurantsData(sortRestaurantsForDisplay(transformedRestaurants));
+          });
+
+          const restaurantsNeedingOutletTimings = transformedRestaurants.filter(
+            (restaurant) => restaurant.mongoId && !restaurant.outletTimings,
+          );
+
+          if (restaurantsNeedingOutletTimings.length > 0) {
+            void (async () => {
+              const resolvedOutletTimings = new Map();
+
+              for (const restaurant of restaurantsNeedingOutletTimings) {
+                try {
+                  const outletResponse =
+                    await restaurantAPI.getOutletTimingsByRestaurantId(
+                      restaurant.mongoId,
+                    );
+                  const outletTimings =
+                    outletResponse?.data?.data?.outletTimings ||
+                    outletResponse?.data?.outletTimings ||
+                    null;
+
+                  if (outletTimings) {
+                    resolvedOutletTimings.set(restaurant.mongoId, outletTimings);
+                  }
+                } catch (_) {
+                  // Keep the existing restaurant data if enrichment fails.
+                }
+              }
+
+              if (
+                requestSeq !== restaurantsRequestSeqRef.current ||
+                resolvedOutletTimings.size === 0
+              ) {
+                return;
+              }
+
+              startTransition(() => {
+                setRestaurantsData((currentRestaurants) => {
+                  let hasChanges = false;
+                  const nextRestaurants = currentRestaurants.map((restaurant) => {
+                    if (!restaurant.mongoId) return restaurant;
+                    const outletTimings = resolvedOutletTimings.get(
+                      restaurant.mongoId,
+                    );
+                    if (!outletTimings) return restaurant;
+                    hasChanges = true;
+                    return { ...restaurant, outletTimings };
+                  });
+
+                  return hasChanges
+                    ? sortRestaurantsForDisplay(nextRestaurants)
+                    : currentRestaurants;
+                });
+              });
+            })();
+          }
         } else {
           debugWarn("Invalid API response structure:", response.data);
           setRestaurantsData([]);
@@ -1750,23 +1776,21 @@ export default function Home() {
   }, [location?.latitude, location?.longitude]);
 
   // IMPORTANT:
-  // Homepage must NOT call /food/restaurant/restaurants/:id/menu for every restaurant (N+1 requests).
-  // That is expensive and triggers 429 rate limiting. Menus should load only on the restaurant details screen.
-  //
-  // For homepage filters (veg mode / categories), we fall back gracefully:
-  // - Menu categories: empty (UI can still show explore sections)
-  // - Veg mode: if we don't have per-restaurant diet meta, don't hide restaurants.
+  // Homepage should avoid eager N+1 menu requests. We only resolve menu metadata
+  // when the UI truly needs it: Veg Mode is enabled, or admin categories are unavailable.
   useEffect(() => {
     const restaurantIds = menuUnionRestaurantIdsKey
       ? menuUnionRestaurantIdsKey.split(",").filter(Boolean)
       : [];
+    const shouldFetchMenuMeta = vegMode || realCategories.length === 0;
 
     const fetchMenuCategories = async () => {
       const requestSeq = ++menuUnionRequestSeqRef.current;
 
-      if (!menuUnionRestaurantIdsKey) {
+      if (!menuUnionRestaurantIdsKey || !shouldFetchMenuMeta) {
         setMenuCategories([]);
         setRestaurantDietMeta({});
+        setLoadingMenuCategories(false);
         return;
       }
 
@@ -1774,26 +1798,33 @@ export default function Home() {
       try {
         const categoryMap = new Map();
         const menuCache = menuUnionCacheRef.current;
+        const menuResponses = [];
 
-        const menuResponses = await Promise.all(
-          restaurantIds.map(async (id) => {
-            if (!id) return { id: null, menu: null };
+        for (let index = 0; index < restaurantIds.length; index += 4) {
+          const batchIds = restaurantIds.slice(index, index + 4);
+          const batchResponses = await Promise.all(
+            batchIds.map(async (id) => {
+              if (!id) return { id: null, menu: null };
 
-            if (menuCache.has(id)) {
-              return { id, menu: menuCache.get(id) };
-            }
+              if (menuCache.has(id)) {
+                return { id, menu: menuCache.get(id) };
+              }
 
-            try {
-              const response = await restaurantAPI.getMenuByRestaurantId(id);
-              const menu = response?.data?.data?.menu || null;
-              menuCache.set(id, menu);
-              return { id, menu };
-            } catch {
-              menuCache.set(id, null);
-              return { id, menu: null };
-            }
-          }),
-        );
+              try {
+                const response = await restaurantAPI.getMenuByRestaurantId(id);
+                const menu = response?.data?.data?.menu || null;
+                menuCache.set(id, menu);
+                return { id, menu };
+              } catch {
+                menuCache.set(id, null);
+                return { id, menu: null };
+              }
+            }),
+          );
+
+          if (requestSeq !== menuUnionRequestSeqRef.current) return;
+          menuResponses.push(...batchResponses);
+        }
 
         if (requestSeq !== menuUnionRequestSeqRef.current) return;
 
@@ -1905,22 +1936,20 @@ export default function Home() {
     };
 
     fetchMenuCategories();
-  }, [menuUnionRestaurantIdsKey, normalizeImageUrl, slugifyCategory]);
+  }, [
+    menuUnionRestaurantIdsKey,
+    normalizeImageUrl,
+    realCategories.length,
+    slugifyCategory,
+    vegMode,
+  ]);
 
   const matchesVegMode = useCallback(
     (restaurant) => {
       if (!vegMode) return true;
-
-      const key = String(restaurant?.restaurantId || restaurant?.id || "");
-      const dietMeta = restaurantDietMeta[key];
-      if (!dietMeta) return true;
-
-      if (vegModeOption === "pure-veg") {
-        return dietMeta.isPureVeg;
-      }
-      return dietMeta.hasVeg;
+      return restaurant?.pureVegRestaurant === true;
     },
-    [vegMode, vegModeOption, restaurantDietMeta],
+    [vegMode],
   );
 
   // Filter restaurants and foods based on active filters
@@ -2084,6 +2113,7 @@ export default function Home() {
         images: imageCandidates.length > 0 ? imageCandidates : [foodImages[0]],
         slug: restaurant?.slug || restaurant?.restaurantId || restaurantId,
         offer: null,
+        pureVegRestaurant: restaurant?.pureVegRestaurant === true,
         isActive: true,
         isAcceptingOrders: true,
       };
@@ -2441,12 +2471,9 @@ export default function Home() {
           onMouseLeave={
             heroBannerImages.length > 0 ? handleMouseUp : undefined
           }>
-          {loadingBanners ? (
-            <div className="absolute inset-0 z-0 bg-gray-100 dark:bg-gray-900 flex items-center justify-center">
-              <div className="text-gray-500 text-center">
-                <Loader2 className="w-8 h-8 animate-spin mx-auto mb-2" />
-                <p className="text-sm">Loading banners...</p>
-              </div>
+          {showBannerSkeleton ? (
+            <div className="absolute inset-0 z-0 p-4 sm:p-5">
+              <HeroBannerSkeleton className="h-full rounded-[32px]" />
             </div>
           ) : heroBannerImages.length > 0 ? (
             <div className="absolute inset-0 z-0 bg-gray-100">
@@ -2687,10 +2714,8 @@ export default function Home() {
                   </div>
                 </div>
               </motion.div>
-              {loadingRealCategories || loadingMenuCategories ? (
-                <div className="flex items-center justify-center py-4">
-                  <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
-                </div>
+              {showCategorySkeleton ? (
+                <CategoryChipRowSkeleton className="py-2" />
               ) : displayCategories.length > 0 ? (
                 <>
                   {/* Show only first 10 categories */}
@@ -2844,7 +2869,7 @@ export default function Home() {
 
           {recommendedForYouRestaurants.length > 0 && (
             <motion.section
-              className="pt-1 sm:pt-2"
+              className="content-auto pt-1 sm:pt-2"
               initial={{ opacity: 0, y: 20 }}
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true, margin: "-50px" }}
@@ -2903,7 +2928,7 @@ export default function Home() {
 
           {/* Explore More Section */}
           <motion.section
-            className="pt-2 sm:pt-3 lg:pt-4"
+            className="content-auto pt-2 sm:pt-3 lg:pt-4"
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true, margin: "-50px" }}
@@ -2922,10 +2947,8 @@ export default function Home() {
                 scrollbarWidth: "none",
                 msOverflowStyle: "none",
               }}>
-              {loadingLandingConfig ? (
-                <div className="flex items-center justify-center py-4">
-                  <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
-                </div>
+              {showExploreSkeleton ? (
+                <ExploreGridSkeleton />
               ) : (
                 finalExploreItems.map((item, index) => (
                   <motion.div
@@ -2972,7 +2995,7 @@ export default function Home() {
 
           {/* Restaurants - Enhanced with Animations */}
           <motion.section
-            className="space-y-0 pt-3 sm:pt-4 lg:pt-6 pb-8 md:pb-10"
+            className="content-auto space-y-0 pt-3 sm:pt-4 lg:pt-6 pb-8 md:pb-10"
             initial={{ opacity: 0 }}
             whileInView={{ opacity: 1 }}
             viewport={{ once: true, margin: "-100px" }}
@@ -2995,22 +3018,20 @@ export default function Home() {
             <div className="relative">
               {/* Loading Overlay */}
               <AnimatePresence>
-                {(isLoadingFilterResults || loadingRestaurants) && (
+                {showRestaurantSkeleton && (
                   <motion.div
-                    className="absolute inset-0 bg-white/80 dark:bg-[#1a1a1a]/80 backdrop-blur-sm z-10 flex items-center justify-center rounded-lg min-h-[400px]"
+                    className="absolute inset-0 z-10 rounded-lg bg-white/94 dark:bg-[#1a1a1a]/94"
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
-                    transition={{ duration: 0.3 }}>
-                    <div className="flex flex-col items-center gap-3">
-                      <Loader2
-                        className="h-8 w-8 text-green-600 animate-spin"
-                        strokeWidth={2.5}
+                    transition={{ duration: 0.25 }}>
+                    <LoadingSkeletonRegion label="Loading restaurants" className="h-full p-1 sm:p-2">
+                      <RestaurantGridSkeleton
+                        count={3}
+                        className="grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3"
+                        compact
                       />
-                      <span className="text-sm font-medium text-gray-700 dark:text-white">
-                        Loading restaurants...
-                      </span>
-                    </div>
+                    </LoadingSkeletonRegion>
                   </motion.div>
                 )}
               </AnimatePresence>
