@@ -707,6 +707,7 @@ export default function DeliveryHome() {
     debugError,
     toast,
     isOnlineRef,
+    activeOrderId: selectedRestaurant?._id || selectedRestaurant?.id || null,
   })
   const deliveryOtpInputRefs = useRef([])
   const deliveryOtpSingleInputRef = useRef(null)

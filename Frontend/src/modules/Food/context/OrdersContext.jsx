@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useMemo } from "react"
+import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from "react"
 
 const OrdersContext = createContext(null)
 
@@ -38,15 +38,15 @@ export function OrdersProvider({ children }) {
     return newOrder.id
   }
 
-  const getOrderById = (orderId) => {
+  const getOrderById = useCallback((orderId) => {
     return orders.find(order => order.id === orderId)
-  }
+  }, [orders])
 
-  const getAllOrders = () => {
+  const getAllOrders = useCallback(() => {
     return [...orders].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
-  }
+  }, [orders])
 
-  const updateOrderStatus = (orderId, status) => {
+  const updateOrderStatus = useCallback((orderId, status) => {
     setOrders((prevOrders) => prevOrders.map(order => {
       if (order.id === orderId) {
         const updatedTracking = { ...order.tracking }
@@ -65,7 +65,7 @@ export function OrdersProvider({ children }) {
       }
       return order
     }))
-  }
+  }, [])
 
   const value = useMemo(() => ({
     orders,

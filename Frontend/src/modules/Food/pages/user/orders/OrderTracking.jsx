@@ -1,5 +1,5 @@
 import { useParams, Link, useSearchParams } from "react-router-dom"
-import { useState, useEffect, useMemo, useRef } from "react"
+import { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import { toast } from "sonner"
 import {
@@ -624,195 +624,69 @@ export default function OrderTracking() {
   }, [isEditWindowOpen])
 
   // Poll for order updates (especially when delivery partner accepts)
-  // Only poll if delivery partner is not yet assigned to avoid unnecessary updates
+  // Re-run poll if orderId changes. Status changes are handled inside the interval.
   useEffect(() => {
-    if (!orderId || !order) return;
+    if (!orderId) return;
 
-    // Skip polling if delivery partner is already assigned and accepted
-    const currentDeliveryStatus = order?.deliveryState?.status;
-    const currentPhase = order?.deliveryState?.currentPhase;
-    const hasDeliveryPartner = currentDeliveryStatus === 'accepted' ||
-      currentPhase === 'en_route_to_pickup' ||
-      currentPhase === 'at_pickup' ||
-      currentPhase === 'en_route_to_delivery';
+    let isSubscribed = true;
+    let requestInProgress = false;
 
-    // Zomato-style fallback: still poll during live delivery, but not too aggressively.
-    // This prevents stale UI if socket momentarily disconnects.
-    const pollInterval = hasDeliveryPartner ? 15000 : 5000;
+    const poll = async () => {
+      // Don't poll if component unmounted or request already in flight
+      if (!isSubscribed || requestInProgress) return;
 
-    const interval = setInterval(async () => {
+      requestInProgress = true;
       try {
         const response = await orderAPI.getOrderDetails(orderId);
+        if (!isSubscribed) return;
+
         if (response.data?.success && response.data.data?.order) {
           const apiOrder = response.data.data.order;
-
-          // Check if delivery state changed (e.g., status became 'accepted')
-          const newDeliveryStatus = apiOrder.deliveryState?.status;
-          const newPhase = apiOrder.deliveryState?.currentPhase;
-          const newOrderStatus = apiOrder.status;
-          const currentOrderStatus = order?.status;
-
-          // Check if order was cancelled
-          if (newOrderStatus === 'cancelled' && currentOrderStatus !== 'cancelled') {
-            setOrderStatus('cancelled');
-          }
-
-          debugLog('?? Polling order sync:', {
-            oldStatus: currentDeliveryStatus,
-            newStatus: newDeliveryStatus,
-            oldPhase: currentPhase,
-            newPhase,
-            orderStatus: newOrderStatus
+          
+          setOrder(prev => {
+             // Use functional update to check against last state without depending on 'order' object
+             const transformedOrder = transformOrderForTracking(apiOrder, prev);
+             return transformedOrder;
           });
-
-          // Reuse location from populated order payload; avoid extra restaurant API call in polling path.
-          let restaurantCoords = null;
-          if (
-            apiOrder.restaurantId?.location?.coordinates &&
-            Array.isArray(apiOrder.restaurantId.location.coordinates) &&
-            apiOrder.restaurantId.location.coordinates.length >= 2
-          ) {
-            restaurantCoords = apiOrder.restaurantId.location.coordinates;
-          } else if (
-            apiOrder.restaurant?.location?.coordinates &&
-            Array.isArray(apiOrder.restaurant.location.coordinates) &&
-            apiOrder.restaurant.location.coordinates.length >= 2
-          ) {
-            restaurantCoords = apiOrder.restaurant.location.coordinates;
-          }
-
-          const transformedOrder = transformOrderForTracking(apiOrder, order, restaurantCoords);
-          setOrder(transformedOrder);
         }
       } catch (err) {
         debugError('Error polling order updates:', err);
-      }
-    }, pollInterval);
-
-    return () => clearInterval(interval);
-  }, [orderId, order?.deliveryState?.status, order?.deliveryState?.currentPhase]);
-
-  // Fetch order: show context immediately if present, but always refresh from API for live status.
-  useEffect(() => {
-    const fetchOrder = async () => {
-      const rawContext = getOrderById(orderId)
-      let previousForTransform = null
-
-      if (rawContext) {
-        const contextOrder = { ...rawContext }
-        contextOrder.mongoId =
-          contextOrder.mongoId ||
-          contextOrder._id ||
-          (typeof contextOrder.id === "string" && /^[a-f0-9]{24}$/i.test(contextOrder.id)
-            ? contextOrder.id
-            : null)
-        contextOrder.orderId =
-          contextOrder.orderId ||
-          (typeof contextOrder.id === "string" && contextOrder.id.startsWith("ORD-") ? contextOrder.id : null)
-        if (
-          !contextOrder.restaurantLocation?.coordinates &&
-          contextOrder.restaurantId?.location?.coordinates
-        ) {
-          contextOrder.restaurantLocation = {
-            coordinates: contextOrder.restaurantId.location.coordinates,
-          }
-        }
-        if (!contextOrder.restaurantId && contextOrder.restaurant) {
-          debugLog("?? Context order missing restaurantId, will merge from API")
-        }
-        previousForTransform = contextOrder
-        setOrder(contextOrder)
-        setLoading(false)
-      } else {
-        setLoading(true)
-        setError(null)
-      }
-
-      try {
-        const response = await orderAPI.getOrderDetails(orderId)
-
-        if (response.data?.success && response.data.data?.order) {
-          const apiOrder = response.data.data.order
-
-          // Log full API response structure for debugging
-          debugLog('?? Full API Order Response:', {
-            orderId: apiOrder.orderId || apiOrder._id,
-            hasRestaurantId: !!apiOrder.restaurantId,
-            restaurantIdType: typeof apiOrder.restaurantId,
-            restaurantIdKeys: apiOrder.restaurantId ? Object.keys(apiOrder.restaurantId) : [],
-            restaurantIdLocation: apiOrder.restaurantId?.location,
-            restaurantIdLocationKeys: apiOrder.restaurantId?.location ? Object.keys(apiOrder.restaurantId.location) : [],
-            restaurantIdCoordinates: apiOrder.restaurantId?.location?.coordinates,
-            fullRestaurantId: apiOrder.restaurantId
-          });
-
-          // Extract restaurant location coordinates with multiple fallbacks
-          let restaurantCoords = null;
-          let restaurantAddress = null;
-
-          // Priority 1: restaurantId.location.coordinates (GeoJSON format: [lng, lat])
-          if (apiOrder.restaurantId?.location?.coordinates &&
-            Array.isArray(apiOrder.restaurantId.location.coordinates) &&
-            apiOrder.restaurantId.location.coordinates.length >= 2) {
-            restaurantCoords = apiOrder.restaurantId.location.coordinates;
-            debugLog('? Found coordinates in restaurantId.location.coordinates:', restaurantCoords);
-          }
-          // Priority 2: restaurantId.location with latitude/longitude properties
-          else if (apiOrder.restaurantId?.location?.latitude && apiOrder.restaurantId?.location?.longitude) {
-            restaurantCoords = [apiOrder.restaurantId.location.longitude, apiOrder.restaurantId.location.latitude];
-            debugLog('? Found coordinates in restaurantId.location (lat/lng):', restaurantCoords);
-          }
-          // Priority 3: Check if restaurantId is a string ID and fetch restaurant details
-          else if (typeof apiOrder.restaurantId === 'string') {
-            debugLog('?? restaurantId is a string ID, fetching restaurant details...', apiOrder.restaurantId);
-            try {
-              const restaurantResponse = await restaurantAPI.getRestaurantById(apiOrder.restaurantId);
-              if (restaurantResponse?.data?.success && restaurantResponse.data.data?.restaurant) {
-                const restaurant = restaurantResponse.data.data.restaurant;
-                if (restaurant.location?.coordinates && Array.isArray(restaurant.location.coordinates) && restaurant.location.coordinates.length >= 2) {
-                  restaurantCoords = restaurant.location.coordinates;
-                  debugLog('? Fetched restaurant coordinates from API:', restaurantCoords);
-                }
-                restaurantAddress =
-                  restaurant?.location?.formattedAddress ||
-                  restaurant?.location?.address ||
-                  restaurant?.address ||
-                  null;
-              }
-            } catch (err) {
-              debugError('? Error fetching restaurant details:', err);
-            }
-          }
-          // Priority 4: Check nested restaurant data
-          else if (apiOrder.restaurant?.location?.coordinates) {
-            restaurantCoords = apiOrder.restaurant.location.coordinates;
-            debugLog('? Found coordinates in restaurant.location.coordinates:', restaurantCoords);
-          }
-
-          debugLog('?? Final restaurant coordinates:', restaurantCoords);
-          debugLog('?? Customer coordinates:', (apiOrder.address || apiOrder.deliveryAddress)?.location?.coordinates);
-
-          // Transform API order to match component structure (merge over context snapshot if any)
-          setOrder(
-            transformOrderForTracking(apiOrder, previousForTransform, restaurantCoords, restaurantAddress)
-          )
-        } else {
-          throw new Error('Order not found')
-        }
-      } catch (err) {
-        debugError('Error fetching order:', err)
-        if (!previousForTransform) {
-          setError(err.response?.data?.message || err.message || 'Failed to fetch order')
-        }
       } finally {
-        if (!previousForTransform) {
-          setLoading(false)
-        }
+        requestInProgress = false;
       }
-    }
+    };
 
-    if (orderId) {
-      fetchOrder()
+    // Calculate poll interval based on current state (captured once when interval starts or restarts)
+    // For live tracking, we want updates. 10s is a good balance between "realtime" and "not spamming".
+    const interval = setInterval(poll, 10000);
+
+    // Run once immediately
+    poll();
+
+    return () => {
+      isSubscribed = false;
+      clearInterval(interval);
+    }
+  }, [orderId]);
+
+  // Fetch order: show context immediately if present.
+  // We rely on the unified polling effect above for the actual network fetch.
+  useEffect(() => {
+    const rawContext = getOrderById(orderId)
+    if (rawContext) {
+      const contextOrder = { ...rawContext }
+      contextOrder.mongoId =
+        contextOrder.mongoId ||
+        contextOrder._id ||
+        (typeof contextOrder.id === "string" && /^[a-f0-9]{24}$/i.test(contextOrder.id)
+          ? contextOrder.id
+          : null)
+      contextOrder.orderId =
+        contextOrder.orderId ||
+        (typeof contextOrder.id === "string" && contextOrder.id.startsWith("ORD-") ? contextOrder.id : null)
+      
+      setOrder(contextOrder)
+      setLoading(false)
     }
   }, [orderId, getOrderById])
 

@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { writeOrderTracking } from "@food/realtimeTracking";
 import {
   DELIVERY_LOCATION_FALLBACK_INTERVAL_MS,
   DELIVERY_LOCATION_MIN_MOVE_METERS,
@@ -32,6 +33,7 @@ export function useDeliveryGeoWatch({
   debugError,
   toast,
   isOnlineRef,
+  activeOrderId = null,
 }) {
   // Initial location on mount
   useEffect(() => {
@@ -91,6 +93,14 @@ export function useDeliveryGeoWatch({
           if (!window.deliveryMapInstance && window.google && window.google.maps && mapContainerRef.current) {
             debugLog?.("Map not initialized yet, will initialize when map mounts");
           }
+        }
+
+        if (activeOrderId) {
+          writeOrderTracking(activeOrderId, {
+            lat: smoothedLocation[0],
+            lng: smoothedLocation[1],
+            heading: heading || 0,
+          }).catch((err) => debugError?.("Firebase tracking failed:", err));
         }
 
         debugLog?.("Current location obtained on app open (filtered)", {
@@ -199,6 +209,13 @@ export function useDeliveryGeoWatch({
                 })
                 .then(() => {
                   window.lastLocationSentTime = now;
+                  if (activeOrderId) {
+                    writeOrderTracking(activeOrderId, {
+                      lat,
+                      lng,
+                      heading: typeof position.coords.heading === "number" ? position.coords.heading : 0,
+                    }).catch(() => {});
+                  }
                 })
                 .catch(() => {});
             }
@@ -267,6 +284,13 @@ export function useDeliveryGeoWatch({
               .then(() => {
                 window.lastLocationSentTime = now;
                 window.lastSentLocation = smoothedLocation;
+                if (activeOrderId) {
+                  writeOrderTracking(activeOrderId, {
+                    lat: smoothedLat,
+                    lng: smoothedLng,
+                    heading: typeof heading === "number" ? heading : 0,
+                  }).catch(() => {});
+                }
               })
               .catch(() => {});
           }

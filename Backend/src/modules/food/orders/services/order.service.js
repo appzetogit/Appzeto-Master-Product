@@ -1035,51 +1035,124 @@ function haversineKm(lat1, lon1, lat2, lon2) {
   return R * c;
 }
 
-export async function tryAutoAssign(orderId) {
-  const order = await FoodOrder.findById(orderId)
-    .select("restaurantId dispatch")
-    .lean();
-  if (!order || order.dispatch?.status !== "unassigned") return null;
+/**
+ * Start or continue a smart cascading dispatch.
+ * @param {string} orderId - Mongo ID of the order.
+ * @param {object} options - Options (retry count, etc)
+ */
+export async function tryAutoAssign(orderId, options = {}) {
+    const order = await FoodOrder.findById(orderId).populate('restaurantId');
+    if (!order) return null;
 
-  const restaurant = await FoodRestaurant.findById(order.restaurantId)
-    .select("location")
-    .lean();
-  if (!restaurant?.location?.coordinates?.length) return null;
-
-  const [rLng, rLat] = restaurant.location.coordinates;
-  const partners = await FoodDeliveryPartner.find({
-    status: "approved",
-    availabilityStatus: "online",
-    lastLat: { $exists: true, $ne: null },
-    lastLng: { $exists: true, $ne: null },
-  })
-    .select("_id lastLat lastLng")
-    .lean();
-
-  let best = null;
-  let bestDist = Infinity;
-  for (const p of partners) {
-    const d = haversineKm(rLat, rLng, p.lastLat, p.lastLng);
-    if (d < bestDist && d <= 15) {
-      bestDist = d;
-      best = p;
+    // Guard: only dispatch if unassigned OR if we are doing a timeout-reassign.
+    const isUnassigned = order.dispatch?.status === 'unassigned';
+    const isAssignedButUnaccepted = order.dispatch?.status === 'assigned' && !order.dispatch?.acceptedAt;
+    
+    if (!isUnassigned && !isAssignedButUnaccepted) {
+        return order;
     }
-  }
 
-  if (!best) return null;
+    // Find ineligible partners (who already rejected it or were already offered if we want fresh ones)
+    const offeredIds = (order.dispatch?.offeredTo || []).map(o => o.partnerId.toString());
+    
+    // Find nearby online partners
+    const { partners } = await listNearbyOnlineDeliveryPartners(order.restaurantId, { maxKm: 15, limit: 10 });
+    
+    // Filter out already offered/rejected partners
+    const eligible = partners.filter(p => !offeredIds.includes(p.partnerId.toString()));
 
-    const doc = await FoodOrder.findByIdAndUpdate(
-        orderId,
-        {
-            $set: {
-                'dispatch.status': 'assigned',
-                'dispatch.deliveryPartnerId': best._id,
-                'dispatch.assignedAt': new Date()
+    if (eligible.length === 0) {
+        // No more specific partners to offer to? 
+        // If it's still unassigned, we leave it in the marketplace pool (broadcast was already sent)
+        // or we could expand the search radius.
+        logger.info(`SmartDispatch: No more eligible partners for order ${order.orderId}. Leaving in marketplace.`);
+        return order;
+    }
+
+    // Pick the best (first in sorted list)
+    const best = eligible[0];
+    
+    // Assign to this partner
+    order.dispatch.status = 'assigned';
+    order.dispatch.deliveryPartnerId = best.partnerId;
+    order.dispatch.assignedAt = new Date();
+    
+    // Record in history
+    order.dispatch.offeredTo.push({
+        partnerId: best.partnerId,
+        at: new Date(),
+        action: 'offered'
+    });
+
+    await order.save();
+
+    // 🚀 Notify the specific partner instantly
+    try {
+        const io = getIO();
+        if (io) {
+            const restaurant = order.restaurantId;
+            const payload = buildDeliverySocketPayload(order, restaurant);
+            io.to(rooms.delivery(best.partnerId)).emit('new_order', payload);
+            io.to(rooms.delivery(best.partnerId)).emit('play_notification_sound', {
+                orderId: payload.orderId,
+                orderMongoId: payload.orderMongoId
+            });
+        }
+        await notifyOwnerSafely(
+            { ownerType: 'DELIVERY_PARTNER', ownerId: best.partnerId },
+            {
+                title: 'New order assigned! 🛵',
+                body: `You have 60 seconds to accept Order #${order.orderId}.`,
+                data: {
+                    type: 'new_order',
+                    orderId: order.orderId,
+                    orderMongoId: order._id.toString(),
+                    link: '/delivery'
+                }
             }
-        },
-        { new: true }
-    );
-  return doc;
+        );
+    } catch (err) {
+        logger.error(`SmartDispatch: Failed to notify partner ${best.partnerId}: ${err.message}`);
+    }
+
+    // ⏱️ Schedule a timeout check in 60 seconds
+    await addOrderJob({
+        action: 'DISPATCH_TIMEOUT_CHECK',
+        orderMongoId: order._id.toString(),
+        orderId: order.orderId,
+        partnerId: best.partnerId.toString()
+    }, { delay: 60000 }); // 60 seconds
+
+    return order;
+}
+
+/**
+ * Triggered by worker after 60 seconds of zero response.
+ */
+export async function processDispatchTimeout(orderId, partnerId) {
+    const order = await FoodOrder.findById(orderId);
+    if (!order) return;
+
+    // Check if the order is still assigned to this specific partner and not accepted
+    const stillAssigned = order.dispatch?.status === 'assigned' && 
+                          String(order.dispatch?.deliveryPartnerId) === String(partnerId) &&
+                          !order.dispatch?.acceptedAt;
+
+    if (stillAssigned) {
+        logger.info(`SmartDispatch: Timeout for order ${order.orderId} (Partner: ${partnerId}). Moving to next.`);
+        
+        // Mark as timeout in history
+        const offer = order.dispatch.offeredTo.find(o => String(o.partnerId) === String(partnerId) && o.action === 'offered');
+        if (offer) offer.action = 'timeout';
+
+        // Unassign and trigger next step
+        order.dispatch.status = 'unassigned';
+        order.dispatch.deliveryPartnerId = null;
+        await order.save();
+
+        // 🔄 Recursively try next partner
+        await tryAutoAssign(orderId);
+    }
 }
 
 // ----- User: list, get, cancel -----
@@ -1676,17 +1749,27 @@ export async function rejectOrderDelivery(orderId, deliveryPartnerId) {
     const order = await FoodOrder.findOne(identity);
     if (!order) throw new ValidationError('Order not found');
     if (order.dispatch.deliveryPartnerId?.toString() !== deliveryPartnerId.toString()) throw new ForbiddenError('Not your order');
+    
+    // Mark as rejected in history
+    const offer = order.dispatch.offeredTo.find(o => String(o.partnerId) === String(deliveryPartnerId) && o.action === 'offered');
+    if (offer) offer.action = 'rejected';
+
     order.dispatch.status = 'unassigned';
     order.dispatch.deliveryPartnerId = undefined;
     order.dispatch.assignedAt = undefined;
     order.dispatch.acceptedAt = undefined;
     pushStatusHistory(order, { byRole: 'DELIVERY_PARTNER', byId: deliveryPartnerId, from: 'assigned', to: 'unassigned', note: 'Rejected' });
     await order.save();
+    
     enqueueOrderEvent('delivery_rejected', {
         orderMongoId: order._id?.toString?.(),
         orderId: order.orderId,
         deliveryPartnerId
     });
+
+    // 🚀 Immediately try to find the next best partner instead of waiting for timeout
+    void tryAutoAssign(order._id).catch(err => logger.error(`SmartDispatch: Auto-assign after reject failed: ${err.message}`));
+
     return order.toObject();
 }
 

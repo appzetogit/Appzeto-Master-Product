@@ -94,7 +94,13 @@ const dispatchSchema = new mongoose.Schema(
         },
         deliveryPartnerId: { type: mongoose.Schema.Types.ObjectId, ref: 'FoodDeliveryPartner', default: null },
         assignedAt: { type: Date },
-        acceptedAt: { type: Date }
+        acceptedAt: { type: Date },
+        /** List of partners who were offered this order (to avoid repeats and track timeouts) */
+        offeredTo: [{
+            partnerId: { type: mongoose.Schema.Types.ObjectId, ref: 'FoodDeliveryPartner' },
+            at: { type: Date, default: Date.now },
+            action: { type: String, enum: ['offered', 'rejected', 'timeout'], default: 'offered' }
+        }]
     },
     { _id: false }
 );

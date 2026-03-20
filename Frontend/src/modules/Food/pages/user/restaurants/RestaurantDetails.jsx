@@ -458,9 +458,9 @@ function RestaurantDetailsContent() {
             openDays: Array.isArray(actualRestaurant?.openDays)
               ? actualRestaurant.openDays
               : (Array.isArray(apiRestaurant?.openDays) ? apiRestaurant.openDays : (Array.isArray(onboardingStep2?.openDays) ? onboardingStep2.openDays : [])),
-            deliveryTimings: actualRestaurant?.deliveryTimings || apiRestaurant?.deliveryTimings || onboardingStep2?.deliveryTimings || {
-              openingTime: "09:00",
-              closingTime: "22:00",
+            deliveryTimings: actualRestaurant?.deliveryTimings || apiRestaurant?.deliveryTimings || {
+              openingTime: actualRestaurant?.openingTime || apiRestaurant?.openingTime || onboardingStep2?.deliveryTimings?.openingTime || "09:00",
+              closingTime: actualRestaurant?.closingTime || apiRestaurant?.closingTime || onboardingStep2?.deliveryTimings?.closingTime || "22:00",
             },
             outletTimings: actualRestaurant?.outletTimings || apiRestaurant?.outletTimings || null,
             cuisines: Array.isArray(actualRestaurant?.cuisines) ? actualRestaurant.cuisines : (Array.isArray(apiRestaurant?.cuisines) ? apiRestaurant.cuisines : (Array.isArray(onboardingStep2?.cuisines) ? onboardingStep2.cuisines : [])),

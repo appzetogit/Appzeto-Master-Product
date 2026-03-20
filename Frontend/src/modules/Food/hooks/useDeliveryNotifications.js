@@ -507,19 +507,18 @@ export const useDeliveryNotifications = () => {
       return; // Don't try to connect with invalid URL
     }
 
+    const token = localStorage.getItem('delivery_accessToken') || localStorage.getItem('accessToken');
+
     socketRef.current = io(socketUrl, {
       path: '/socket.io/',
-      transports: ['polling'], // Start with polling only
-      upgrade: false, // Disable WebSocket upgrade to prevent WebSocket connection errors
+      transports: ['polling', 'websocket'], // Allow both
       reconnection: true,
       reconnectionDelay: 1000,
       reconnectionDelayMax: 5000,
       reconnectionAttempts: Infinity,
       timeout: 20000,
-      forceNew: false,
-      autoConnect: true,
       auth: {
-        token: localStorage.getItem('delivery_accessToken') || localStorage.getItem('accessToken')
+        token: token || ""
       }
     });
 
@@ -632,9 +631,49 @@ export const useDeliveryNotifications = () => {
       });
     });
 
+    socketRef.current.on('order_reassigned_elsewhere', (data) => {
+      debugLog('?? Order reassigned to another partner:', data);
+      if (data.orderId === activeOrderRef.current?._id || data.orderId === activeOrderRef.current?.orderId) {
+        debugLog('?? Removing reassigned order from local state');
+        setIncomingOrders(prev => prev.filter(o => o.orderId !== data.orderId && o._id !== data.orderId));
+        // If this was our current popup, close it
+        setNewOrder(null);
+      }
+    });
+
+    // Auth change/refresh listeners
+    const handleAuthChange = () => {
+      const newToken = localStorage.getItem('delivery_accessToken') || localStorage.getItem('accessToken');
+      if (socketRef.current && newToken) {
+        debugLog('?? Auth changed, updating socket token');
+        socketRef.current.auth.token = newToken;
+        // Only reconnect if not already connecting/connected or if token changed significantly
+        if (!socketRef.current.connected) {
+          socketRef.current.connect();
+        }
+      }
+    };
+
+    const handleAuthRefreshed = (e) => {
+      if (e.detail?.module === 'delivery' && socketRef.current && e.detail.token) {
+        debugLog('?? Auth refreshed for delivery, updating socket token');
+        socketRef.current.auth.token = e.detail.token;
+        if (!socketRef.current.connected) {
+          socketRef.current.connect();
+        }
+      }
+    };
+
+    window.addEventListener('deliveryAuthChanged', handleAuthChange);
+    window.addEventListener('authRefreshed', handleAuthRefreshed);
+
     return () => {
+      debugLog('? Cleaning up socket connection...');
       stopAlertLoop();
+      window.removeEventListener('deliveryAuthChanged', handleAuthChange);
+      window.removeEventListener('authRefreshed', handleAuthRefreshed);
       if (socketRef.current) {
+        socketRef.current.removeAllListeners();
         socketRef.current.disconnect();
         socketRef.current = null;
       }

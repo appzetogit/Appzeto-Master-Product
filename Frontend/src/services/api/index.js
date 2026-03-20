@@ -1496,10 +1496,10 @@ export const deliveryAPI = {
       { status: isOnline ? "online" : "offline" },
       { contextModule: "delivery" },
     ),
-  updateLocation: (latitude, longitude, isOnline) =>
+  updateLocation: (latitude, longitude, isOnline, extras = {}) =>
     apiClient.patch(
       "/food/delivery/availability",
-      { status: isOnline ? "online" : "offline", latitude, longitude },
+      { status: isOnline ? "online" : "offline", latitude, longitude, ...extras },
       { contextModule: "delivery" },
     ),
   /** Orders */

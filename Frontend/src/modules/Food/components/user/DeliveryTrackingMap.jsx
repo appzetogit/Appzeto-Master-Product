@@ -16,8 +16,8 @@ const debugLog = () => {}
 const debugWarn = () => {}
 const debugError = () => {}
 
-// Disable Google Maps usage in customer app (no external Maps API calls)
-const MAPS_ENABLED = false
+// Enable Google Maps usage for live delivery tracking
+const MAPS_ENABLED = true
 
 
 // Helper function to calculate Haversine distance

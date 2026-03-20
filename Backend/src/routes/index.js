@@ -45,8 +45,8 @@ router.use('/v1/food/payments', authMiddleware, paymentRoutes);
 router.use('/v1/fcm-tokens', fcmRoutes);
 router.use('/fcm-tokens', fcmRoutes);
 
-router.get('/v1/env/public', getPublicEnvController);
-router.get('/env/public', getPublicEnvController);
+// router.get('/v1/env/public', getPublicEnvController);
+// router.get('/env/public', getPublicEnvController);
 
 router.get('/v1/admin/queues', authMiddleware, requireRoles('ADMIN'), getQueuesController);
 
