@@ -77,7 +77,12 @@ export default function RestaurantComplaints() {
       if (response?.data?.success) {
         setComplaints(response.data.data.complaints || [])
         setStats(response.data.data.stats || stats)
-        setPagination(response.data.data.pagination || pagination)
+        setPagination({
+          page: response.data.data.page || 1,
+          limit: response.data.data.limit || 50,
+          total: response.data.data.total || 0,
+          pages: Math.ceil((response.data.data.total || 0) / (response.data.data.limit || 50))
+        })
       }
     } catch (error) {
       debugError('Error fetching complaints:', error)
@@ -182,24 +187,24 @@ export default function RestaurantComplaints() {
                   <div className="flex-1">
                     <div className="flex items-center gap-3 mb-2">
                       {getStatusIcon(complaint.status)}
-                      <h3 className="font-semibold text-gray-900">{complaint.subject}</h3>
+                      <h3 className="font-semibold text-gray-900">{complaint.subject || complaint.issueType?.replace('_', ' ')}</h3>
                     </div>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm text-gray-600">
                       <div>
                         <p className="text-xs text-gray-500">Order</p>
-                        <p className="font-medium">#{complaint.orderNumber}</p>
+                        <p className="font-medium">#{complaint.orderId?.orderId || 'N/A'}</p>
                       </div>
                       <div>
                         <p className="text-xs text-gray-500">Customer</p>
-                        <p className="font-medium">{complaint.customerName}</p>
+                        <p className="font-medium">{complaint.userId?.name || 'Customer'}</p>
                       </div>
                       <div>
                         <p className="text-xs text-gray-500">Restaurant</p>
-                        <p className="font-medium">{complaint.restaurantName}</p>
+                        <p className="font-medium">{complaint.restaurantId?.restaurantName || 'Restaurant'}</p>
                       </div>
                       <div>
                         <p className="text-xs text-gray-500">Type</p>
-                        <p className="font-medium capitalize">{complaint.complaintType.replace('_', ' ')}</p>
+                        <p className="font-medium capitalize">{(complaint.issueType || 'other').replace('_', ' ')}</p>
                       </div>
                     </div>
                   </div>

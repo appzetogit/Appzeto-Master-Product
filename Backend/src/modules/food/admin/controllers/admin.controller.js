@@ -92,6 +92,19 @@ export async function deleteSafetyEmergencyReport(req, res, next) {
 }
 
 // ----- Restaurants -----
+export async function getRestaurantComplaints(req, res, next) {
+    try {
+        const data = await adminService.getRestaurantComplaints(req.query || {});
+        res.status(200).json({
+            success: true,
+            message: 'Restaurant complaints fetched successfully',
+            data
+        });
+    } catch (error) {
+        next(error);
+    }
+}
+
 export async function getRestaurants(req, res, next) {
     try {
         const data = await adminService.getRestaurants(req.query);
@@ -111,6 +124,32 @@ export async function getRestaurantReport(req, res, next) {
         res.status(200).json({
             success: true,
             message: 'Restaurant report fetched successfully',
+            data
+        });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function getDashboardStats(req, res, next) {
+    try {
+        const data = await adminService.getDashboardStats(req.query || {});
+        res.status(200).json({
+            success: true,
+            message: 'Dashboard stats fetched successfully',
+            data
+        });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function getTransactionReport(req, res, next) {
+    try {
+        const data = await adminService.getTransactionReport(req.query || {});
+        res.status(200).json({
+            success: true,
+            message: 'Transaction report fetched successfully',
             data
         });
     } catch (error) {
@@ -479,6 +518,15 @@ export async function addDeliveryPartnerBonus(req, res, next) {
         const body = validateAddDeliveryBonusDto(req.body || {});
         const created = await adminService.addDeliveryPartnerBonus(body, req.user);
         res.status(201).json({ success: true, message: 'Bonus added successfully', data: { transaction: created } });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function getDeliveryEarnings(req, res, next) {
+    try {
+        const data = await adminService.getDeliveryEarnings(req.query || {});
+        res.status(200).json({ success: true, message: 'Delivery earnings fetched successfully', data });
     } catch (error) {
         next(error);
     }
