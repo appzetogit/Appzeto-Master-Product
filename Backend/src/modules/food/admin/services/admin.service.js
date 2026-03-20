@@ -23,6 +23,7 @@ import { FoodReferralLog } from '../models/referralLog.model.js';
 import { FoodSafetyEmergencyReport } from '../models/safetyEmergencyReport.model.js';
 import { FoodAddon } from '../../restaurant/models/foodAddon.model.js';
 import { FoodSupportTicket } from '../../user/models/supportTicket.model.js';
+import { FoodOrder } from '../../orders/order.model.js';
 
 const parseBooleanLike = (value, fieldName) => {
     if (typeof value === 'boolean') return value;
@@ -60,6 +61,210 @@ export async function getRestaurants(query) {
             .lean(),
         FoodRestaurant.countDocuments(filter)
     ]);
+    return { restaurants, total, page, limit };
+}
+
+export async function getRestaurantReport(query = {}) {
+    const parseTimeRange = (timeLabel) => {
+        const now = new Date();
+        const start = new Date(now);
+        const end = new Date(now);
+
+        const value = String(timeLabel || '').trim().toLowerCase();
+        if (!value || value === 'all time') return null;
+
+        if (value === 'today') {
+            start.setHours(0, 0, 0, 0);
+            end.setHours(23, 59, 59, 999);
+            return { $gte: start, $lte: end };
+        }
+
+        if (value === 'this week') {
+            const day = start.getDay(); // 0=Sun
+            const diffToMonday = day === 0 ? 6 : day - 1;
+            start.setDate(start.getDate() - diffToMonday);
+            start.setHours(0, 0, 0, 0);
+            end.setHours(23, 59, 59, 999);
+            return { $gte: start, $lte: end };
+        }
+
+        if (value === 'this month') {
+            start.setDate(1);
+            start.setHours(0, 0, 0, 0);
+            end.setHours(23, 59, 59, 999);
+            return { $gte: start, $lte: end };
+        }
+
+        if (value === 'this year') {
+            start.setMonth(0, 1);
+            start.setHours(0, 0, 0, 0);
+            end.setHours(23, 59, 59, 999);
+            return { $gte: start, $lte: end };
+        }
+
+        return null;
+    };
+
+    const formatCurrency = (value) => `₹${Number(value || 0).toFixed(2)}`;
+
+    const limit = Math.min(Math.max(parseInt(query.limit, 10) || 1000, 1), 5000);
+    const page = Math.max(parseInt(query.page, 10) || 1, 1);
+    const skip = (page - 1) * limit;
+
+    const restaurantFilter = {};
+    const allFilter = String(query.all || '').trim().toLowerCase();
+    if (allFilter === 'active') {
+        restaurantFilter.status = 'approved';
+    } else if (allFilter === 'inactive') {
+        restaurantFilter.status = { $ne: 'approved' };
+    }
+
+    const zoneRaw = String(query.zone || '').trim();
+    if (zoneRaw) {
+        if (mongoose.Types.ObjectId.isValid(zoneRaw)) {
+            restaurantFilter.zoneId = new mongoose.Types.ObjectId(zoneRaw);
+        } else {
+            const matchedZone = await FoodZone.findOne({
+                $or: [{ name: zoneRaw }, { zoneName: zoneRaw }]
+            })
+                .select('_id')
+                .lean();
+            if (matchedZone?._id) {
+                restaurantFilter.zoneId = matchedZone._id;
+            } else {
+                return { restaurants: [], total: 0, page, limit };
+            }
+        }
+    }
+
+    const typeRaw = String(query.type || '').trim().toLowerCase();
+    if (typeRaw === 'commission') {
+        const commissionRows = await FoodRestaurantCommission.find({ status: { $ne: false } })
+            .select('restaurantId')
+            .lean();
+        const commissionRestaurantIds = commissionRows
+            .map((row) => row?.restaurantId)
+            .filter((id) => mongoose.Types.ObjectId.isValid(id))
+            .map((id) => new mongoose.Types.ObjectId(id));
+
+        if (!commissionRestaurantIds.length) {
+            return { restaurants: [], total: 0, page, limit };
+        }
+        restaurantFilter._id = { $in: commissionRestaurantIds };
+    }
+
+    const searchRaw = String(query.search || '').trim();
+    if (searchRaw) {
+        const escaped = searchRaw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        restaurantFilter.$or = [
+            { restaurantName: { $regex: escaped, $options: 'i' } },
+            { ownerName: { $regex: escaped, $options: 'i' } },
+            { ownerPhone: { $regex: escaped, $options: 'i' } },
+            { city: { $regex: escaped, $options: 'i' } },
+            { area: { $regex: escaped, $options: 'i' } }
+        ];
+    }
+
+    const [restaurantDocs, total] = await Promise.all([
+        FoodRestaurant.find(restaurantFilter)
+            .sort({ createdAt: -1 })
+            .skip(skip)
+            .limit(limit)
+            .select('restaurantName profileImage rating totalRatings status zoneId')
+            .populate('zoneId', 'name zoneName')
+            .lean(),
+        FoodRestaurant.countDocuments(restaurantFilter)
+    ]);
+
+    const restaurantIds = restaurantDocs.map((r) => r._id).filter(Boolean);
+    if (!restaurantIds.length) {
+        return { restaurants: [], total, page, limit };
+    }
+
+    const orderCreatedAtFilter = parseTimeRange(query.time);
+    const orderMatch = {
+        restaurantId: { $in: restaurantIds }
+    };
+    if (orderCreatedAtFilter) {
+        orderMatch.createdAt = orderCreatedAtFilter;
+    }
+
+    const [foodsAgg, ordersAgg] = await Promise.all([
+        FoodItem.aggregate([
+            {
+                $match: {
+                    restaurantId: { $in: restaurantIds },
+                    approvalStatus: 'approved'
+                }
+            },
+            {
+                $group: {
+                    _id: '$restaurantId',
+                    totalFood: { $sum: 1 }
+                }
+            }
+        ]),
+        FoodOrder.aggregate([
+            { $match: orderMatch },
+            {
+                $group: {
+                    _id: '$restaurantId',
+                    totalOrder: { $sum: 1 },
+                    totalOrderAmount: { $sum: { $ifNull: ['$pricing.total', 0] } },
+                    totalDiscountGiven: { $sum: { $ifNull: ['$pricing.discount', 0] } },
+                    totalVATTAX: { $sum: { $ifNull: ['$pricing.tax', 0] } },
+                    totalAdminCommissionFromPlatformProfit: { $sum: { $ifNull: ['$platformProfit', 0] } },
+                    totalAdminCommissionFromPlatformFee: { $sum: { $ifNull: ['$pricing.platformFee', 0] } }
+                }
+            }
+        ])
+    ]);
+
+    const foodMap = new Map(foodsAgg.map((x) => [String(x._id), Number(x.totalFood || 0)]));
+    const orderMap = new Map(
+        ordersAgg.map((x) => [
+            String(x._id),
+            {
+                totalOrder: Number(x.totalOrder || 0),
+                totalOrderAmount: Number(x.totalOrderAmount || 0),
+                totalDiscountGiven: Number(x.totalDiscountGiven || 0),
+                totalVATTAX: Number(x.totalVATTAX || 0),
+                totalAdminCommission:
+                    Number(x.totalAdminCommissionFromPlatformProfit || 0) > 0
+                        ? Number(x.totalAdminCommissionFromPlatformProfit || 0)
+                        : Number(x.totalAdminCommissionFromPlatformFee || 0)
+            }
+        ])
+    );
+
+    const restaurants = restaurantDocs.map((restaurant, index) => {
+        const key = String(restaurant._id);
+        const counts = orderMap.get(key) || {
+            totalOrder: 0,
+            totalOrderAmount: 0,
+            totalDiscountGiven: 0,
+            totalVATTAX: 0,
+            totalAdminCommission: 0
+        };
+
+        return {
+            _id: restaurant._id,
+            sl: skip + index + 1,
+            icon: restaurant.profileImage || '',
+            restaurantName: restaurant.restaurantName || '',
+            totalFood: foodMap.get(key) || 0,
+            totalOrder: counts.totalOrder,
+            totalOrderAmount: formatCurrency(counts.totalOrderAmount),
+            totalDiscountGiven: formatCurrency(counts.totalDiscountGiven),
+            totalAdminCommission: formatCurrency(counts.totalAdminCommission),
+            totalVATTAX: formatCurrency(counts.totalVATTAX),
+            averageRatings: Number(restaurant.rating || 0),
+            reviews: Number(restaurant.totalRatings || 0),
+            status: restaurant.status || 'pending',
+            zoneName: restaurant.zoneId?.name || restaurant.zoneId?.zoneName || ''
+        };
+    });
+
     return { restaurants, total, page, limit };
 }
 
@@ -402,7 +607,51 @@ export async function getDeliveryCommissionRules() {
     return { commissions };
 }
 
+function validateCommissionRuleSet(rules) {
+    const active = (rules || []).filter((r) => r && r.status !== false);
+    if (!active.length) {
+        throw new ValidationError('A base slab with minDistance = 0 is required');
+    }
+    const baseRules = active.filter((r) => Number(r.minDistance || 0) === 0);
+    if (baseRules.length !== 1) {
+        throw new ValidationError('A base slab with minDistance = 0 is required');
+    }
+    const sorted = [...active].sort((a, b) => Number(a.minDistance || 0) - Number(b.minDistance || 0));
+    for (let i = 0; i < sorted.length; i += 1) {
+        const current = sorted[i];
+        const min = Number(current.minDistance || 0);
+        const max = current.maxDistance == null ? null : Number(current.maxDistance);
+        if (max != null && max <= min) {
+            throw new ValidationError('maxDistance must be greater than minDistance');
+        }
+        if (i > 0) {
+            const prev = sorted[i - 1];
+            const prevMin = Number(prev.minDistance || 0);
+            const prevMax = prev.maxDistance == null ? null : Number(prev.maxDistance);
+            const effectivePrevMax = prevMax == null ? Infinity : prevMax;
+            if (min < effectivePrevMax) {
+                throw new ValidationError('Distance slabs must not overlap');
+            }
+            if (min === prevMin) {
+                throw new ValidationError('Distance slabs must not share the same minDistance');
+            }
+        }
+    }
+}
+
 export async function createDeliveryCommissionRule(body) {
+    const existing = await FoodDeliveryCommissionRule.find({}).lean();
+    const candidate = [
+        ...existing,
+        {
+            minDistance: body.minDistance,
+            maxDistance: body.maxDistance ?? null,
+            commissionPerKm: body.commissionPerKm,
+            basePayout: body.basePayout,
+            status: body.status ?? true
+        }
+    ];
+    validateCommissionRuleSet(candidate);
     const created = await FoodDeliveryCommissionRule.create({
         name: body.name || '',
         minDistance: body.minDistance,
@@ -416,6 +665,20 @@ export async function createDeliveryCommissionRule(body) {
 
 export async function updateDeliveryCommissionRule(id, body) {
     if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
+    const existing = await FoodDeliveryCommissionRule.find({}).lean();
+    const candidate = existing.map((r) =>
+        String(r._id) === String(id)
+            ? {
+                  ...r,
+                  minDistance: body.minDistance,
+                  maxDistance: body.maxDistance ?? null,
+                  commissionPerKm: body.commissionPerKm,
+                  basePayout: body.basePayout,
+                  status: r.status !== false
+              }
+            : r
+    );
+    validateCommissionRuleSet(candidate);
     const updated = await FoodDeliveryCommissionRule.findByIdAndUpdate(
         id,
         {

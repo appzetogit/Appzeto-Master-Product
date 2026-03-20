@@ -134,6 +134,23 @@ const statusHistorySchema = new mongoose.Schema(
     { _id: false }
 );
 
+const orderEntityRatingSchema = new mongoose.Schema(
+    {
+        rating: { type: Number, min: 1, max: 5 },
+        comment: { type: String, default: '', trim: true },
+        ratedAt: { type: Date, default: Date.now }
+    },
+    { _id: false }
+);
+
+const orderRatingsSchema = new mongoose.Schema(
+    {
+        restaurant: { type: orderEntityRatingSchema, default: undefined },
+        deliveryPartner: { type: orderEntityRatingSchema, default: undefined }
+    },
+    { _id: false }
+);
+
 const deliveryVerificationSchema = new mongoose.Schema(
     {
         dropOtp: {
@@ -219,8 +236,16 @@ const orderSchema = new mongoose.Schema(
             type: [statusHistorySchema],
             default: []
         },
+        ratings: {
+            type: orderRatingsSchema,
+            default: () => ({})
+        },
         note: { type: String, default: '', trim: true },
         sendCutlery: { type: Boolean, default: true },
+        deliveryFleet: { type: String, default: 'standard', trim: true },
+        scheduledAt: { type: Date, default: null },
+        riderEarning: { type: Number, default: 0, min: 0 },
+        platformProfit: { type: Number, default: 0, min: 0 }
         deliveryFleet: { type: String, default: 'standard', trim: true },
         /** Plain 4-digit OTP for handover; cleared after successful verify (never expose to partner in API responses). */
         deliveryOtp: { type: String, default: '', select: false },
@@ -239,6 +264,8 @@ orderSchema.index({ userId: 1, createdAt: -1 });
 orderSchema.index({ restaurantId: 1, orderStatus: 1, createdAt: -1 });
 orderSchema.index({ 'dispatch.deliveryPartnerId': 1, orderStatus: 1 });
 orderSchema.index({ 'dispatch.status': 1, orderStatus: 1 });
+orderSchema.index({ 'payment.status': 1, createdAt: -1 });
+orderSchema.index({ 'payment.method': 1, createdAt: -1 });
 
 export const FoodOrder = mongoose.model('FoodOrder', orderSchema);
 

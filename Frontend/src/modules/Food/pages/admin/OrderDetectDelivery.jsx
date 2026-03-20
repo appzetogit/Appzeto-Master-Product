@@ -11,13 +11,21 @@ const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
 
+const getOrderStatus = (order) => String(order?.orderStatus || order?.status || "").toLowerCase()
+const isCancelledOrder = (status, cancelledAt) =>
+  status === "cancelled" ||
+  status === "cancelled_by_user" ||
+  status === "cancelled_by_restaurant" ||
+  status === "cancelled_by_admin" ||
+  Boolean(cancelledAt)
 
 // Function to map backend order status to frontend display status
 const mapOrderStatus = (order) => {
-  const { status, deliveryPartnerName, deliveryState, cancelledAt } = order
+  const status = getOrderStatus(order)
+  const { deliveryPartnerName, deliveryState, cancelledAt } = order
 
   // If cancelled, show as Rejected
-  if (status === 'cancelled' || cancelledAt) {
+  if (isCancelledOrder(status, cancelledAt)) {
     return "Rejected"
   }
 
@@ -27,7 +35,7 @@ const mapOrderStatus = (order) => {
   }
 
   // Check delivery state phases
-  if (deliveryState?.currentPhase === 'at_delivery') {
+  if (deliveryState?.currentPhase === 'at_delivery' || deliveryState?.currentPhase === 'at_drop') {
     return "Reached Drop"
   }
 
@@ -47,10 +55,13 @@ const mapOrderStatus = (order) => {
 
   // Map backend status to frontend status
   const statusMap = {
+    'created': 'Ordered',
     'pending': 'Ordered',
     'confirmed': 'Restaurant Accepted',
     'preparing': 'Restaurant Accepted',
+    'ready_for_pickup': 'Restaurant Accepted',
     'ready': 'Restaurant Accepted',
+    'picked_up': 'Order ID Accepted',
     'out_for_delivery': 'Order ID Accepted',
   }
 
@@ -60,7 +71,8 @@ const mapOrderStatus = (order) => {
 // Function to build status history from order data
 const buildStatusHistory = (order) => {
   const history = []
-  const { createdAt, tracking, deliveryState, deliveryPartnerName, deliveryPartnerPhone, status, cancelledAt } = order
+  const { createdAt, tracking, deliveryState, deliveryPartnerName, deliveryPartnerPhone, cancelledAt } = order
+  const status = getOrderStatus(order)
 
   // Format timestamp helper
   const formatTimestamp = (date) => {
@@ -83,7 +95,7 @@ const buildStatusHistory = (order) => {
   })
 
   // Rejected (if cancelled)
-  if (status === 'cancelled' || cancelledAt) {
+  if (isCancelledOrder(status, cancelledAt)) {
     history.push({
       status: "Rejected",
       timestamp: formatTimestamp(cancelledAt) || formatTimestamp(order.updatedAt) || "N/A"
@@ -97,7 +109,7 @@ const buildStatusHistory = (order) => {
       status: "Restaurant Accepted",
       timestamp: formatTimestamp(tracking.confirmed.timestamp)
     })
-  } else if (status === 'confirmed' || status === 'preparing' || status === 'ready') {
+  } else if (status === 'confirmed' || status === 'preparing' || status === 'ready' || status === 'ready_for_pickup') {
     history.push({
       status: "Restaurant Accepted",
       timestamp: formatTimestamp(order.updatedAt) || "N/A"
@@ -148,7 +160,11 @@ const buildStatusHistory = (order) => {
       status: "Reached Drop",
       timestamp: formatTimestamp(deliveryState.reachedDropAt)
     })
-  } else if (deliveryState?.currentPhase === 'at_delivery' || deliveryState?.status === 'en_route_to_delivery') {
+  } else if (
+    deliveryState?.currentPhase === 'at_delivery' ||
+    deliveryState?.currentPhase === 'at_drop' ||
+    deliveryState?.status === 'en_route_to_delivery'
+  ) {
     // Second priority: check if currently at delivery phase
     history.push({
       status: "Reached Drop",
@@ -185,6 +201,34 @@ const buildStatusHistory = (order) => {
 
 // Transform backend order to frontend format
 const transformOrder = (order, index) => {
+  const user = order?.userId && typeof order.userId === "object" ? order.userId : null
+  const restaurant = order?.restaurantId && typeof order.restaurantId === "object" ? order.restaurantId : null
+  const deliveryFromDispatch =
+    order?.dispatch?.deliveryPartnerId && typeof order.dispatch.deliveryPartnerId === "object"
+      ? order.dispatch.deliveryPartnerId
+      : null
+
+  const deliveryBoyName =
+    order.deliveryPartnerName ||
+    order.deliveryBoyName ||
+    deliveryFromDispatch?.name ||
+    order.deliveryPartnerId?.name ||
+    null
+
+  const deliveryBoyNumber =
+    order.deliveryPartnerPhone ||
+    order.deliveryBoyNumber ||
+    deliveryFromDispatch?.phone ||
+    order.deliveryPartnerId?.phone ||
+    null
+
+  const normalizedOrder = {
+    ...order,
+    status: order.status || order.orderStatus,
+    deliveryPartnerName: deliveryBoyName,
+    deliveryPartnerPhone: deliveryBoyNumber,
+  }
+
   const orderDate = new Date(order.createdAt)
   const dateStr = orderDate.toLocaleDateString('en-GB', { 
     day: '2-digit', 
@@ -197,17 +241,17 @@ const transformOrder = (order, index) => {
     hour12: true 
   }).toUpperCase()
 
-  const displayStatus = mapOrderStatus(order)
-  const statusHistory = buildStatusHistory(order)
+  const displayStatus = mapOrderStatus(normalizedOrder)
+  const statusHistory = buildStatusHistory(normalizedOrder)
 
   return {
     sl: index + 1,
     orderId: order.orderId,
-    userName: order.customerName || order.userId?.name || 'Unknown',
-    userNumber: order.customerPhone || order.userId?.phone || 'N/A',
-    restaurantName: order.restaurant || order.restaurantName || 'Unknown Restaurant',
-    deliveryBoyName: order.deliveryPartnerName || order.deliveryPartnerId?.name || null,
-    deliveryBoyNumber: order.deliveryPartnerPhone || order.deliveryPartnerId?.phone || null,
+    userName: order.customerName || order.userName || user?.name || 'Unknown',
+    userNumber: order.customerPhone || order.userNumber || user?.phone || order.deliveryAddress?.phone || 'N/A',
+    restaurantName: order.restaurantName || order.restaurant || restaurant?.restaurantName || 'Unknown Restaurant',
+    deliveryBoyName,
+    deliveryBoyNumber,
     status: displayStatus,
     statusHistory: statusHistory,
     orderDate: dateStr,

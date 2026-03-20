@@ -105,6 +105,19 @@ export async function getRestaurants(req, res, next) {
     }
 }
 
+export async function getRestaurantReport(req, res, next) {
+    try {
+        const data = await adminService.getRestaurantReport(req.query || {});
+        res.status(200).json({
+            success: true,
+            message: 'Restaurant report fetched successfully',
+            data
+        });
+    } catch (error) {
+        next(error);
+    }
+}
+
 export async function getRestaurantById(req, res, next) {
     try {
         const { id } = req.params;

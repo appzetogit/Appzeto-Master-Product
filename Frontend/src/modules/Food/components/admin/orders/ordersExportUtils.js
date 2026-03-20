@@ -270,24 +270,31 @@ export const exportToPDF = async (orders, filename = "orders") => {
           order.deliveryBoyName || 'N/A',
           order.deliveryBoyNumber || 'N/A',
           order.status || 'N/A',
-          totalAmount > 0 ? `?${totalAmount.toFixed(2)}` : 'N/A',
+          totalAmount > 0 ? `₹${totalAmount.toFixed(2)}` : 'N/A',
           paymentStatus
         ]
       })
     } else {
-      headers = [["SI", "Order ID", "Order Date", "Customer Name", "Customer Phone", "Restaurant", "Total Amount", "Payment Status", "Order Status", "Delivery Type"]]
-      tableData = orders.map((order, index) => [
-        index + 1,
-        order.orderId || order.id || 'N/A',
-        `${order.date || ''}${order.time ? `, ${order.time}` : ""}` || 'N/A',
-        order.customerName || 'N/A',
-        order.customerPhone || 'N/A',
-        order.restaurant || 'N/A',
-        order.total || `?${(order.totalAmount || 0).toFixed(2)}` || 'N/A',
-        order.paymentStatus || 'N/A',
-        order.orderStatus || 'N/A',
-        order.deliveryType || 'N/A'
-      ])
+      headers = ["SI", "Order ID", "Order Date", "Customer Name", "Customer Phone", "Restaurant", "Total Amount", "Payment Status", "Order Status", "Delivery Type"]
+      tableData = orders.map((order, index) => {
+        const amount =
+          order.totalAmount ??
+          order.total ??
+          order.pricing?.total ??
+          0
+        return [
+          index + 1,
+          order.orderId || order.id || 'N/A',
+          `${order.date || ''}${order.time ? `, ${order.time}` : ""}` || 'N/A',
+          order.customerName || 'N/A',
+          order.customerPhone || 'N/A',
+          order.restaurant || 'N/A',
+          amount ? `₹${Number(amount).toFixed(2)}` : 'N/A',
+          order.paymentStatus || 'N/A',
+          order.orderStatus || 'N/A',
+          order.deliveryType || 'N/A'
+        ]
+      })
     }
 
     // Add table using autoTable

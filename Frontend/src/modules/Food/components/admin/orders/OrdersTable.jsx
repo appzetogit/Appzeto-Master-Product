@@ -244,7 +244,20 @@ export default function OrdersTable({
                 {visibleColumns.totalAmount && (
                   <td className="px-6 py-4 whitespace-nowrap text-right">
                     <div className="text-sm font-medium text-slate-900">
-                      ₹{order.totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      {(() => {
+                        const rawAmount =
+                          order.totalAmount ??
+                          order.total ??
+                          order.pricing?.total ??
+                          0;
+                        const amount = Number.isFinite(Number(rawAmount))
+                          ? Number(rawAmount)
+                          : 0;
+                        return `₹${amount.toLocaleString(undefined, {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2
+                        })}`;
+                      })()}
                     </div>
                     <div className={`text-xs mt-0.5 ${getPaymentStatusColor(order.paymentStatus)}`}>
                       {order.paymentStatus}

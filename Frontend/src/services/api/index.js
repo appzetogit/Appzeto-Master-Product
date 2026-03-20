@@ -384,6 +384,12 @@ export const adminAPI = {
       params: { limit: 1000, ...params },
       contextModule: "admin",
     }),
+  /** Restaurant report (admin). */
+  getRestaurantReport: (params = {}) =>
+    apiClient.get("/food/admin/reports/restaurants", {
+      params: { page: 1, limit: 1000, ...params },
+      contextModule: "admin",
+    }),
   /** Get single zone by id */
   getZoneById: (id) =>
     apiClient.get(`/food/admin/zones/${id}`, { contextModule: "admin" }),
@@ -1740,6 +1746,8 @@ export const orderAPI = {
     apiClient.get(`/food/orders/${String(orderId)}`, { contextModule: "user" }),
   cancelOrder: (orderId, body = {}) =>
     apiClient.patch(`/food/orders/${String(orderId)}/cancel`, body ?? {}, { contextModule: "user" }),
+  submitOrderRatings: (orderId, body = {}) =>
+    apiClient.patch(`/food/orders/${String(orderId)}/ratings`, body ?? {}, { contextModule: "user" }),
 };
 
 const DINING_BOOKINGS_STORAGE_KEY = "food_dining_bookings_v1";
