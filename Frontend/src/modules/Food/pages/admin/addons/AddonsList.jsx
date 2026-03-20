@@ -31,7 +31,7 @@ const getAddonImage = (addon) =>
   "https://via.placeholder.com/40"
 
 export default function AddonsList() {
-  const [activeTab, setActiveTab] = useState("pending") // pending | approved | rejected
+  const [activeTab, setActiveTab] = useState("all") // all | pending | approved | rejected
   const [searchQuery, setSearchQuery] = useState("")
   const [addons, setAddons] = useState([])
   const [loading, setLoading] = useState(true)
@@ -48,7 +48,7 @@ export default function AddonsList() {
       try {
         setLoading(true)
         const response = await adminAPI.getRestaurantAddons({
-          approvalStatus: activeTab,
+          approvalStatus: activeTab === "all" ? undefined : activeTab,
           search: searchQuery?.trim() ? searchQuery.trim() : undefined,
           limit: 200,
           page: 1,
@@ -88,7 +88,13 @@ export default function AddonsList() {
       setSubmittingAction(true)
       await adminAPI.approveRestaurantAddon(String(id))
       toast.success("Add-on approved")
-      setAddons((prev) => (prev || []).filter((a) => String(a.id || a._id) !== String(id)))
+      if (activeTab === "all") {
+        setAddons((prev) =>
+          (prev || []).map((a) => (String(a.id || a._id) === String(id) ? { ...a, approvalStatus: "approved" } : a)),
+        )
+      } else {
+        setAddons((prev) => (prev || []).filter((a) => String(a.id || a._id) !== String(id)))
+      }
     } catch (error) {
       debugError("Approve add-on failed:", error)
       toast.error(error?.response?.data?.message || "Failed to approve add-on")
@@ -113,7 +119,17 @@ export default function AddonsList() {
       setSubmittingAction(true)
       await adminAPI.rejectRestaurantAddon(String(id), rejectionReason.trim())
       toast.success("Add-on rejected")
-      setAddons((prev) => (prev || []).filter((a) => String(a.id || a._id) !== String(id)))
+      if (activeTab === "all") {
+        setAddons((prev) =>
+          (prev || []).map((a) =>
+            String(a.id || a._id) === String(id)
+              ? { ...a, approvalStatus: "rejected", rejectionReason: rejectionReason.trim() }
+              : a,
+          ),
+        )
+      } else {
+        setAddons((prev) => (prev || []).filter((a) => String(a.id || a._id) !== String(id)))
+      }
       setRejectingAddon(null)
     } catch (error) {
       debugError("Reject add-on failed:", error)
@@ -133,6 +149,17 @@ export default function AddonsList() {
           </div>
 
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setActiveTab("all")}
+              className={`px-4 py-2 rounded-full text-sm font-semibold border transition-colors ${
+                activeTab === "all"
+                  ? "bg-slate-800 text-white border-slate-800"
+                  : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+              }`}
+            >
+              All
+            </button>
             <button
               type="button"
               onClick={() => setActiveTab("pending")}
@@ -282,7 +309,7 @@ export default function AddonsList() {
                         >
                           <Eye className="w-4 h-4" />
                         </button>
-                        {activeTab === "pending" ? (
+                        {addon?.approvalStatus === "pending" ? (
                           <>
                             <button
                               onClick={() => handleApprove(addon)}
@@ -301,7 +328,17 @@ export default function AddonsList() {
                               Reject
                             </button>
                           </>
-                        ) : null}
+                        ) : (
+                          <span
+                            className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                              addon?.approvalStatus === "approved"
+                                ? "bg-green-100 text-green-700 border border-green-200"
+                                : "bg-red-100 text-red-700 border border-red-200"
+                            }`}
+                          >
+                            {addon?.approvalStatus || "pending"}
+                          </span>
+                        )}
                       </div>
                     </td>
                   </tr>
