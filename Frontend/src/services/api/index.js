@@ -88,32 +88,50 @@ export const authAPI = {
     _role,
     _password,
     _referralCode,
+    fcmToken = null,
+    platform = "web",
   ) => {
     if (!phone || !otp)
       return Promise.reject(new Error("Phone and OTP are required"));
-    return authService.verifyUserOtp(phone, otp, _referralCode);
+    return authService.verifyUserOtp(
+      phone,
+      otp,
+      _referralCode,
+      fcmToken,
+      platform,
+    );
   },
   getCurrentUser: () => getUserMeOnce(),
   refreshToken: (token) => authService.refreshToken(token),
-  logout: (refreshToken) => {
+  logout: (refreshToken, fcmToken = null, platform = "web") => {
     const token =
       refreshToken ||
       (typeof localStorage !== "undefined"
         ? localStorage.getItem("user_refreshToken")
         : null);
-    return authService.logout(token);
+    return authService.logout(token, fcmToken, platform);
   },
 };
 
 export const supportAPI = {
   createTicket: (body) =>
-    apiClient.post("/food/user/support/ticket", body ?? {}, { contextModule: "user" }),
+    apiClient.post("/food/user/support/ticket", body ?? {}, {
+      contextModule: "user",
+    }),
   getMyTickets: (params = {}) =>
-    apiClient.get("/food/user/support/my-tickets", { params, contextModule: "user" }),
+    apiClient.get("/food/user/support/my-tickets", {
+      params,
+      contextModule: "user",
+    }),
   getSupportTicketsAdmin: (params = {}) =>
-    apiClient.get("/food/admin/support-tickets", { params, contextModule: "admin" }),
+    apiClient.get("/food/admin/support-tickets", {
+      params,
+      contextModule: "admin",
+    }),
   updateSupportTicketAdmin: (id, body = {}) =>
-    apiClient.patch(`/food/admin/support-tickets/${String(id)}`, body ?? {}, { contextModule: "admin" }),
+    apiClient.patch(`/food/admin/support-tickets/${String(id)}`, body ?? {}, {
+      contextModule: "admin",
+    }),
 };
 
 /** Admin API - new backend only (GET /auth/me, PATCH /auth/admin/profile, POST /auth/admin/change-password) */
@@ -312,7 +330,11 @@ export const adminAPI = {
       contextModule: "admin",
     }),
   approveCategory: (id) =>
-    apiClient.patch(`/food/admin/categories/${String(id)}/approve`, {}, { contextModule: "admin" }),
+    apiClient.patch(
+      `/food/admin/categories/${String(id)}/approve`,
+      {},
+      { contextModule: "admin" },
+    ),
   toggleCategoryStatus: (id) =>
     apiClient.patch(
       `/food/admin/categories/${id}/toggle`,
@@ -329,13 +351,23 @@ export const adminAPI = {
     }),
   /** Update restaurant basic details (admin). */
   updateRestaurant: (id, body) =>
-    apiClient.patch(`/food/admin/restaurants/${String(id)}`, body ?? {}, { contextModule: "admin" }),
+    apiClient.patch(`/food/admin/restaurants/${String(id)}`, body ?? {}, {
+      contextModule: "admin",
+    }),
   /** Update restaurant status (admin). Body: { status: boolean } */
   updateRestaurantStatus: (id, status) =>
-    apiClient.patch(`/food/admin/restaurants/${String(id)}/status`, { status: status !== false }, { contextModule: "admin" }),
+    apiClient.patch(
+      `/food/admin/restaurants/${String(id)}/status`,
+      { status: status !== false },
+      { contextModule: "admin" },
+    ),
   /** Update restaurant location (admin). Body includes lat/lng + address fields. */
   updateRestaurantLocation: (id, body) =>
-    apiClient.patch(`/food/admin/restaurants/${String(id)}/location`, body ?? {}, { contextModule: "admin" }),
+    apiClient.patch(
+      `/food/admin/restaurants/${String(id)}/location`,
+      body ?? {},
+      { contextModule: "admin" },
+    ),
   /** Restaurant menu (admin) */
   getRestaurantMenuById: (id, config = {}) =>
     apiClient.get(`/food/admin/restaurants/${id}/menu`, {
@@ -390,16 +422,29 @@ export const adminAPI = {
     ),
   /** Orders (admin) – list, get by id, assign delivery partner */
   getOrders: (params = {}) =>
-    apiClient.get("/food/admin/orders", { params: { limit: 50, page: 1, ...params }, contextModule: "admin" }),
+    apiClient.get("/food/admin/orders", {
+      params: { limit: 50, page: 1, ...params },
+      contextModule: "admin",
+    }),
   getOrderById: (orderId) =>
-    apiClient.get(`/food/admin/orders/${String(orderId)}`, { contextModule: "admin" }),
+    apiClient.get(`/food/admin/orders/${String(orderId)}`, {
+      contextModule: "admin",
+    }),
   assignDeliveryPartner: (orderId, deliveryPartnerId) =>
-    apiClient.patch(`/food/admin/orders/${String(orderId)}/assign-delivery`, { deliveryPartnerId: String(deliveryPartnerId) }, { contextModule: "admin" }),
+    apiClient.patch(
+      `/food/admin/orders/${String(orderId)}/assign-delivery`,
+      { deliveryPartnerId: String(deliveryPartnerId) },
+      { contextModule: "admin" },
+    ),
   /** Dispatch settings – auto vs manual assign (global) */
   getDispatchSettings: () =>
     apiClient.get("/food/admin/settings/dispatch", { contextModule: "admin" }),
   updateDispatchSettings: (dispatchMode) =>
-    apiClient.patch("/food/admin/settings/dispatch", { dispatchMode }, { contextModule: "admin" }),
+    apiClient.patch(
+      "/food/admin/settings/dispatch",
+      { dispatchMode },
+      { contextModule: "admin" },
+    ),
   /** Create restaurant (admin). Single API: POST /food/admin/restaurants. Body: JSON with image URLs. */
   createRestaurant: (body) =>
     apiClient.post("/food/admin/restaurants", body ?? {}, {
@@ -442,7 +487,10 @@ export const adminAPI = {
 
   /** Public categories (user app) - zone-aware */
   getPublicCategories: (params = {}, config = {}) =>
-    apiClient.get("/food/restaurant/categories/public", { params: params ?? {}, ...config }),
+    apiClient.get("/food/restaurant/categories/public", {
+      params: params ?? {},
+      ...config,
+    }),
 
   /** Offers & Coupons (admin) */
   getAllOffers: (params = {}) =>
@@ -665,9 +713,16 @@ export const adminAPI = {
 
   /** Restaurant add-ons approval (admin) */
   getRestaurantAddons: (params = {}) =>
-    apiClient.get("/food/admin/addons", { params: params ?? {}, contextModule: "admin" }),
+    apiClient.get("/food/admin/addons", {
+      params: params ?? {},
+      contextModule: "admin",
+    }),
   approveRestaurantAddon: (id) =>
-    apiClient.patch(`/food/admin/addons/${String(id)}/approve`, {}, { contextModule: "admin" }),
+    apiClient.patch(
+      `/food/admin/addons/${String(id)}/approve`,
+      {},
+      { contextModule: "admin" },
+    ),
   rejectRestaurantAddon: (id, reason) =>
     apiClient.patch(
       `/food/admin/addons/${String(id)}/reject`,
@@ -796,8 +851,7 @@ export const restaurantAPI = {
     });
   },
   /** Public Offers for users (global/selected restaurant) */
-  getPublicOffers: () =>
-    apiClient.get("/food/restaurant/offers"),
+  getPublicOffers: () => apiClient.get("/food/restaurant/offers"),
   /** Backward-compat helper used by Cart: returns coupons array for an item by adapting public offers */
   getCouponsByItemIdPublic: (restaurantId, _itemId) =>
     apiClient.get("/food/restaurant/offers").then((res) => {
@@ -882,9 +936,31 @@ export const restaurantAPI = {
     apiClient.patch("/food/restaurant/menu", body ?? {}, {
       contextModule: "restaurant",
     }),
+  saveFcmToken: (token, platform = "web") => {
+    if (!token) return Promise.reject(new Error("FCM token is required"));
+    const path =
+      platform === "mobile" ? "/fcm-tokens/mobile/save" : "/fcm-tokens/save";
+    return apiClient.post(
+      path,
+      { token: String(token), platform },
+      { contextModule: "restaurant" },
+    );
+  },
+  removeFcmToken: (token, platform = "web") => {
+    if (!token) return Promise.reject(new Error("FCM token is required"));
+    return apiClient.delete(
+      `/fcm-tokens/remove/${encodeURIComponent(String(token))}`,
+      {
+        data: { token: String(token), platform },
+        contextModule: "restaurant",
+      },
+    );
+  },
   /** Outlet timings (restaurant dashboard) */
   getOutletTimings: () =>
-    apiClient.get("/food/restaurant/outlet-timings", { contextModule: "restaurant" }),
+    apiClient.get("/food/restaurant/outlet-timings", {
+      contextModule: "restaurant",
+    }),
   saveOutletTimings: (outletTimings) =>
     apiClient.put(
       "/food/restaurant/outlet-timings",
@@ -924,54 +1000,54 @@ export const restaurantAPI = {
 
       inFlightKey = key;
       inFlight = apiClient
-      .get("/food/restaurant/orders", {
-        params: { limit: 50, page: 1, ...params },
-        contextModule: "restaurant",
-      })
-      .then((res) => {
-        // Backend paginated shape: { data: { data: [...], meta: {...} } }
-        // Normalize to { data: { data: { orders: [...], meta } } } for restaurant UI pages.
-        const payload = res?.data?.data || {};
-        const rowsRaw = Array.isArray(payload.data) ? payload.data : [];
+        .get("/food/restaurant/orders", {
+          params: { limit: 50, page: 1, ...params },
+          contextModule: "restaurant",
+        })
+        .then((res) => {
+          // Backend paginated shape: { data: { data: [...], meta: {...} } }
+          // Normalize to { data: { data: { orders: [...], meta } } } for restaurant UI pages.
+          const payload = res?.data?.data || {};
+          const rowsRaw = Array.isArray(payload.data) ? payload.data : [];
 
-        // Normalize backend order fields to match existing restaurant UI expectations.
-        // UI historically uses: order.status, order.address, order.total, order.paymentMethod
-        const normalizeStatus = (s) => {
-          const v = String(s || "").toLowerCase();
-          // Backend: created -> treat as confirmed/new in UI
-          if (v === "created") return "confirmed";
-          // Backend: ready_for_pickup -> ready
-          if (v === "ready_for_pickup") return "ready";
-          // Backend: picked_up -> out_for_delivery (restaurant handed over)
-          if (v === "picked_up") return "out_for_delivery";
-          return v || "confirmed";
-        };
+          // Normalize backend order fields to match existing restaurant UI expectations.
+          // UI historically uses: order.status, order.address, order.total, order.paymentMethod
+          const normalizeStatus = (s) => {
+            const v = String(s || "").toLowerCase();
+            // Backend: created -> treat as confirmed/new in UI
+            if (v === "created") return "confirmed";
+            // Backend: ready_for_pickup -> ready
+            if (v === "ready_for_pickup") return "ready";
+            // Backend: picked_up -> out_for_delivery (restaurant handed over)
+            if (v === "picked_up") return "out_for_delivery";
+            return v || "confirmed";
+          };
 
-        const rows = rowsRaw.map((o) => {
-          const status = normalizeStatus(o.orderStatus || o.status);
-          const address = o.deliveryAddress || o.address;
-          const total = o.pricing?.total ?? o.total ?? 0;
-          const paymentMethod = o.payment?.method || o.paymentMethod || null;
-          return { ...o, status, address, total, paymentMethod };
+          const rows = rowsRaw.map((o) => {
+            const status = normalizeStatus(o.orderStatus || o.status);
+            const address = o.deliveryAddress || o.address;
+            const total = o.pricing?.total ?? o.total ?? 0;
+            const paymentMethod = o.payment?.method || o.paymentMethod || null;
+            return { ...o, status, address, total, paymentMethod };
+          });
+          const meta = payload.meta || {};
+          const normalized = {
+            ...res,
+            data: {
+              ...res.data,
+              data: { orders: rows, meta },
+            },
+          };
+
+          cache = normalized;
+          cacheKey = key;
+          cacheAt = Date.now();
+          return normalized;
+        })
+        .finally(() => {
+          inFlight = null;
+          inFlightKey = "";
         });
-        const meta = payload.meta || {};
-        const normalized = {
-          ...res,
-          data: {
-            ...res.data,
-            data: { orders: rows, meta },
-          },
-        };
-
-        cache = normalized;
-        cacheKey = key;
-        cacheAt = Date.now();
-        return normalized;
-      })
-      .finally(() => {
-        inFlight = null;
-        inFlightKey = "";
-      });
 
       return inFlight;
     };
@@ -982,7 +1058,9 @@ export const restaurantAPI = {
 
     // Translate UI-friendly statuses to backend enum values.
     const normalizeOutgoingStatus = (s) => {
-      const v = String(s || "").toLowerCase().trim();
+      const v = String(s || "")
+        .toLowerCase()
+        .trim();
       if (!v) return v;
       if (v === "ready") return "ready_for_pickup";
       if (v === "out_for_delivery") return "picked_up";
@@ -997,7 +1075,7 @@ export const restaurantAPI = {
     return apiClient.patch(
       `/food/restaurant/orders/${String(orderId)}/status`,
       outgoing,
-      { contextModule: "restaurant" }
+      { contextModule: "restaurant" },
     );
   },
   /**
@@ -1012,10 +1090,14 @@ export const restaurantAPI = {
    * Backend orderStatus enum: cancelled_by_restaurant.
    */
   rejectOrder: (orderId, _reason = "") =>
-    restaurantAPI.updateOrderStatus(orderId, { orderStatus: "cancelled_by_restaurant" }),
+    restaurantAPI.updateOrderStatus(orderId, {
+      orderStatus: "cancelled_by_restaurant",
+    }),
   /** Mark order ready (restaurant handoff). */
   markOrderReady: (orderId) =>
-    restaurantAPI.updateOrderStatus(orderId, { orderStatus: "ready_for_pickup" }),
+    restaurantAPI.updateOrderStatus(orderId, {
+      orderStatus: "ready_for_pickup",
+    }),
   /**
    * Get a single order by id for restaurant screens.
    * Backend doesn't yet expose GET /food/restaurant/orders/:id in this repo,
@@ -1025,7 +1107,9 @@ export const restaurantAPI = {
     const res = await restaurantAPI.getOrders({ page: 1, limit: 100 });
     const orders = res?.data?.data?.orders || [];
     const match = orders.find(
-      (o) => String(o._id) === String(orderId) || String(o.orderId) === String(orderId)
+      (o) =>
+        String(o._id) === String(orderId) ||
+        String(o.orderId) === String(orderId),
     );
     return {
       ...res,
@@ -1043,7 +1127,9 @@ export const restaurantAPI = {
       contextModule: "restaurant",
     }),
   addAddon: (body) =>
-    apiClient.post("/food/restaurant/addons", body ?? {}, { contextModule: "restaurant" }),
+    apiClient.post("/food/restaurant/addons", body ?? {}, {
+      contextModule: "restaurant",
+    }),
   updateAddon: (id, body) =>
     apiClient.patch(`/food/restaurant/addons/${String(id)}`, body ?? {}, {
       contextModule: "restaurant",
@@ -1090,7 +1176,9 @@ export const restaurantAPI = {
     getPublicRestaurantOutletTimingsOnce(id, config),
   /** Public (user app): approved add-ons by restaurant id/slug */
   getAddonsByRestaurantId: (id, config = {}) =>
-    apiClient.get(`/food/restaurant/restaurants/${String(id)}/addons`, { ...config }),
+    apiClient.get(`/food/restaurant/restaurants/${String(id)}/addons`, {
+      ...config,
+    }),
   /** Public: list coupons/offers created by admin */
   getPublicOffers: (params = {}, config = {}) =>
     apiClient.get("/food/restaurant/offers", { params, ...config }),
@@ -1154,7 +1242,8 @@ export const publicGetOnce = (url, config = {}) => {
     return apiClient.get(safeUrl, { params, ...axiosConfig });
   }
 
-  const keyParams = params && typeof params === "object" ? { ...params } : params;
+  const keyParams =
+    params && typeof params === "object" ? { ...params } : params;
   if (keyParams && typeof keyParams === "object") {
     // `_ts` is used as a cache-buster in some call sites; ignore it for dedupe purposes.
     delete keyParams._ts;
@@ -1233,10 +1322,9 @@ const getPublicRestaurantOutletTimingsOnce = (id, config = {}) => {
   }
   const key = `outletTimings:${safeId}`;
   return publicRestaurantOutletTimingsCache.getOrCreate(key, () =>
-    apiClient.get(
-      `/food/restaurant/restaurants/${safeId}/outlet-timings`,
-      { ...axiosConfig },
-    ),
+    apiClient.get(`/food/restaurant/restaurants/${safeId}/outlet-timings`, {
+      ...axiosConfig,
+    }),
   );
 };
 
@@ -1317,7 +1405,9 @@ export const deliveryAPI = {
       },
     })),
   getReferralStats: () =>
-    apiClient.get("/food/delivery/referrals/stats", { contextModule: "delivery" }),
+    apiClient.get("/food/delivery/referrals/stats", {
+      contextModule: "delivery",
+    }),
   logout: (refreshToken) => {
     deliveryMeCached = null;
     deliveryMeCacheTime = 0;
@@ -1372,6 +1462,26 @@ export const deliveryAPI = {
     apiClient.patch("/food/delivery/profile/bank-details", payload ?? {}, {
       contextModule: "delivery",
     }),
+  saveFcmToken: (token, platform = "web") => {
+    if (!token) return Promise.reject(new Error("FCM token is required"));
+    const path =
+      platform === "mobile" ? "/fcm-tokens/mobile/save" : "/fcm-tokens/save";
+    return apiClient.post(
+      path,
+      { token: String(token), platform },
+      { contextModule: "delivery" },
+    );
+  },
+  removeFcmToken: (token, platform = "web") => {
+    if (!token) return Promise.reject(new Error("FCM token is required"));
+    return apiClient.delete(
+      `/fcm-tokens/remove/${encodeURIComponent(String(token))}`,
+      {
+        data: { token: String(token), platform },
+        contextModule: "delivery",
+      },
+    );
+  },
   /** GET /food/delivery/support-tickets - list tickets for logged-in delivery partner. */
   getSupportTickets: () =>
     apiClient.get("/food/delivery/support-tickets", {
@@ -1427,7 +1537,8 @@ export const deliveryAPI = {
       const key = stableKey(params);
       const now = Date.now();
       const cached = cache.get(key);
-      if (cached && now - cached.at < CACHE_MS) return Promise.resolve(cached.res);
+      if (cached && now - cached.at < CACHE_MS)
+        return Promise.resolve(cached.res);
 
       const existing = inFlight.get(key);
       if (existing) return existing;
@@ -1478,7 +1589,8 @@ export const deliveryAPI = {
 
       const now = Date.now();
       const cached = cache.get(key);
-      if (cached && now - cached.at < CACHE_MS) return Promise.resolve(cached.res);
+      if (cached && now - cached.at < CACHE_MS)
+        return Promise.resolve(cached.res);
 
       const existing = inFlight.get(key);
       if (existing) return existing;
@@ -1498,16 +1610,23 @@ export const deliveryAPI = {
     };
   })(),
   /** GET /food/delivery/current - fallback for some UI hooks */
-  getCurrentDelivery: () =>
-    getDeliveryMeOnce(),
+  getCurrentDelivery: () => getDeliveryMeOnce(),
   acceptOrder: (orderId, body = {}) =>
-    apiClient.patch(`/food/delivery/orders/${String(orderId)}/accept`, body ?? {}, {
-      contextModule: "delivery",
-    }),
+    apiClient.patch(
+      `/food/delivery/orders/${String(orderId)}/accept`,
+      body ?? {},
+      {
+        contextModule: "delivery",
+      },
+    ),
   rejectOrder: (orderId, body = {}) =>
-    apiClient.patch(`/food/delivery/orders/${String(orderId)}/reject`, body ?? {}, {
-      contextModule: "delivery",
-    }),
+    apiClient.patch(
+      `/food/delivery/orders/${String(orderId)}/reject`,
+      body ?? {},
+      {
+        contextModule: "delivery",
+      },
+    ),
   /**
    * PATCH /food/delivery/orders/:orderId/reached-pickup
    * Marks "reached pickup" (arrival at restaurant) in backend order deliveryState.
@@ -1518,32 +1637,48 @@ export const deliveryAPI = {
       {},
       { contextModule: "delivery" },
     ),
-  /** 
+  /**
    * Confirm order ID and upload bill image (Picked Up slide).
    * Backend endpoint: PATCH /food/delivery/orders/:id/confirm-pickup
    */
   confirmOrderId: (orderId, confirmedOrderId, location = {}, data = {}) =>
-    apiClient.patch(`/food/delivery/orders/${String(orderId)}/confirm-pickup`, {
-      confirmedOrderId,
-      latitude: location.lat,
-      longitude: location.lng,
-      billImageUrl: data.billImageUrl
-    }, {
-      contextModule: "delivery",
-    }),
+    apiClient.patch(
+      `/food/delivery/orders/${String(orderId)}/confirm-pickup`,
+      {
+        confirmedOrderId,
+        latitude: location.lat,
+        longitude: location.lng,
+        billImageUrl: data.billImageUrl,
+      },
+      {
+        contextModule: "delivery",
+      },
+    ),
   confirmReachedDrop: (orderId) =>
-    apiClient.patch(`/food/delivery/orders/${String(orderId)}/reached-drop`, {}, {
-      contextModule: "delivery",
-    }),
+    apiClient.patch(
+      `/food/delivery/orders/${String(orderId)}/reached-drop`,
+      {},
+      {
+        contextModule: "delivery",
+      },
+    ),
   verifyDropOtp: (orderId, otp) =>
-    apiClient.post(`/food/delivery/orders/${String(orderId)}/verify-drop-otp`, { otp: String(otp) }, {
-      contextModule: "delivery",
-    }),
+    apiClient.post(
+      `/food/delivery/orders/${String(orderId)}/verify-drop-otp`,
+      { otp: String(otp) },
+      {
+        contextModule: "delivery",
+      },
+    ),
   /** POST /food/delivery/orders/:orderId/collect/qr - create Razorpay payment link (COD collection) */
   createCollectQr: (orderId, body = {}) =>
-    apiClient.post(`/food/delivery/orders/${String(orderId)}/collect/qr`, body ?? {}, {
-      contextModule: "delivery",
-    }),
+    apiClient.post(
+      `/food/delivery/orders/${String(orderId)}/collect/qr`,
+      body ?? {},
+      {
+        contextModule: "delivery",
+      },
+    ),
   /** GET /food/delivery/orders/:orderId/payment-status - check COD/QR payment status */
   getPaymentStatus: (orderId) =>
     apiClient.get(`/food/delivery/orders/${String(orderId)}/payment-status`, {
@@ -1553,20 +1688,36 @@ export const deliveryAPI = {
     // Backward-compatible: older UI calls completeDelivery(orderId, rating, review)
     // where rating is a number (sent as raw JSON like "3"). Normalize to an object.
     let payload = body ?? {};
-    if (typeof payload === "number" || typeof payload === "string" || payload == null) {
+    if (
+      typeof payload === "number" ||
+      typeof payload === "string" ||
+      payload == null
+    ) {
       payload = { rating: payload == null ? null : Number(payload) };
     }
-    return apiClient.patch(`/food/delivery/orders/${String(orderId)}/complete`, payload, {
-      contextModule: "delivery",
-    });
+    return apiClient.patch(
+      `/food/delivery/orders/${String(orderId)}/complete`,
+      payload,
+      {
+        contextModule: "delivery",
+      },
+    );
   },
   updateOrderStatus: (orderId, body = {}) =>
-    apiClient.patch(`/food/delivery/orders/${String(orderId)}/status`, body ?? {}, {
-      contextModule: "delivery",
-    }),
+    apiClient.patch(
+      `/food/delivery/orders/${String(orderId)}/status`,
+      body ?? {},
+      {
+        contextModule: "delivery",
+      },
+    ),
   /** Registration Re-verification */
   reverify: () =>
-    apiClient.post("/food/delivery/reverify", {}, { contextModule: "delivery" }),
+    apiClient.post(
+      "/food/delivery/reverify",
+      {},
+      { contextModule: "delivery" },
+    ),
   /** GET /food/delivery/wallet - wallet for Pocket/requests page (backend) */
   getWallet: () =>
     apiClient.get("/food/delivery/wallet", { contextModule: "delivery" }),
@@ -1578,7 +1729,9 @@ export const deliveryAPI = {
     }),
   /** Earning Addons (Hotspots/Bonus) */
   getActiveEarningAddons: () =>
-    apiClient.get("/food/delivery/earning-addons/active", { contextModule: "delivery" }),
+    apiClient.get("/food/delivery/earning-addons/active", {
+      contextModule: "delivery",
+    }),
   /** GET /food/delivery/trip-history - completed/cancelled/pending trips for delivery partner */
   getTripHistory: (params) =>
     apiClient.get("/food/delivery/trip-history", {
@@ -1603,15 +1756,20 @@ export const deliveryAPI = {
     }),
   /** Wallet transactions - from wallet response (no separate backend endpoint) */
   getWalletTransactions: (params) =>
-    apiClient.get("/food/delivery/wallet", { params: params ?? {}, contextModule: "delivery" }).then((res) => ({
-      ...res,
-      data: {
-        ...res.data,
+    apiClient
+      .get("/food/delivery/wallet", {
+        params: params ?? {},
+        contextModule: "delivery",
+      })
+      .then((res) => ({
+        ...res,
         data: {
-          transactions: res?.data?.data?.wallet?.transactions ?? [],
+          ...res.data,
+          data: {
+            transactions: res?.data?.data?.wallet?.transactions ?? [],
+          },
         },
-      },
-    })),
+      })),
   /** Zone discovery */
   getZonesInRadius: (lat, lng, radiusKm = 10) =>
     apiClient.get("/food/zones/nearby", {
@@ -1633,7 +1791,9 @@ export const userAPI = {
     }),
   /** PATCH /food/user/profile (Bearer USER) */
   updateProfile: (body) =>
-    apiClient.patch("/food/user/profile", body ?? {}, { contextModule: "user" }),
+    apiClient.patch("/food/user/profile", body ?? {}, {
+      contextModule: "user",
+    }),
   /** Upload and set user profile image (multipart). Field name: file */
   uploadProfileImage: (file) => {
     if (!file) return Promise.reject(new Error("File is required"));
@@ -1668,7 +1828,8 @@ export const userAPI = {
     };
   })(),
   /** GET /food/user/referrals/stats (Bearer USER) */
-  getReferralStats: () => apiClient.get("/food/user/referrals/stats", { contextModule: "user" }),
+  getReferralStats: () =>
+    apiClient.get("/food/user/referrals/stats", { contextModule: "user" }),
   /** POST /food/user/wallet/topup/order (Bearer USER). Body: { amount } */
   createWalletTopupOrder: (amount) =>
     apiClient.post(
@@ -1706,16 +1867,27 @@ export const userAPI = {
     };
   })(),
   /** POST /food/user/addresses (Bearer USER) */
-  addAddress: (body) => apiClient.post("/food/user/addresses", body ?? {}, { contextModule: "user" }),
+  addAddress: (body) =>
+    apiClient.post("/food/user/addresses", body ?? {}, {
+      contextModule: "user",
+    }),
   /** PATCH /food/user/addresses/:id (Bearer USER) */
   updateAddress: (id, body) =>
-    apiClient.patch(`/food/user/addresses/${String(id)}`, body ?? {}, { contextModule: "user" }),
+    apiClient.patch(`/food/user/addresses/${String(id)}`, body ?? {}, {
+      contextModule: "user",
+    }),
   /** DELETE /food/user/addresses/:id (Bearer USER) */
   deleteAddress: (id) =>
-    apiClient.delete(`/food/user/addresses/${String(id)}`, { contextModule: "user" }),
+    apiClient.delete(`/food/user/addresses/${String(id)}`, {
+      contextModule: "user",
+    }),
   /** PATCH /food/user/addresses/:id/default (Bearer USER) */
   setDefaultAddress: (id) =>
-    apiClient.patch(`/food/user/addresses/${String(id)}/default`, {}, { contextModule: "user" }),
+    apiClient.patch(
+      `/food/user/addresses/${String(id)}/default`,
+      {},
+      { contextModule: "user" },
+    ),
   /** POST /food/user/safety-emergency-reports (Bearer USER) */
   createSafetyEmergencyReport: (message) =>
     apiClient.post(
@@ -1735,7 +1907,35 @@ export const userAPI = {
    * Keep this as a no-op success so existing flows don't break.
    */
   updateLocation: (_payload) =>
-    Promise.resolve({ data: { success: true, message: "Location saved (client)", data: null } }),
+    Promise.resolve({
+      data: { success: true, message: "Location saved (client)", data: null },
+    }),
+  saveFcmToken: (token, options = {}) => {
+    if (!token) return Promise.reject(new Error("FCM token is required"));
+    const platform = options?.platform === "mobile" ? "mobile" : "web";
+    const path =
+      platform === "mobile" ? "/fcm-tokens/mobile/save" : "/fcm-tokens/save";
+    return apiClient.post(
+      path,
+      { token: String(token), platform },
+      { contextModule: "user" },
+    );
+  },
+  removeFcmToken: (token, options = {}) => {
+    if (!token) return Promise.reject(new Error("FCM token is required"));
+    const platform = options?.platform === "mobile" ? "mobile" : "web";
+    return apiClient.delete(
+      `/fcm-tokens/remove/${encodeURIComponent(String(token))}`,
+      {
+        data: { token: String(token), platform },
+        contextModule: "user",
+      },
+    );
+  },
+  testFcmNotification: (options = {}) => {
+    const platform = options?.platform === "mobile" ? "mobile" : "web";
+    return apiClient.post("/fcm-tokens/test", { platform }, { contextModule: "user" });
+  },
 };
 export const locationAPI = createStubAPI();
 export const zoneAPI = {
@@ -1773,11 +1973,15 @@ export const uploadAPI = {
 /** Order API (user app – Bearer USER token). Minimal calls: single create/verify, list/details cached by caller. */
 export const orderAPI = {
   calculateOrder: (payload) =>
-    apiClient.post("/food/orders/calculate", payload ?? {}, { contextModule: "user" }),
+    apiClient.post("/food/orders/calculate", payload ?? {}, {
+      contextModule: "user",
+    }),
   createOrder: (payload) =>
     apiClient.post("/food/orders", payload ?? {}, { contextModule: "user" }),
   verifyPayment: (body) =>
-    apiClient.post("/food/orders/verify-payment", body ?? {}, { contextModule: "user" }),
+    apiClient.post("/food/orders/verify-payment", body ?? {}, {
+      contextModule: "user",
+    }),
   getOrders: (params = {}) =>
     apiClient
       .get("/food/orders", {
@@ -1822,7 +2026,9 @@ export const orderAPI = {
   getOrderDetails: (orderId) =>
     apiClient.get(`/food/orders/${String(orderId)}`, { contextModule: "user" }),
   cancelOrder: (orderId, body = {}) =>
-    apiClient.patch(`/food/orders/${String(orderId)}/cancel`, body ?? {}, { contextModule: "user" }),
+    apiClient.patch(`/food/orders/${String(orderId)}/cancel`, body ?? {}, {
+      contextModule: "user",
+    }),
   submitOrderRatings: (orderId, body = {}) =>
     apiClient.patch(`/food/orders/${String(orderId)}/ratings`, body ?? {}, { contextModule: "user" }),
   /** Submit a complaint for an order (user). */
@@ -1868,7 +2074,10 @@ const saveStoredBookings = (bookings) => {
 
 const getStoredModuleUser = (module) => {
   if (typeof localStorage === "undefined") return null;
-  const parsed = safeJsonParse(localStorage.getItem(`${module}_user`) || "null", null);
+  const parsed = safeJsonParse(
+    localStorage.getItem(`${module}_user`) || "null",
+    null,
+  );
   return parsed && typeof parsed === "object" ? parsed : null;
 };
 
@@ -1887,12 +2096,15 @@ const normalizeRestaurantShape = (restaurant) => {
     image:
       restaurant?.image ||
       restaurant?.profileImage?.url ||
-      (typeof restaurant?.profileImage === "string" ? restaurant.profileImage : ""),
+      (typeof restaurant?.profileImage === "string"
+        ? restaurant.profileImage
+        : ""),
     location: restaurant?.location || null,
   };
 };
 
-const buildLocalBookingId = () => `dbook_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+const buildLocalBookingId = () =>
+  `dbook_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
 const buildDisplayBookingId = () => `TB${Date.now().toString().slice(-8)}`;
 
@@ -1902,12 +2114,7 @@ const getCurrentUserForBookings = async () => {
 
   try {
     const me = await getUserMeOnce();
-    return (
-      me?.data?.data?.user ||
-      me?.data?.user ||
-      me?.data?.data ||
-      null
-    );
+    return me?.data?.data?.user || me?.data?.user || me?.data?.data || null;
   } catch {
     return null;
   }
@@ -1916,7 +2123,9 @@ const getCurrentUserForBookings = async () => {
 const normalizeBookingUser = (candidate) => {
   if (!candidate || typeof candidate !== "object") return null;
   const name = String(candidate?.name || candidate?.fullName || "").trim();
-  const phone = String(candidate?.phone || candidate?.mobile || candidate?.phoneNumber || "").trim();
+  const phone = String(
+    candidate?.phone || candidate?.mobile || candidate?.phoneNumber || "",
+  ).trim();
   const email = String(candidate?.email || "").trim();
 
   return {
@@ -1937,30 +2146,29 @@ export const diningAPI = {
     apiClient.get("/food/dining/categories/public", { params }),
   getRestaurants: (params = {}) =>
     apiClient.get("/food/dining/restaurants/public", { params }),
-  getHeroBanners: () =>
-    apiClient.get("/food/hero-banners/dining/public"),
+  getHeroBanners: () => apiClient.get("/food/hero-banners/dining/public"),
   getRestaurantBySlug: (slug) =>
     apiClient.get(`/food/restaurant/restaurants/${String(slug)}`),
-  getOfferBanners: () =>
-    Promise.resolve({ data: { success: true, data: [] } }),
-  getStories: () =>
-    Promise.resolve({ data: { success: true, data: [] } }),
-  getBankOffers: () =>
-    Promise.resolve({ data: { success: true, data: [] } }),
+  getOfferBanners: () => Promise.resolve({ data: { success: true, data: [] } }),
+  getStories: () => Promise.resolve({ data: { success: true, data: [] } }),
+  getBankOffers: () => Promise.resolve({ data: { success: true, data: [] } }),
   getBookings: async () => {
     const bookings = getStoredBookings();
     const user = await getCurrentUserForBookings();
 
     const userId = user?._id || user?.id || null;
     const userPhone = String(user?.phone || "").trim();
-    const userEmail = String(user?.email || "").trim().toLowerCase();
+    const userEmail = String(user?.email || "")
+      .trim()
+      .toLowerCase();
 
     const filtered = bookings
       .filter((booking) => {
         if (userId) {
           return (
             String(booking?.userId || "") === String(userId) ||
-            String(booking?.user?._id || booking?.user?.id || "") === String(userId)
+            String(booking?.user?._id || booking?.user?.id || "") ===
+              String(userId)
           );
         }
 
@@ -1969,7 +2177,11 @@ export const diningAPI = {
         }
 
         if (userEmail) {
-          return String(booking?.user?.email || "").trim().toLowerCase() === userEmail;
+          return (
+            String(booking?.user?.email || "")
+              .trim()
+              .toLowerCase() === userEmail
+          );
         }
 
         return false;
@@ -2003,7 +2215,9 @@ export const diningAPI = {
   },
   updateBookingStatusRestaurant: (bookingId, status) => {
     const id = String(bookingId || "").trim();
-    const nextStatus = String(status || "").trim().toLowerCase();
+    const nextStatus = String(status || "")
+      .trim()
+      .toLowerCase();
     const bookings = getStoredBookings();
 
     const next = bookings.map((booking) => {
@@ -2017,9 +2231,14 @@ export const diningAPI = {
     });
 
     saveStoredBookings(next);
-    const updated = next.find((booking) => String(booking?._id || booking?.id || "") === id) || null;
+    const updated =
+      next.find(
+        (booking) => String(booking?._id || booking?.id || "") === id,
+      ) || null;
 
-    return Promise.resolve({ data: { success: Boolean(updated), data: updated } });
+    return Promise.resolve({
+      data: { success: Boolean(updated), data: updated },
+    });
   },
   createReview: (payload = {}) => {
     const bookingId = String(payload?.bookingId || "").trim();
@@ -2045,9 +2264,14 @@ export const diningAPI = {
     });
 
     saveStoredBookings(next);
-    const updated = next.find((booking) => String(booking?._id || booking?.id || "") === bookingId) || null;
+    const updated =
+      next.find(
+        (booking) => String(booking?._id || booking?.id || "") === bookingId,
+      ) || null;
 
-    return Promise.resolve({ data: { success: Boolean(updated), data: updated } });
+    return Promise.resolve({
+      data: { success: Boolean(updated), data: updated },
+    });
   },
   createBooking: async (payload = {}) => {
     const restaurantId = String(
@@ -2082,7 +2306,9 @@ export const diningAPI = {
           `/food/restaurant/restaurants/${String(restaurantId)}`,
         );
         const rawRestaurant =
-          restaurantRes?.data?.data?.restaurant || restaurantRes?.data?.data || null;
+          restaurantRes?.data?.data?.restaurant ||
+          restaurantRes?.data?.data ||
+          null;
         restaurantData = normalizeRestaurantShape(rawRestaurant);
       } catch {
         restaurantData = {
@@ -2099,7 +2325,10 @@ export const diningAPI = {
     }
 
     const payloadUser = normalizeBookingUser(payload?.userRef || payload?.user);
-    const resolvedUser = payloadUser || normalizeBookingUser(await getCurrentUserForBookings()) || null;
+    const resolvedUser =
+      payloadUser ||
+      normalizeBookingUser(await getCurrentUserForBookings()) ||
+      null;
     const nowIso = new Date().toISOString();
     const localBookingId = buildLocalBookingId();
 

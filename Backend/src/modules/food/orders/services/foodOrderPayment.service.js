@@ -1,7 +1,7 @@
 import mongoose from 'mongoose';
-import { FoodOrderPayment } from './foodOrderPayment.model.js';
-import { FoodOrder } from './order.model.js';
-import { ForbiddenError, ValidationError } from '../../../core/auth/errors.js';
+import { FoodOrderPayment } from '../models/foodOrderPayment.model.js';
+import { FoodOrder } from '../models/order.model.js';
+import { ForbiddenError, ValidationError } from '../../../../core/auth/errors.js';
 
 function buildOrderIdentityFilter(orderIdOrMongoId) {
     const raw = String(orderIdOrMongoId || '').trim();

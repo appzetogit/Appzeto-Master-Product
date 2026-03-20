@@ -2,7 +2,7 @@ import mongoose from 'mongoose';
 import { FoodDeliveryPartner } from '../models/deliveryPartner.model.js';
 import { DeliverySupportTicket } from '../models/supportTicket.model.js';
 import { DeliveryBonusTransaction } from '../../admin/models/deliveryBonusTransaction.model.js';
-import { FoodOrder } from '../../orders/order.model.js';
+import { FoodOrder } from '../../orders/models/order.model.js';
 import { uploadImageBuffer } from '../../../../services/cloudinary.service.js';
 import { ValidationError } from '../../../../core/auth/errors.js';
 import { getDeliveryCashLimitSettings } from '../../admin/services/admin.service.js';
@@ -66,6 +66,23 @@ export const registerDeliveryPartner = async (payload, files) => {
     }
 
     await partner.save();
+
+    try {
+        const { notifyAdminsSafely } = await import('../../../../core/notifications/firebase.service.js');
+        void notifyAdminsSafely({
+            title: 'New Delivery Partner Registration 🚲',
+            body: `A new delivery partner "${partner.name}" has signed up and is pending approval.`,
+            data: {
+                type: 'new_registration',
+                subType: 'delivery_partner',
+                id: String(partner._id)
+            }
+        });
+    } catch (e) {
+        // eslint-disable-next-line no-console
+        console.error('Failed to notify admins of new delivery partner registration:', e);
+    }
+
     return partner.toObject();
 };
 

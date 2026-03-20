@@ -8,7 +8,7 @@ try {
     Razorpay = null;
 }
 
-import { config } from '../../../config/env.js';
+import { config } from '../../../../config/env.js';
 
 const KEY_ID = config.razorpayKeyId || process.env.RAZORPAY_KEY_ID || '';
 const KEY_SECRET = config.razorpayKeySecret || process.env.RAZORPAY_KEY_SECRET || '';
