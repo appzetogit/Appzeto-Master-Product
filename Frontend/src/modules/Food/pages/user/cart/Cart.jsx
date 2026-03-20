@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo, Fragment } from "react"
 import { Link, useNavigate } from "react-router-dom"
 import { Plus, Minus, ArrowLeft, ChevronRight, Clock, MapPin, Phone, FileText, Utensils, Tag, Percent, Share2, ChevronUp, ChevronDown, X, Check, Settings, CreditCard, Wallet, Building2, Sparkles, Banknote, Zap } from "lucide-react"
+import { Plus, Minus, ArrowLeft, ChevronRight, Clock, MapPin, Phone, FileText, Utensils, Tag, Percent, Share2, ChevronUp, ChevronDown, X, Check, Settings, CreditCard, Wallet, Building2, Sparkles, Zap, CheckCircle2 } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
 import confetti from "canvas-confetti"
 
@@ -17,10 +18,12 @@ import { API_BASE_URL } from "@food/api/config"
 import { initRazorpayPayment } from "@food/utils/razorpay"
 import { toast } from "sonner"
 import { getCompanyNameAsync } from "@food/utils/businessSettings"
+import { useCompanyName } from "@food/hooks/useCompanyName"
+import { getRestaurantAvailabilityStatus } from "@food/utils/restaurantAvailability"
 import zoopSound from "@food/assets/audio/zomato_sms.mp3"
-const debugLog = (...args) => {}
-const debugWarn = (...args) => {}
-const debugError = (...args) => {}
+const debugLog = (...args) => { }
+const debugWarn = (...args) => { }
+const debugError = (...args) => { }
 
 
 
@@ -74,6 +77,7 @@ const formatFullAddress = (address) => {
 const RUPEE_SYMBOL = "\u20B9"
 
 export default function Cart() {
+  const companyName = useCompanyName()
   const navigate = useNavigate()
   const orderSuccessAudioRef = useRef(null)
 
@@ -112,7 +116,7 @@ export default function Cart() {
   const [appliedCoupon, setAppliedCoupon] = useState(null)
   const [couponCode, setCouponCode] = useState("")
   const [manualCouponCode, setManualCouponCode] = useState("")
-  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState("cash") 
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState("cash")
   const [showPaymentSheet, setShowPaymentSheet] = useState(false)
   const [walletBalance, setWalletBalance] = useState(0)
   const [isLoadingWallet, setIsLoadingWallet] = useState(false)
@@ -123,8 +127,8 @@ export default function Cart() {
     try {
       if (navigator.share) {
         await navigator.share({
-          title: `My Cart at ${restaurantName || 'Quick Spicy'}`,
-          text: `Check out what I'm ordering from ${restaurantName || 'Quick Spicy'}!`,
+          title: `My Cart at ${restaurantName || companyName}`,
+          text: `Check out what I'm ordering from ${restaurantName || companyName}!`,
           url: window.location.href,
         });
       } else {
@@ -205,6 +209,70 @@ export default function Cart() {
     gstRate: 5,
   })
 
+
+  const availableTimeSlots = useMemo(() => {
+    if (!isScheduled || !scheduledDate || !restaurantData) return []
+
+    try {
+      const targetDate = new Date(scheduledDate)
+      const status = getRestaurantAvailabilityStatus(restaurantData, targetDate)
+
+      let openingHour = 9
+      let closingHour = 22
+
+      if (status.openingTime) {
+        const [h] = status.openingTime.split(':')
+        openingHour = parseInt(h, 10)
+      }
+
+      if (status.closingTime) {
+        const [h] = status.closingTime.split(':')
+        closingHour = parseInt(h, 10)
+      }
+
+      if (closingHour < openingHour) {
+        closingHour += 24 // Handle overnight slots
+      }
+
+      const slots = []
+      const now = new Date()
+      // Fix timezone date comparison by comparing date strings YYYY-MM-DD
+      const nowStr = new Date(now.getTime() - (now.getTimezoneOffset() * 60000)).toISOString().split('T')[0]
+      const targetStr = scheduledDate
+      const isToday = targetStr === nowStr
+      const currentHour = now.getHours()
+
+      for (let h = openingHour; h <= closingHour; h++) {
+        const actualHour = h % 24
+        // Skip past hours if today. Add 1 hour buffer so they can't order right at the boundary
+        if (isToday && h <= currentHour) continue
+
+        const period = actualHour >= 12 ? 'PM' : 'AM'
+        const display12 = actualHour % 12 || 12
+        const timeString = `${String(actualHour).padStart(2, '0')}:00`
+        const displayString = `${display12}:00 ${period}`
+
+        slots.push({ value: timeString, label: displayString })
+      }
+
+      return slots
+    } catch {
+      return []
+    }
+  }, [isScheduled, scheduledDate, restaurantData])
+
+  // Reset scheduledTime if it's no longer valid in the new slots
+  useEffect(() => {
+    if (isScheduled && availableTimeSlots.length > 0) {
+      const isValid = availableTimeSlots.some(slot => slot.value === scheduledTime)
+      if (!isValid) {
+        setScheduledTime(availableTimeSlots[0].value)
+      }
+    } else if (!isScheduled) {
+      setScheduledDate("")
+      setScheduledTime("")
+    }
+  }, [isScheduled, availableTimeSlots, scheduledTime])
 
   const cartCount = getCartCount()
   const getAddressId = (address) => address?.id || address?._id || null
@@ -941,7 +1009,7 @@ export default function Cart() {
       try {
         localStorage.setItem("deliveryAddressMode", "saved")
         setDeliveryAddressMode("saved")
-      } catch {}
+      } catch { }
 
       toast.success(`${address.label || "Saved"} address selected!`)
     } catch (error) {
@@ -1586,7 +1654,7 @@ export default function Cart() {
   }
 
   return (
-    <div className="relative min-h-screen bg-white dark:bg-[#0a0a0a]">
+    <div className="relative min-h-screen bg-slate-50 dark:bg-[#0a0a0a]">
       {/* Header - Sticky at top */}
       <div className="bg-white dark:bg-[#1a1a1a] border-b dark:border-gray-800 sticky top-0 z-20 flex-shrink-0">
         <div className="max-w-7xl mx-auto">
@@ -1635,7 +1703,7 @@ export default function Cart() {
             {/* Left Column - Cart Items and Details */}
             <div className="lg:col-span-2 space-y-2 md:space-y-4">
               {/* Cart Items */}
-              <div className="bg-white dark:bg-[#1a1a1a] px-4 md:px-6 py-3 md:py-4 rounded-lg md:rounded-xl">
+              <div className="bg-white dark:bg-[#1a1a1a] px-4 md:px-6 py-4 md:py-5 rounded-2xl md:rounded-3xl shadow-sm border border-slate-100 dark:border-gray-800">
                 <div className="space-y-3 md:space-y-4">
                   {cart.map((item) => (
                     <div key={item.id} className="flex items-start gap-3 md:gap-4">
@@ -1688,7 +1756,7 @@ export default function Cart() {
 
 
               {/* Note & Cutlery */}
-              <div className="bg-white dark:bg-[#1a1a1a] px-4 md:px-6 py-3 md:py-4 rounded-lg md:rounded-xl flex flex-col sm:flex-row gap-2 md:gap-3">
+              <div className="bg-white dark:bg-[#1a1a1a] px-4 md:px-6 py-4 rounded-2xl shadow-sm border border-slate-100 dark:border-gray-800 flex flex-col sm:flex-row gap-3">
                 <button
                   onClick={() => setShowNoteInput(!showNoteInput)}
                   className="flex-1 flex items-center gap-2 px-3 md:px-4 py-2 md:py-3 border border-gray-200 dark:border-gray-700 rounded-lg md:rounded-xl text-sm md:text-base text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
@@ -1719,7 +1787,7 @@ export default function Cart() {
 
               {/* Complete your meal section - Approved Addons */}
               {addons.length > 0 && (
-                <div className="bg-white dark:bg-[#1a1a1a] px-4 md:px-6 py-3 md:py-4 rounded-lg md:rounded-xl">
+                <div className="bg-white dark:bg-[#1a1a1a] px-4 md:px-6 py-5 rounded-2xl shadow-sm border border-slate-100 dark:border-gray-800">
                   <div className="flex items-center gap-2 md:gap-3 mb-3 md:mb-4">
                     <div className="w-6 h-6 md:w-8 md:h-8 bg-gray-100 dark:bg-gray-800 rounded flex items-center justify-center">
                       <span className="text-xs md:text-base">???</span>
@@ -1802,146 +1870,143 @@ export default function Cart() {
               )}
 
               {/* Coupon Section */}
-              <div className="bg-white dark:bg-[#1a1a1a] px-4 md:px-6 py-3 md:py-4 rounded-lg md:rounded-xl">
-                {appliedCoupon ? (
-                  <div className="flex items-center justify-between bg-orange-50 dark:bg-orange-900/10 border border-orange-200 dark:border-orange-800 rounded-lg md:rounded-xl p-3 md:p-4">
-                    <div className="flex items-center gap-2 md:gap-3">
-                      <Tag className="h-4 w-4 md:h-5 md:w-5 text-[#EB590E] dark:text-[#EB590E]" />
-                      <div>
-                        <p className="text-sm md:text-base font-medium text-orange-800 dark:text-orange-200">'{appliedCoupon.code}' applied</p>
-                        <p className="text-xs md:text-sm text-[#EB590E] dark:text-[#EB590E]">You saved {RUPEE_SYMBOL}{discount}</p>
-                      </div>
-                    </div>
-                    <button onClick={handleRemoveCoupon} className="text-gray-500 dark:text-gray-400 text-xs md:text-sm font-medium">Remove</button>
-                  </div>
-                ) : loadingCoupons ? (
-                  <div className="flex items-center gap-2 md:gap-3">
-                    <Percent className="h-4 w-4 md:h-5 md:w-5 text-gray-600 dark:text-gray-400" />
-                    <p className="text-sm md:text-base text-gray-500 dark:text-gray-400">Loading coupons...</p>
-                  </div>
-                ) : availableCoupons.length > 0 ? (
-                  <div>
-                    <div className="flex items-center gap-2 mb-3">
-                      <input
-                        type="text"
-                        value={manualCouponCode}
-                        onChange={(e) => setManualCouponCode(e.target.value.toUpperCase())}
-                        placeholder="Enter coupon code"
-                        className="flex-1 h-8 md:h-9 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-[#0a0a0a] px-2 md:px-3 text-xs md:text-sm text-gray-800 dark:text-gray-200 focus:outline-none focus:border-[#EB590E]"
-                      />
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-8 md:h-9 text-xs md:text-sm border-[#EB590E] dark:border-[#EB590E]/50 text-[#EB590E] dark:text-[#EB590E] hover:bg-orange-50 dark:hover:bg-orange-900/20"
-                        onClick={handleApplyCouponCode}
-                      >
-                        APPLY
-                      </Button>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2 md:gap-3">
-                        <Percent className="h-4 w-4 md:h-5 md:w-5 text-gray-600 dark:text-gray-400" />
-                        <div>
-                          <p className="text-sm md:text-base font-medium text-gray-800 dark:text-gray-200">
-                            {availableCoupons[0].discountDisplay || `Save ${RUPEE_SYMBOL}${availableCoupons[0].discount}`} with '{availableCoupons[0].code}'
-                          </p>
-                          {availableCoupons[0].customerGroup === "new" && (
-                            <p className="text-[11px] md:text-xs text-orange-600 dark:text-orange-400">First-time users only</p>
-                          )}
-                          {availableCoupons.length > 1 && (
-                            <button onClick={() => setShowCoupons(!showCoupons)} className="text-xs md:text-sm text-blue-600 dark:text-blue-400 font-medium">
-                              View all coupons ?
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-7 md:h-8 text-xs md:text-sm border-[#EB590E] dark:border-[#EB590E]/50 text-[#EB590E] dark:text-[#EB590E] hover:bg-orange-50 dark:hover:bg-orange-900/20"
-                        onClick={() => handleApplyCoupon(availableCoupons[0])}
-                        disabled={subtotal < availableCoupons[0].minOrder || (availableCoupons[0].customerGroup === "new" && userOrderCount > 0)}
-                      >
-                        {availableCoupons[0].customerGroup === "new" && userOrderCount > 0
-                          ? "Not Eligible"
-                          : subtotal < availableCoupons[0].minOrder
-                            ? `Min ${RUPEE_SYMBOL}${availableCoupons[0].minOrder}`
-                            : 'APPLY'}
-                      </Button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2 md:gap-3">
-                    <Percent className="h-4 w-4 md:h-5 md:w-5 text-gray-600 dark:text-gray-400" />
-                    <p className="text-sm md:text-base text-gray-500 dark:text-gray-400">No coupons available</p>
+              <div className="bg-white dark:bg-[#1a1a1a] rounded-2xl overflow-hidden border border-slate-100 dark:border-gray-800 shadow-sm flex flex-col">
+                {deliveryFee === 0 && (
+                  <div className="px-4 py-3 md:px-6 md:py-4 border-b border-dashed border-gray-200 dark:border-gray-800 flex items-center gap-3 bg-[#f4fcf7] dark:bg-green-900/10">
+                    <CheckCircle2 className="h-5 w-5 text-green-600 fill-green-600/20" />
+                    <span className="text-sm font-semibold text-gray-800 dark:text-gray-200">You saved {RUPEE_SYMBOL}{feeSettings.deliveryFee || 25} on delivery</span>
                   </div>
                 )}
 
-                {/* Coupons List */}
-                {showCoupons && !appliedCoupon && availableCoupons.length > 0 && (
-                  <div className="mt-3 md:mt-4 space-y-2 md:space-y-3 border-t dark:border-gray-700 pt-3 md:pt-4">
-                    {availableCoupons.map((coupon) => (
-                      <div key={coupon.code} className="flex items-center justify-between py-2 md:py-3 border-b border-dashed dark:border-gray-700 last:border-0">
-                        <div>
-                          <p className="text-sm md:text-base font-medium text-gray-800 dark:text-gray-200">{coupon.code}</p>
-                          <p className="text-xs md:text-sm text-gray-500 dark:text-gray-400">{coupon.description}</p>
-                          {coupon.customerGroup === "new" && (
-                            <p className="text-[11px] md:text-xs text-orange-600 dark:text-orange-400">First-time users only</p>
-                          )}
-                        </div>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-6 md:h-7 text-xs md:text-sm border-[#EB590E] dark:border-[#EB590E]/50 text-[#EB590E] dark:text-[#EB590E] hover:bg-orange-50 dark:hover:bg-[#EB590E]/10"
-                          onClick={() => handleApplyCoupon(coupon)}
-                          disabled={subtotal < coupon.minOrder || (coupon.customerGroup === "new" && userOrderCount > 0)}
-                        >
-                          {coupon.customerGroup === "new" && userOrderCount > 0
-                            ? "Not Eligible"
-                            : subtotal < coupon.minOrder
-                              ? `Min ${RUPEE_SYMBOL}${coupon.minOrder}`
-                              : 'APPLY'}
-                        </Button>
+                {/* Applied Coupon View */}
+                {appliedCoupon ? (
+                  <div className="px-4 py-3 md:px-6 md:py-4 flex items-center justify-between">
+                    <div className="flex items-start gap-3">
+                      <Percent className="h-5 w-5 text-[#EB590E] mt-0.5" />
+                      <div>
+                        <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">'{appliedCoupon.code}' applied</p>
+                        <p className="text-xs text-[#EB590E] font-medium mt-0.5">You saved {RUPEE_SYMBOL}{discount}</p>
                       </div>
-                    ))}
+                    </div>
+                    <button onClick={handleRemoveCoupon} className="text-[#EB590E] text-xs font-semibold px-2 hover:underline">REMOVE</button>
+                  </div>
+                ) : (
+                  /* Available / Input View */
+                  <div className="px-4 py-3 md:px-6 md:py-4 flex flex-col gap-3">
+                    {loadingCoupons ? (
+                      <p className="text-sm text-gray-500">Loading offers...</p>
+                    ) : availableCoupons.length > 0 ? (
+                      <div className="flex items-start justify-between w-full">
+                        <div className="flex items-start gap-3 flex-1">
+                          <Percent className="h-5 w-5 text-gray-700 dark:text-gray-300 mt-0.5" />
+                          <div className="flex-1">
+                            <p className="text-sm font-semibold text-gray-800 dark:text-gray-200 leading-tight mb-0.5">
+                              {availableCoupons[0].discountDisplay || `Save ${RUPEE_SYMBOL}${availableCoupons[0].discount}`} with '{availableCoupons[0].code}'
+                            </p>
+                            {availableCoupons[0].customerGroup === "new" ? (
+                              <p className="text-[11px] text-[#EB590E] mb-1">First-time users only</p>
+                            ) : subtotal < availableCoupons[0].minOrder ? (
+                              <p className="text-xs text-blue-600 font-medium mb-1">Add items worth {RUPEE_SYMBOL}{(availableCoupons[0].minOrder - subtotal).toFixed(0)} more to unlock</p>
+                            ) : null}
+
+                            {availableCoupons.length > 1 && (
+                              <button onClick={() => setShowCoupons(!showCoupons)} className="text-[11px] text-[#EB590E] hover:underline flex items-center mt-1">
+                                View all coupons <ChevronRight className="h-3 w-3 ml-0.5" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                        <button
+                          className="border border-[#EB590E] text-[#EB590E] dark:hover:bg-[#EB590E]/10 rounded px-3 py-1.5 text-xs font-semibold uppercase tracking-wider disabled:opacity-50 disabled:cursor-not-allowed ml-2 shadow-sm"
+                          onClick={() => handleApplyCoupon(availableCoupons[0])}
+                          disabled={subtotal < availableCoupons[0].minOrder || (availableCoupons[0].customerGroup === "new" && userOrderCount > 0)}
+                        >
+                          APPLY
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-3">
+                        <Percent className="h-5 w-5 text-gray-400" />
+                        <p className="text-sm text-gray-500">No offers available</p>
+                      </div>
+                    )}
+
+                    {/* Show All Coupons List */}
+                    {showCoupons && !appliedCoupon && availableCoupons.length > 0 && (
+                      <div className="mt-3 pt-3 border-t border-dashed border-gray-200 dark:border-gray-800 space-y-4">
+                        {/* Input for manual code */}
+                        <div className="flex flex-col sm:flex-row gap-2 mb-4">
+                          <input
+                            type="text"
+                            value={manualCouponCode}
+                            onChange={(e) => setManualCouponCode(e.target.value.toUpperCase())}
+                            placeholder="Enter coupon code"
+                            className="flex-1 h-9 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-[#0a0a0a] px-3 text-sm text-gray-800 dark:text-gray-200 focus:outline-none focus:border-[#EB590E]"
+                          />
+                          <button
+                            className="bg-white dark:bg-[#1a1a1a] border border-[#EB590E] text-[#EB590E] rounded px-4 h-9 text-xs font-semibold uppercase hover:bg-orange-50 dark:hover:bg-orange-900/10"
+                            onClick={handleApplyCouponCode}
+                          >
+                            APPLY
+                          </button>
+                        </div>
+                        {availableCoupons.slice(1).map((coupon) => (
+                          <div key={coupon.code} className="flex items-start justify-between">
+                            <div className="flex items-start gap-3 flex-1">
+                              <Percent className="h-5 w-5 text-gray-700 dark:text-gray-300 mt-0.5 opacity-50" />
+                              <div className="flex-1">
+                                <p className="text-sm font-semibold text-gray-800 dark:text-gray-200 leading-tight mb-0.5">
+                                  {coupon.discountDisplay || `Save ${RUPEE_SYMBOL}${coupon.discount}`} with '{coupon.code}'
+                                </p>
+                                {coupon.customerGroup === "new" ? (
+                                  <p className="text-[11px] text-[#EB590E] mb-1">First-time users only</p>
+                                ) : subtotal < coupon.minOrder ? (
+                                  <p className="text-xs text-blue-600 font-medium mb-1 line-clamp-1">Add items worth {RUPEE_SYMBOL}{(coupon.minOrder - subtotal).toFixed(0)} more to unlock</p>
+                                ) : (
+                                  <p className="text-xs text-gray-500 mb-1 line-clamp-1">{coupon.description}</p>
+                                )}
+                              </div>
+                            </div>
+                            <button
+                              className="border border-gray-300 text-gray-600 dark:border-gray-600 dark:text-gray-400 rounded px-3 py-1.5 text-xs font-semibold uppercase tracking-wider disabled:opacity-50 disabled:cursor-not-allowed ml-2"
+                              onClick={() => handleApplyCoupon(coupon)}
+                              disabled={subtotal < coupon.minOrder || (coupon.customerGroup === "new" && userOrderCount > 0)}
+                            >
+                              APPLY
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
 
               {/* Delivery Time */}
-              <div className="bg-white dark:bg-[#1a1a1a] px-4 md:px-6 py-3 md:py-4 rounded-lg md:rounded-xl">
-                <div className="flex items-center gap-3 md:gap-4 mb-3">
-                  <Clock className="h-4 w-4 md:h-5 md:w-5 text-gray-500 dark:text-gray-400" />
+              <div className="bg-white dark:bg-[#1a1a1a] px-4 md:px-6 py-5 rounded-2xl shadow-sm border border-slate-100 dark:border-gray-800">
+                <div className="flex items-start gap-3 md:gap-4">
+                  <div className="mt-0.5">
+                    <Zap className="h-5 w-5 text-green-600 fill-green-600/20" />
+                  </div>
                   <div className="flex-1">
-                    <p className="text-sm md:text-base text-gray-800 dark:text-gray-200 font-medium">Delivery Time</p>
+                    <p className="text-base text-gray-800 dark:text-gray-200">
+                      Delivery in <span className="text-green-600 font-bold">{restaurantData?.estimatedDeliveryTime || "15-20 mins"}</span>
+                    </p>
+                    <p className="text-sm text-gray-600 dark:text-gray-400 mt-1 flex items-center gap-1">
+                      Want this later?
+                      <button onClick={() => setIsScheduled(!isScheduled)} className="border-b border-dashed border-gray-500 font-medium outline-none">
+                        Schedule it
+                      </button>
+                    </p>
                   </div>
                 </div>
-                
-                <div className="flex flex-col sm:flex-row gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setIsScheduled(false)}
-                    className={`flex-1 py-2 px-4 rounded-lg border text-sm md:text-base transition-colors ${!isScheduled ? 'border-[#EB590E] bg-[#FFF2EB] dark:bg-[#EB590E]/10 text-[#EB590E]' : 'border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
-                  >
-                    <span className="font-semibold">Deliver Now</span>
-                    <p className="text-xs mt-0.5 opacity-80">{restaurantData?.estimatedDeliveryTime || "10-15 mins"}</p>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setIsScheduled(true)}
-                    className={`flex-1 py-2 px-4 rounded-lg border text-sm md:text-base transition-colors ${isScheduled ? 'border-[#EB590E] bg-[#FFF2EB] dark:bg-[#EB590E]/10 text-[#EB590E]' : 'border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
-                  >
-                    <span className="font-semibold">Schedule for Later</span>
-                    <p className="text-xs mt-0.5 opacity-80">Choose time</p>
-                  </button>
-                </div>
-                
+
                 {isScheduled && (
-                  <div className="mt-4 flex flex-col sm:flex-row gap-3">
+                  <div className="mt-5 flex flex-col sm:flex-row gap-3 pt-3 border-t border-gray-100 dark:border-gray-800">
                     <div className="flex-1">
                       <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Date (Up to Tomorrow)</label>
-                      <input 
-                        type="date" 
+                      <input
+                        type="date"
                         min={new Date().toLocaleDateString('en-CA')}
                         max={new Date(Date.now() + 86400000).toLocaleDateString('en-CA')}
                         value={scheduledDate}
@@ -1951,142 +2016,161 @@ export default function Cart() {
                     </div>
                     <div className="flex-1">
                       <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Time</label>
-                      <input 
-                        type="time" 
-                        value={scheduledTime}
-                        onChange={(e) => setScheduledTime(e.target.value)}
-                        className="w-full text-sm p-2 border border-gray-300 dark:border-gray-700 rounded-md bg-white dark:bg-[#0a0a0a] text-gray-800 dark:text-gray-200 focus:outline-none focus:border-[#EB590E]"
-                      />
+                      {availableTimeSlots.length > 0 ? (
+                        <div className="relative">
+                          <select
+                            value={scheduledTime}
+                            onChange={(e) => setScheduledTime(e.target.value)}
+                            className="w-full text-sm p-2 border border-gray-300 dark:border-gray-700 rounded-md bg-white dark:bg-[#0a0a0a] text-gray-800 dark:text-gray-200 focus:outline-none focus:border-[#EB590E] appearance-none pr-8"
+                          >
+                            {availableTimeSlots.map(slot => (
+                              <option key={slot.value} value={slot.value}>{slot.label}</option>
+                            ))}
+                          </select>
+                          <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500 pointer-events-none" />
+                        </div>
+                      ) : (
+                        <div className="w-full text-sm p-2 bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 rounded-md text-center border border-gray-200 dark:border-gray-700">
+                          {scheduledDate ? "No slots available" : "Select date first"}
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
               </div>
 
               {/* Delivery Address */}
-              <div className="bg-white dark:bg-[#1a1a1a] px-4 md:px-6 py-3 md:py-4 rounded-lg md:rounded-xl">
-                <div className="flex items-center justify-between w-full text-left">
-                  <div className="flex items-center gap-3 md:gap-4">
-                    <MapPin className="h-4 w-4 md:h-5 md:w-5 text-gray-500 dark:text-gray-400" />
+              <div className="bg-white dark:bg-[#1a1a1a] px-4 md:px-6 py-5 rounded-2xl shadow-sm border border-slate-100 dark:border-gray-800">
+                <div className="flex items-start justify-between w-full text-left">
+                  <div className="flex items-start gap-4 flex-1">
+                    <div className="bg-orange-50 dark:bg-orange-900/20 p-2 rounded-xl mt-0.5">
+                      <MapPin className="h-5 w-5 text-[#EB590E]" />
+                    </div>
                     <div className="flex-1">
                       <p className="text-sm md:text-base text-gray-800 dark:text-gray-200">
                         Delivery at{" "}
                         <span className="font-semibold">
                           {deliveryAddressMode === "current" ? "Current location" : "Location"}
                         </span>
-                      </p>
-                      {deliveryAddressMode === "current" ? (
-                        <div className="mt-1">
-                          {currentLocationLoading || !currentLocationAddress ? (
-                            <p className="text-xs md:text-sm text-gray-500 dark:text-gray-400 animate-pulse">
-                              Finding your current address...
-                            </p>
-                          ) : (
-                            <p className="text-xs md:text-sm text-gray-500 dark:text-gray-400 line-clamp-2">
-                              {formatFullAddress(currentLocationAddress) ||
-                                currentLocationAddress?.formattedAddress ||
-                                currentLocationAddress?.address ||
-                                "Add delivery address"}
-                            </p>
-                          )}
-                          <div className="mt-1 flex items-center gap-2">
-                            <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] md:text-[11px] font-semibold bg-[#FFF2EB] text-[#EB590E] dark:bg-[#EB590E]/10 dark:text-[#EB590E] border border-[#EB590E]/30">
-                              GPS enabled
-                            </span>
+                        <p className="text-base font-bold text-gray-800 dark:text-gray-200">
+                          Delivery at Location
+                        </p>
+                        {deliveryAddressMode === "current" ? (
+                          <div className="mt-1">
+                            {currentLocationLoading || !currentLocationAddress ? (
+                              <p className="text-xs md:text-sm text-gray-500 dark:text-gray-400 animate-pulse">
+                                Finding your current address...
+                              </p>
+                            ) : (
+                              <p className="text-xs md:text-sm text-gray-500 dark:text-gray-400 line-clamp-2">
+                                {formatFullAddress(currentLocationAddress) ||
+                                  currentLocationAddress?.formattedAddress ||
+                                  currentLocationAddress?.address ||
+                                  "Add delivery address"}
+                              </p>
+                            )}
+                            <div className="mt-1 flex items-center gap-2">
+                              <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] md:text-[11px] font-semibold bg-[#FFF2EB] text-[#EB590E] dark:bg-[#EB590E]/10 dark:text-[#EB590E] border border-[#EB590E]/30">
+                                GPS enabled
+                              </span>
+                            </div>
                           </div>
-                        </div>
-                      ) : (
-                        <p className="text-xs md:text-sm text-gray-500 dark:text-gray-400 line-clamp-2">
-                          {defaultAddress
-                            ? formatFullAddress(defaultAddress) ||
+                        ) : (
+                          <p className="text-xs md:text-sm text-gray-500 dark:text-gray-400 line-clamp-2">
+                            {defaultAddress
+                              ? formatFullAddress(defaultAddress) ||
                               defaultAddress?.formattedAddress ||
                               defaultAddress?.address ||
                               "Add delivery address"
-                            : "Add delivery address"}
+                              : "Add delivery address"}
+                          </p>
+                        )}
+                        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 line-clamp-2 pr-4">
+                          {defaultAddress ? (formatFullAddress(defaultAddress) || defaultAddress?.formattedAddress || defaultAddress?.address || "Add delivery address") : "Add delivery address"}
                         </p>
-                      )}
-                      {!hasSavedAddress && (
-                        <p className="text-xs md:text-sm text-[#EB590E] mt-1">
-                          Select a delivery location to continue
-                        </p>
-                      )}
-                      {/* Address Selection Buttons */}
-                      <div className="flex gap-2 mt-2">
-                        {["Home", "Work", "Other"].map((label) => {
-                          const normalizedLabel = normalizeAddressLabel(label)
-                          const addressExists = addresses.some(addr => normalizeAddressLabel(addr.label) === normalizedLabel)
-                          return (
-                            <button
-                              key={label}
-                              onClick={(e) => {
-                                e.preventDefault()
-                                e.stopPropagation()
-                                handleSelectAddressByLabel(label)
-                              }}
-                              disabled={!addressExists}
-                              className={`text-xs md:text-sm px-2 md:px-3 py-1 md:py-1.5 rounded-md border transition-colors ${addressExists
-                                ? 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 bg-white dark:bg-[#1a1a1a]'
-                                : 'border-gray-200 dark:border-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed opacity-50'
-                                }`}
-                            >
-                              {label}
-                            </button>
-                          )
-                        })}
-                      </div>
-                      {addresses.length > 0 && (
-                        <div className="mt-3 space-y-2">
-                          {addresses.map((address) => {
-                            const addressId = getAddressId(address)
-                            const isSelected = addressId && addressId === selectedAddressId
+                        {!hasSavedAddress && (
+                          <p className="text-sm text-[#EB590E] mt-2 font-medium">
+                            Select a delivery location to continue
+                          </p>
+                        )}
+                        {/* Address Selection Buttons */}
+                        <div className="flex flex-wrap gap-2 mt-3">
+                          {["Home", "Work", "Other"].map((label) => {
+                            const normalizedLabel = normalizeAddressLabel(label)
+                            const addressExists = addresses.some(addr => normalizeAddressLabel(addr.label) === normalizedLabel)
                             return (
                               <button
-                                key={addressId || `${address.label}-${address.street}-${address.city}`}
-                                type="button"
+                                key={label}
                                 onClick={(e) => {
                                   e.preventDefault()
                                   e.stopPropagation()
-                                  handleSelectSavedAddress(address)
+                                  handleSelectAddressByLabel(label)
                                 }}
-                                className={`w-full text-left rounded-lg border px-3 py-2 transition-colors ${isSelected
-                                  ? "border-[#EB590E] bg-[#FFF2EB] dark:bg-[#EB590E]/10"
-                                  : "border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800"
+                                disabled={!addressExists}
+                                className={`text-xs px-4 py-1.5 rounded-full font-semibold transition-all ${addressExists
+                                  ? 'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-gray-800 dark:text-gray-300'
+                                  : 'bg-gray-50 text-gray-400 border border-gray-100 cursor-not-allowed dark:bg-gray-900'
                                   }`}
                               >
-                                <div className="flex items-start justify-between gap-2">
-                                  <div className="min-w-0">
-                                    <p className="text-xs md:text-sm font-medium text-gray-800 dark:text-gray-200">
-                                      {getDisplayAddressLabel(address.label)}
-                                    </p>
-                                    <p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-2">
-                                      {formatFullAddress(address) || address.address || "Address details"}
-                                    </p>
-                                  </div>
-                                  {isSelected && (
-                                    <span className="text-[10px] md:text-xs text-[#EB590E] font-medium whitespace-nowrap">
-                                      Selected
-                                    </span>
-                                  )}
-                                </div>
+                                {label}
                               </button>
                             )
                           })}
                         </div>
-                      )}
+                        {addresses.length > 0 && (
+                          <div className="mt-4 space-y-3">
+                            {addresses.map((address) => {
+                              const addressId = getAddressId(address)
+                              const isSelected = addressId && addressId === selectedAddressId
+                              return (
+                                <button
+                                  key={addressId || `${address.label}-${address.street}-${address.city}`}
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.preventDefault()
+                                    e.stopPropagation()
+                                    handleSelectSavedAddress(address)
+                                  }}
+                                  className={`w-full text-left rounded-xl border-2 p-3 transition-colors ${isSelected
+                                    ? "border-[#EB590E] bg-orange-50/50 dark:bg-[#EB590E]/5"
+                                    : "border-slate-100 dark:border-gray-800 hover:border-slate-200"
+                                    }`}
+                                >
+                                  <div className="flex items-start justify-between gap-3">
+                                    <div className="min-w-0">
+                                      <p className="text-sm font-bold text-gray-900 dark:text-gray-100">
+                                        {getDisplayAddressLabel(address.label)}
+                                      </p>
+                                      <p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-2 mt-1">
+                                        {formatFullAddress(address) || address.address || "Address details"}
+                                      </p>
+                                    </div>
+                                    {isSelected && (
+                                      <span className="text-[10px] bg-[#EB590E] text-white px-2 py-0.5 rounded uppercase font-bold tracking-wider whitespace-nowrap">
+                                        Selected
+                                      </span>
+                                    )}
+                                  </div>
+                                </button>
+                              )
+                            })}
+                          </div>
+                        )}
                     </div>
                   </div>
                   <button
                     type="button"
                     onClick={openLocationSelector}
-                    className="ml-3 flex items-center justify-center self-start rounded-md p-1 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-200"
+                    className="p-2 text-[#EB590E] bg-orange-50 rounded-full hover:bg-orange-100 transition-colors dark:bg-orange-900/20 dark:hover:bg-orange-900/40"
                     aria-label="Open location selector"
                   >
-                    <ChevronRight className="h-4 w-4 md:h-5 md:w-5" />
+                    <ChevronRight className="h-5 w-5" />
                   </button>
                 </div>
               </div>
 
               {/* Contact */}
-              <div className="bg-white dark:bg-[#1a1a1a] px-4 md:px-6 py-3 md:py-4 rounded-lg md:rounded-xl">
+              <div className="bg-white dark:bg-[#1a1a1a] px-4 md:px-6 py-4 rounded-2xl shadow-sm border border-slate-100 dark:border-gray-800">
                 <Link to="/user/profile" className="flex items-center justify-between">
                   <div className="flex items-center gap-3 md:gap-4">
                     <Phone className="h-4 w-4 md:h-5 md:w-5 text-gray-500 dark:text-gray-400" />
@@ -2099,64 +2183,68 @@ export default function Cart() {
               </div>
 
               {/* Bill Details */}
-              <div className="bg-white dark:bg-[#1a1a1a] px-4 md:px-6 py-3 md:py-4 rounded-lg md:rounded-xl">
+              <div className="bg-white dark:bg-[#1a1a1a] px-4 md:px-6 py-5 rounded-2xl shadow-sm border border-slate-100 dark:border-gray-800">
                 <button
                   onClick={() => setShowBillDetails(!showBillDetails)}
                   className="flex items-center justify-between w-full"
                 >
                   <div className="flex items-center gap-3 md:gap-4">
-                    <FileText className="h-4 w-4 md:h-5 md:w-5 text-gray-500 dark:text-gray-400" />
+                    <FileText className="h-5 w-5 text-gray-500 dark:text-gray-400" />
                     <div className="text-left">
-                      <div className="flex items-center gap-2 md:gap-3 flex-wrap">
-                        <span className="text-sm md:text-base text-gray-800 dark:text-gray-200">Total Bill</span>
-                        <span className="text-sm md:text-base text-gray-400 dark:text-gray-500 line-through">{RUPEE_SYMBOL}{totalBeforeDiscount.toFixed(0)}</span>
-                        <span className="text-sm md:text-base font-semibold text-gray-800 dark:text-gray-200">{RUPEE_SYMBOL}{total.toFixed(0)}</span>
-                        {savings > 0 && (
-                          <span className="text-xs md:text-sm bg-blue-100 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 px-1.5 md:px-2 py-0.5 rounded font-medium">
-                            Saved {RUPEE_SYMBOL}{savings}
-                          </span>
+                      <div className="flex items-center gap-2 flex-wrap mb-0.5">
+                        <span className="text-base text-gray-800 dark:text-gray-200 font-semibold tracking-wide">Total Bill</span>
+                        {savings > 0 ? (
+                          <>
+                            <span className="text-base text-gray-400 dark:text-gray-500 line-through font-medium">{RUPEE_SYMBOL}{totalBeforeDiscount.toFixed(2)}</span>
+                            <span className="text-base font-bold text-gray-900 dark:text-white">{RUPEE_SYMBOL}{total.toFixed(2)}</span>
+                            <span className="text-[11px] bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded text-center ml-1 font-semibold border border-blue-200 dark:border-blue-800">
+                              You saved {RUPEE_SYMBOL}{savings.toFixed(0)}
+                            </span>
+                          </>
+                        ) : (
+                          <span className="text-base font-bold text-gray-900 dark:text-white">{RUPEE_SYMBOL}{total.toFixed(2)}</span>
                         )}
                       </div>
-                      <p className="text-xs md:text-sm text-gray-500 dark:text-gray-400">Incl. taxes and charges</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Incl. taxes and charges</p>
                     </div>
                   </div>
-                  <ChevronRight className="h-4 w-4 md:h-5 md:w-5 text-gray-400" />
+                  <ChevronRight className={`h-5 w-5 text-gray-400 transition-transform ${showBillDetails ? 'rotate-90' : ''}`} />
                 </button>
 
                 {showBillDetails && (
-                  <div className="mt-3 md:mt-4 pt-3 md:pt-4 border-t border-dashed dark:border-gray-700 space-y-2 md:space-y-3">
-                    <div className="flex justify-between text-sm md:text-base">
+                  <div className="mt-4 pt-4 border-t border-dashed border-gray-200 dark:border-gray-800 space-y-3">
+                    <div className="flex justify-between text-sm">
                       <span className="text-gray-600 dark:text-gray-400">Item Total</span>
-                      <span className="text-gray-800 dark:text-gray-200">{RUPEE_SYMBOL}{subtotal.toFixed(0)}</span>
+                      <span className="text-gray-800 dark:text-gray-200 font-medium">{RUPEE_SYMBOL}{subtotal.toFixed(2)}</span>
                     </div>
-                    <div className="flex justify-between text-sm md:text-base">
+                    <div className="flex justify-between text-sm">
                       <span className="text-gray-600 dark:text-gray-400">Delivery Fee</span>
-                      <span className={deliveryFee === 0 ? "text-[#EB590E] dark:text-[#EB590E]" : "text-gray-800 dark:text-gray-200"}>
-                        {deliveryFee === 0 ? "FREE" : `${RUPEE_SYMBOL}${deliveryFee}`}
+                      <span className={deliveryFee === 0 ? "text-[#EB590E] font-medium" : "text-gray-800 dark:text-gray-200 font-medium"}>
+                        {deliveryFee === 0 ? "FREE" : `${RUPEE_SYMBOL}${deliveryFee.toFixed(2)}`}
                       </span>
                     </div>
                     {deliveryFeeBreakdownText && (
-                      <div className="text-[11px] md:text-xs text-gray-500 dark:text-gray-400 -mt-1">
+                      <div className="text-[11px] text-gray-500 dark:text-gray-400 -mt-1.5 ml-1 border-l-2 border-gray-100 pl-2">
                         {deliveryFeeBreakdownText}
                       </div>
                     )}
-                    <div className="flex justify-between text-sm md:text-base">
+                    <div className="flex justify-between text-sm">
                       <span className="text-gray-600 dark:text-gray-400">Platform Fee</span>
-                      <span className="text-gray-800 dark:text-gray-200">{RUPEE_SYMBOL}{platformFee}</span>
+                      <span className="text-gray-800 dark:text-gray-200 font-medium">{RUPEE_SYMBOL}{platformFee.toFixed(2)}</span>
                     </div>
-                    <div className="flex justify-between text-sm md:text-base">
+                    <div className="flex justify-between text-sm">
                       <span className="text-gray-600 dark:text-gray-400">GST and Restaurant Charges</span>
-                      <span className="text-gray-800 dark:text-gray-200">{RUPEE_SYMBOL}{gstCharges}</span>
+                      <span className="text-gray-800 dark:text-gray-200 font-medium">{RUPEE_SYMBOL}{gstCharges.toFixed(2)}</span>
                     </div>
                     {discount > 0 && (
-                      <div className="flex justify-between text-sm md:text-base text-red-600 dark:text-red-400">
+                      <div className="flex justify-between text-sm text-[#EB590E] font-medium">
                         <span>Coupon Discount</span>
-                        <span>-{RUPEE_SYMBOL}{discount}</span>
+                        <span>-{RUPEE_SYMBOL}{discount.toFixed(2)}</span>
                       </div>
                     )}
-                    <div className="flex justify-between text-sm md:text-base font-semibold pt-2 md:pt-3 border-t dark:border-gray-700">
+                    <div className="flex justify-between text-base font-bold pt-3 mt-1 border-t border-gray-100 dark:border-gray-800 text-gray-900 dark:text-white">
                       <span>To Pay</span>
-                      <span>{RUPEE_SYMBOL}{total.toFixed(0)}</span>
+                      <span>{RUPEE_SYMBOL}{total.toFixed(2)}</span>
                     </div>
                   </div>
                 )}
@@ -2168,41 +2256,44 @@ export default function Cart() {
             <div className="lg:col-span-1">
               <div className="lg:sticky lg:top-24 space-y-4 md:space-y-6">
                 {/* Bill Summary Card */}
-                <div className="bg-white dark:bg-[#1a1a1a] px-4 md:px-6 py-4 md:py-5 rounded-lg md:rounded-xl border border-gray-200 dark:border-gray-700">
-                  <h3 className="text-base md:text-lg font-semibold text-gray-800 dark:text-gray-200 mb-3 md:mb-4">Order Summary</h3>
-                  <div className="space-y-2 md:space-y-3">
-                    <div className="flex justify-between text-sm md:text-base">
+                <div className="bg-white dark:bg-[#1a1a1a] px-5 py-6 rounded-2xl shadow-sm border border-slate-100 dark:border-gray-800">
+                  <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-5">Order Summary</h3>
+                  <div className="space-y-3">
+                    <div className="flex justify-between text-sm">
                       <span className="text-gray-600 dark:text-gray-400">Item Total</span>
-                      <span className="text-gray-800 dark:text-gray-200">{RUPEE_SYMBOL}{subtotal.toFixed(0)}</span>
+                      <span className="text-gray-800 dark:text-gray-200 font-medium">{RUPEE_SYMBOL}{subtotal.toFixed(2)}</span>
                     </div>
-                    <div className="flex justify-between text-sm md:text-base">
+                    <div className="flex justify-between text-sm">
                       <span className="text-gray-600 dark:text-gray-400">Delivery Fee</span>
-                      <span className={deliveryFee === 0 ? "text-[#EB590E] dark:text-[#EB590E]" : "text-gray-800 dark:text-gray-200"}>
-                        {deliveryFee === 0 ? "FREE" : `${RUPEE_SYMBOL}${deliveryFee}`}
+                      <span className={deliveryFee === 0 ? "text-[#EB590E] font-medium" : "text-gray-800 dark:text-gray-200 font-medium"}>
+                        {deliveryFee === 0 ? "FREE" : `${RUPEE_SYMBOL}${deliveryFee.toFixed(2)}`}
                       </span>
                     </div>
                     {deliveryFeeBreakdownText && (
-                      <div className="text-[11px] md:text-xs text-gray-500 dark:text-gray-400 -mt-1">
+                      <div className="text-[11px] text-gray-500 dark:text-gray-400 -mt-2 border-l-2 border-gray-100 pl-2 ml-1">
                         {deliveryFeeBreakdownText}
                       </div>
                     )}
-                    <div className="flex justify-between text-sm md:text-base">
+                    <div className="flex justify-between text-sm">
                       <span className="text-gray-600 dark:text-gray-400">Platform Fee</span>
-                      <span className="text-gray-800 dark:text-gray-200">{RUPEE_SYMBOL}{platformFee}</span>
+                      <span className="text-gray-800 dark:text-gray-200 font-medium">{RUPEE_SYMBOL}{platformFee.toFixed(2)}</span>
                     </div>
-                    <div className="flex justify-between text-sm md:text-base">
+                    <div className="flex justify-between text-sm">
                       <span className="text-gray-600 dark:text-gray-400">GST</span>
-                      <span className="text-gray-800 dark:text-gray-200">{RUPEE_SYMBOL}{gstCharges}</span>
+                      <span className="text-gray-800 dark:text-gray-200 font-medium">{RUPEE_SYMBOL}{gstCharges.toFixed(2)}</span>
                     </div>
                     {discount > 0 && (
-                      <div className="flex justify-between text-sm md:text-base text-red-600 dark:text-red-400">
+                      <div className="flex justify-between text-sm text-[#EB590E] font-medium">
                         <span>Discount</span>
-                        <span>-{RUPEE_SYMBOL}{discount}</span>
+                        <span>-{RUPEE_SYMBOL}{discount.toFixed(2)}</span>
                       </div>
                     )}
-                    <div className="flex justify-between text-base md:text-lg font-bold pt-3 md:pt-4 pb-6 border-t dark:border-gray-700">
-                      <span>Total</span>
-                      <span className="text-green-600 dark:text-green-400">{RUPEE_SYMBOL}{total.toFixed(0)}</span>
+
+                    <div className="my-4 border-t border-dashed border-gray-200 dark:border-gray-700"></div>
+
+                    <div className="flex justify-between text-lg font-black text-gray-900 dark:text-white">
+                      <span>Grand Total</span>
+                      <span>{RUPEE_SYMBOL}{total.toFixed(2)}</span>
                     </div>
                   </div>
                 </div>
@@ -2219,7 +2310,7 @@ export default function Cart() {
             <div className="w-full max-w-md md:max-w-lg mx-auto">
               {/* Pay Using */}
               {/* Pay Using - Slim Pro UI */}
-              <div 
+              <div
                 className="flex items-center justify-between mb-2 p-2 bg-gray-50 dark:bg-[#222222] rounded-xl border border-gray-100 dark:border-gray-800 cursor-pointer hover:bg-gray-100 dark:hover:bg-[#282828] active:scale-[0.98] transition-all duration-200 shadow-sm"
                 onClick={() => setShowPaymentSheet(true)}
               >
@@ -2254,396 +2345,430 @@ export default function Cart() {
                   CHANGE <ChevronRight className="h-3.5 w-3.5" />
                 </div>
               </div>
-
-              <Button
-                size="lg"
-                onClick={handlePlaceOrder}
-                disabled={isPlacingOrder || (selectedPaymentMethod === "wallet" && walletBalance < total)}
-                className="w-full bg-[#EB590E] hover:bg-[#D94F0C] dark:bg-[#EB590E] dark:hover:bg-[#D94F0C] text-white px-6 md:px-10 h-14 md:h-16 rounded-lg md:rounded-xl text-base md:text-lg font-bold shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {(selectedPaymentMethod === "razorpay" ||
-                  selectedPaymentMethod === "wallet") && (
-                  <div className="text-left mr-3 md:mr-4">
-                    <p className="text-sm md:text-base opacity-90">{RUPEE_SYMBOL}{total.toFixed(0)}</p>
-                    <p className="text-xs md:text-sm opacity-75">TOTAL</p>
+              <div className="bg-white dark:bg-[#1a1a1a] shadow-[0_-4px_20px_-10px_rgba(0,0,0,0.15)] dark:shadow-none dark:border-t dark:border-gray-800 z-30 flex-shrink-0 fixed bottom-0 left-0 right-0 pt-2 pb-4 md:py-4 px-4 md:px-6">
+                <div className="w-full max-w-7xl mx-auto flex items-center justify-between gap-4 flex-wrap sm:flex-nowrap">
+                  {/* Pay Using */}
+                  <div className="flex flex-col flex-1 pl-2">
+                    <span className="text-[10px] text-gray-500 dark:text-gray-400 font-bold tracking-wider uppercase mb-0.5">Pay Using</span>
+                    <div className="relative group cursor-pointer w-fit">
+                      <select
+                        value={selectedPaymentMethod}
+                        onChange={(e) => setSelectedPaymentMethod(e.target.value)}
+                        className="appearance-none bg-transparent font-bold text-gray-900 dark:text-white pr-6 outline-none cursor-pointer border-b md:border-b-[1.5px] border-dashed border-gray-400 hover:border-gray-800 transition-colors"
+                        style={{ MozAppearance: 'none', WebkitAppearance: 'none' }}
+                      >
+                        <option value="cash" className="text-sm md:text-base font-medium text-gray-900">Cash on Delivery</option>
+                        <option value="wallet" className="text-sm md:text-base font-medium text-gray-900">
+                          Wallet ({RUPEE_SYMBOL}{isLoadingWallet ? "..." : walletBalance.toFixed(0)})
+                        </option>
+                      </select>
+                      <ChevronUp className="pointer-events-none absolute right-0 top-1/2 -translate-y-1/2 h-3 w-3 md:h-4 md:w-4 text-[#EB590E]" />
+                    </div>
                   </div>
-                )}
-                <span className="font-bold text-base md:text-lg">
-                  {isPlacingOrder
-                    ? "Processing..."
-                    : !hasSavedAddress
-                      ? "Add Address to Continue"
-                    : "Place Order"}
-                </span>
-                <ChevronRight className="h-5 w-5 md:h-6 md:w-6 ml-2" />
-              </Button>
-            </div>
-          </div>
-        </div>
-      </div>
 
-      {/* Placing Order Modal */}
-      {showPlacingOrder && (
-        <div className="fixed inset-0 z-[60] h-screen w-screen overflow-hidden">
-          {/* Backdrop */}
-          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
-
-          {/* Modal Sheet */}
-          <div
-            className="absolute bottom-0 left-0 right-0 bg-white rounded-t-3xl shadow-2xl overflow-hidden"
-            style={{ animation: 'slideUpModal 0.4s cubic-bezier(0.16, 1, 0.3, 1)' }}
-          >
-            <div className="px-6 py-8">
-              {/* Title */}
-              <h2 className="text-2xl font-bold text-gray-900 mb-6">Placing your order</h2>
-
-              {/* Payment Info */}
-              <div className="flex items-center gap-4 mb-5">
-                <div className="w-14 h-14 rounded-xl border border-gray-200 flex items-center justify-center bg-white shadow-sm">
-                  <CreditCard className="w-6 h-6 text-gray-600" />
-                </div>
-                <div>
-                  <p className="text-lg font-semibold text-gray-900">
-                    {selectedPaymentMethod === "razorpay"
-                      ? `Pay ${RUPEE_SYMBOL}${total.toFixed(2)} online (Razorpay)`
-                      : selectedPaymentMethod === "wallet"
-                        ? `Pay ${RUPEE_SYMBOL}${total.toFixed(2)} from Wallet`
-                        : `Pay on delivery (COD)`}
-                  </p>
-                </div>
-              </div>
-
-              {/* Delivery Address */}
-              <div className="flex items-center gap-4 mb-8">
-                <div className="w-14 h-14 rounded-xl border border-gray-200 flex items-center justify-center bg-gray-50">
-                  <svg className="w-7 h-7 text-gray-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                    <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-                    <path d="M9 22V12h6v10" />
-                  </svg>
-                </div>
-                <div>
-                  <p className="text-lg font-semibold text-gray-900">Delivering to Location</p>
-                  <p className="text-sm text-gray-600 mt-1">
-                    {defaultAddress ? (formatFullAddress(defaultAddress) || defaultAddress?.formattedAddress || defaultAddress?.address || "Address") : "Add address"}
-                  </p>
-                  <p className="text-sm text-gray-500">
-                    {defaultAddress ? (formatFullAddress(defaultAddress) || "Address") : "Address"}
-                  </p>
-                </div>
-              </div>
-
-              {/* Progress Bar */}
-              <div className="relative mb-6">
-                <div className="h-2.5 bg-gray-200 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-gradient-to-r from-[#EB590E] to-[#D94F0C] rounded-full transition-all duration-100 ease-linear"
-                    style={{
-                      width: `${orderProgress}%`,
-                      boxShadow: '0 0 10px rgba(235, 89, 14, 0.5)'
-                    }}
-                  />
-                </div>
-                {/* Animated shimmer effect */}
-                <div
-                  className="absolute inset-0 h-2.5 rounded-full overflow-hidden pointer-events-none"
-                  style={{
-                    background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent)',
-                    animation: 'shimmer 1.5s infinite',
-                    width: `${orderProgress}%`
-                  }}
-                />
-              </div>
-
-              {/* Cancel Button */}
-              <button
-                onClick={() => {
-                  setShowPlacingOrder(false)
-                  setIsPlacingOrder(false)
-                }}
-                className="w-full text-right"
-              >
-                <span className="text-[#EB590E] font-semibold text-base hover:text-[#D94F0C] transition-colors">
-                  CANCEL
-                </span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Order Success Celebration Page */}
-      {showOrderSuccess && (
-        <div
-          className="fixed inset-0 z-[70] bg-white flex flex-col items-center justify-center h-screen w-screen overflow-hidden"
-          style={{ animation: 'fadeIn 0.3s ease-out' }}
-        >
-          {/* Confetti Background */}
-          <div className="absolute inset-0 overflow-hidden pointer-events-none">
-            {/* Animated confetti pieces */}
-            {[...Array(50)].map((_, i) => (
-              <div
-                key={i}
-                className="absolute w-3 h-3 rounded-sm"
-                style={{
-                  left: `${Math.random() * 100}%`,
-                  top: `-10%`,
-                  backgroundColor: ['#EB590E', '#3b82f6', '#f59e0b', '#ef4444', '#D94F0C', '#ec4899'][Math.floor(Math.random() * 6)],
-                  animation: `confettiFall ${2 + Math.random() * 2}s linear ${Math.random() * 2}s infinite`,
-                  transform: `rotate(${Math.random() * 360}deg)`,
-                }}
-              />
-            ))}
-          </div>
-
-          {/* Success Content */}
-          <div className="relative z-10 flex flex-col items-center px-6">
-            {/* Success Tick Circle */}
-            <div
-              className="relative mb-8"
-              style={{ animation: 'scaleIn 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) 0.2s both' }}
-            >
-              {/* Outer ring animation */}
-              <div
-                className="absolute inset-0 w-32 h-32 rounded-full border-4 border-green-500"
-                style={{
-                  animation: 'ringPulse 1.5s ease-out infinite',
-                  opacity: 0.3
-                }}
-              />
-              {/* Main circle */}
-              <div className="w-32 h-32 bg-gradient-to-br from-green-500 to-green-600 rounded-full flex items-center justify-center shadow-2xl">
-                <svg
-                  className="w-16 h-16 text-white"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="3"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  style={{ animation: 'checkDraw 0.5s ease-out 0.5s both' }}
-                >
-                  <path d="M5 12l5 5L19 7" className="check-path" />
-                </svg>
-              </div>
-              {/* Sparkles */}
-              {[...Array(6)].map((_, i) => (
-                <div
-                  key={i}
-                  className="absolute w-2 h-2 bg-yellow-400 rounded-full"
-                  style={{
-                    top: '50%',
-                    left: '50%',
-                    animation: `sparkle 0.6s ease-out ${0.3 + i * 0.1}s both`,
-                    transform: `rotate(${i * 60}deg) translateY(-80px)`,
-                  }}
-                />
-              ))}
-            </div>
-
-            {/* Location Info */}
-            <div
-              className="text-center"
-              style={{ animation: 'slideUp 0.5s ease-out 0.6s both' }}
-            >
-              <div className="flex items-center justify-center gap-2 mb-2">
-                <div className="w-5 h-5 text-red-500">
-                  <svg viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z" />
-                  </svg>
-                </div>
-                <h2 className="text-2xl font-bold text-gray-900">
-                  {defaultAddress?.city || "Your Location"}
-                </h2>
-              </div>
-              <p className="text-gray-500 text-base">
-                {defaultAddress ? (formatFullAddress(defaultAddress) || defaultAddress?.formattedAddress || defaultAddress?.address || "Delivery Address") : "Delivery Address"}
-              </p>
-            </div>
-
-            {/* Order Placed Message */}
-            <div
-              className="mt-12 text-center"
-              style={{ animation: 'slideUp 0.5s ease-out 0.8s both' }}
-            >
-              <h3 className="text-3xl font-bold text-[#EB590E] mb-2">Order Placed!</h3>
-              <p className="text-gray-600">Your delicious food is on its way</p>
-            </div>
-
-            {/* Action Button */}
-            <button
-              onClick={handleGoToOrders}
-              className="mt-10 bg-[#EB590E] hover:bg-[#D94F0C] text-white font-semibold py-4 px-12 rounded-xl shadow-lg transition-all hover:shadow-xl hover:scale-105"
-              style={{ animation: 'slideUp 0.5s ease-out 1s both' }}
-            >
-              Track Your Order
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Payment Selection Bottom Sheet */}
-      <AnimatePresence>
-        {showPaymentSheet && (
-          <>
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setShowPaymentSheet(false)}
-              className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100]"
-            />
-            <motion.div
-              initial={{ y: "100%" }}
-              animate={{ y: 0 }}
-              exit={{ y: "100%" }}
-              transition={{ type: "spring", damping: 30, stiffness: 350 }}
-              className="fixed bottom-0 left-0 right-0 bg-white dark:bg-[#1a1a1a] rounded-t-[2rem] z-[101] shadow-2xl overflow-hidden pb-4 max-h-[60vh] md:max-h-[50vh] flex flex-col"
-            >
-              <div className="p-5 md:p-6 flex flex-col h-full">
-                {/* Compact Drag handle */}
-                <div className="w-10 h-1 bg-gray-200 dark:bg-gray-800 rounded-full mx-auto mb-5" />
-                
-                <div className="flex items-center justify-between mb-5">
-                  <div>
-                    <h2 className="text-xl font-extrabold text-gray-900 dark:text-white leading-none">Payment Method</h2>
-                    <p className="text-[11px] font-bold text-gray-400 uppercase tracking-tighter mt-1">Select how you want to pay</p>
-                  </div>
-                  <button 
-                    onClick={() => setShowPaymentSheet(false)}
-                    className="w-8 h-8 flex items-center justify-center bg-gray-100 dark:bg-gray-800 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
-                  >
-                    <X className="w-4 h-4 text-gray-500" />
-                  </button>
-                </div>
-
-                <div className="space-y-3 overflow-y-auto pr-1 custom-scrollbar pb-4 max-h-[45vh]">
-                  {[
-                    {
-                      id: 'razorpay',
-                      name: 'Online Payment',
-                      description: 'UPI, Cards, Netbanking',
-                      icon: <Zap className="w-5 h-5" />,
-                      color: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/40 dark:text-emerald-400',
-                      selectedColor: 'bg-emerald-500 text-white',
-                      badge: 'SECURE'
-                    },
-                    {
-                      id: 'wallet',
-                      name: 'Quick Wallet',
-                      description: 'Pay from your wallet',
-                      icon: <Wallet className="w-5 h-5" />,
-                      color: 'bg-blue-50 text-blue-600 dark:bg-blue-900/40 dark:text-blue-400',
-                      selectedColor: 'bg-blue-500 text-white',
-                      subInfo: `Bal: ${RUPEE_SYMBOL}${walletBalance.toFixed(0)}`,
-                      disabled: walletBalance < total,
-                      disabledText: 'Low Balance'
-                    },
-                    {
-                      id: 'cash',
-                      name: 'Cash on Delivery',
-                      description: 'Pay when order arrives',
-                      icon: <Banknote className="w-5 h-5" />,
-                      color: 'bg-orange-50 text-orange-600 dark:bg-orange-900/40 dark:text-orange-400',
-                      selectedColor: 'bg-orange-500 text-white'
-                    }
-                  ].map((option) => (
-                    <button
-                      key={option.id}
-                      onClick={() => {
-                        if (!option.disabled) {
-                          setSelectedPaymentMethod(option.id)
-                          setShowPaymentSheet(false)
-                        }
-                      }}
-                      className={`w-full flex items-center justify-between p-4 rounded-2xl border-2 transition-all duration-300 group ${
-                        selectedPaymentMethod === option.id 
-                        ? 'border-[#EB590E] bg-[#EB590E] shadow-lg shadow-orange-500/30' 
-                        : 'border-gray-100 dark:border-gray-800/80 bg-white dark:bg-[#222222] hover:border-orange-200 dark:hover:border-orange-900/30 shadow-sm'
-                      } ${option.disabled ? 'opacity-40 grayscale-[0.8] cursor-not-allowed' : 'cursor-pointer active:scale-[0.98]'}`}
-                    >
-                      <div className="flex items-center gap-4">
-                        <div className={`w-11 h-11 rounded-xl flex items-center justify-center transition-all duration-300 ${
-                          selectedPaymentMethod === option.id 
-                          ? 'bg-white/20 text-white' 
-                          : option.color
-                        }`}>
-                          {option.icon}
-                        </div>
-                        <div className="text-left">
-                          <div className="flex items-center gap-2">
-                            <span className={`text-sm font-black tracking-tight leading-none transition-colors ${
-                              selectedPaymentMethod === option.id ? 'text-white' : 'text-gray-900 dark:text-gray-100'
-                            }`}>
-                              {option.name}
-                            </span>
-                            {option.badge && (
-                              <span className={`text-[8px] font-black px-1.5 py-0.5 rounded-full shadow-sm tracking-wider ${
-                                selectedPaymentMethod === option.id 
-                                ? 'bg-white/20 text-white' 
-                                : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
-                              }`}>
-                                {option.badge}
-                              </span>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-1.5 mt-1">
-                            <p className={`text-[11px] font-bold transition-colors ${
-                              selectedPaymentMethod === option.id ? 'text-white/80' : 'text-gray-400'
-                            }`}>
-                              {option.description}
-                            </p>
-                            {option.subInfo && !option.disabled && (
-                              <>
-                                <span className={`w-1 h-1 rounded-full ${
-                                  selectedPaymentMethod === option.id ? 'bg-white/40' : 'bg-orange-300 dark:bg-orange-700'
-                                }`} />
-                                <p className={`text-[10px] font-black uppercase tracking-tighter transition-colors ${
-                                  selectedPaymentMethod === option.id ? 'text-white' : 'text-green-600 dark:text-green-500'
-                                }`}>
-                                  {option.subInfo}
-                                </p>
-                              </>
-                            )}
-                          </div>
-                          {option.disabled && (
-                            <p className="text-[9px] font-black text-red-500 mt-1 uppercase tracking-wide">
-                              {option.disabledText}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                      
-                      <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all duration-300 ${
-                        selectedPaymentMethod === option.id 
-                        ? 'bg-white border-white' 
-                        : 'border-gray-200 dark:border-gray-700'
-                      }`}>
-                        {selectedPaymentMethod === option.id && <Check className="w-3.5 h-3.5 text-[#EB590E]" strokeWidth={4} />}
-                      </div>
-                    </button>
-                  ))}
-                </div>
-
-                <div className="mt-auto pt-4 border-t border-gray-100 dark:border-gray-800 flex items-center gap-4">
-                  <div className="flex-shrink-0">
-                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest leading-none mb-1">Total Pay</p>
-                    <p className="text-xl font-black text-[#EB590E] tabular-nums">{RUPEE_SYMBOL}{total.toFixed(0)}</p>
-                  </div>
                   <Button
-                    onClick={() => setShowPaymentSheet(false)}
-                    className="flex-1 bg-[#EB590E] hover:bg-[#D94F0C] text-white h-11 rounded-xl text-sm font-bold shadow-lg shadow-orange-500/20 transition-all active:scale-[0.98]"
+                    size="lg"
+                    onClick={handlePlaceOrder}
+                    disabled={isPlacingOrder || (selectedPaymentMethod === "wallet" && walletBalance < total)}
+                    className="w-full bg-[#EB590E] hover:bg-[#D94F0C] dark:bg-[#EB590E] dark:hover:bg-[#D94F0C] text-white px-6 md:px-10 h-14 md:h-16 rounded-lg md:rounded-xl text-base md:text-lg font-bold shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    Confirm Order
+                    {(selectedPaymentMethod === "razorpay" ||
+                      selectedPaymentMethod === "wallet") && (
+                        <div className="text-left mr-3 md:mr-4">
+                          <p className="text-sm md:text-base opacity-90">{RUPEE_SYMBOL}{total.toFixed(0)}</p>
+                          <p className="text-xs md:text-sm opacity-75">TOTAL</p>
+                        </div>
+                      )}
+                    <span className="font-bold text-base md:text-lg">
+                      {isPlacingOrder
+                        ? "Processing..."
+                        : !hasSavedAddress
+                          ? "Add Address to Continue"
+                          : "Place Order"}
+                    </span>
+                    <ChevronRight className="h-5 w-5 md:h-6 md:w-6 ml-2" />
                   </Button>
                 </div>
               </div>
-            </motion.div>
-          </>
-        )}
-      </AnimatePresence>
+              <button
+                onClick={handlePlaceOrder}
+                disabled={isPlacingOrder || (selectedPaymentMethod === "wallet" && walletBalance < total)}
+                className="w-full sm:w-auto sm:flex-[2] md:min-w-[280px] lg:max-w-[400px] bg-gradient-to-r from-[#EB590E] to-[#E23744] hover:from-[#D94F0C] hover:to-[#CF2834] text-white px-6 h-12 md:h-14 rounded-2xl font-bold shadow-lg shadow-[#EB590E]/30 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-between transition-transform active:scale-[0.98]"
+              >
+                {(selectedPaymentMethod === "razorpay" || selectedPaymentMethod === "wallet" || selectedPaymentMethod === "cash") && (
+                  <div className="text-left flex flex-col justify-center border-r-[1.5px] border-white/20 pr-4">
+                    <span className="text-xs md:text-sm font-semibold text-white/90">{RUPEE_SYMBOL}{total.toFixed(2)}</span>
+                    <span className="text-[9px] md:text-[10px] uppercase font-bold tracking-wider text-white/80 mt-[-2px]">Total</span>
+                  </div>
+                )}
+                <div className="flex items-center gap-1 mx-auto text-sm md:text-lg tracking-wide">
+                  {isPlacingOrder
+                    ? "Processing..."
+                    : !hasSavedAddress
+                      ? "Select Address"
+                      : "Place Order"}
+                  <div className="flex align-center h-full">
+                    <ChevronRight className="h-4 w-4 md:h-5 md:w-5" />
+                  </div>
+                </div>
+              </button>
+            </div>
+          </div>
 
-      {/* Animation Styles */}
-      <style>{`
+          {/* Placing Order Modal */}
+          {showPlacingOrder && (
+            <div className="fixed inset-0 z-[60] h-screen w-screen overflow-hidden">
+              {/* Backdrop */}
+              <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+
+              {/* Modal Sheet */}
+              <div
+                className="absolute bottom-0 left-0 right-0 bg-white rounded-t-3xl shadow-2xl overflow-hidden"
+                style={{ animation: 'slideUpModal 0.4s cubic-bezier(0.16, 1, 0.3, 1)' }}
+              >
+                <div className="px-6 py-8">
+                  {/* Title */}
+                  <h2 className="text-2xl font-bold text-gray-900 mb-6">Placing your order</h2>
+
+                  {/* Payment Info */}
+                  <div className="flex items-center gap-4 mb-5">
+                    <div className="w-14 h-14 rounded-xl border border-gray-200 flex items-center justify-center bg-white shadow-sm">
+                      <CreditCard className="w-6 h-6 text-gray-600" />
+                    </div>
+                    <div>
+                      <p className="text-lg font-semibold text-gray-900">
+                        {selectedPaymentMethod === "razorpay"
+                          ? `Pay ${RUPEE_SYMBOL}${total.toFixed(2)} online (Razorpay)`
+                          : selectedPaymentMethod === "wallet"
+                            ? `Pay ${RUPEE_SYMBOL}${total.toFixed(2)} from Wallet`
+                            : `Pay on delivery (COD)`}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Delivery Address */}
+                  <div className="flex items-center gap-4 mb-8">
+                    <div className="w-14 h-14 rounded-xl border border-gray-200 flex items-center justify-center bg-gray-50">
+                      <svg className="w-7 h-7 text-gray-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                        <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                        <path d="M9 22V12h6v10" />
+                      </svg>
+                    </div>
+                    <div>
+                      <p className="text-lg font-semibold text-gray-900">Delivering to Location</p>
+                      <p className="text-sm text-gray-600 mt-1">
+                        {defaultAddress ? (formatFullAddress(defaultAddress) || defaultAddress?.formattedAddress || defaultAddress?.address || "Address") : "Add address"}
+                      </p>
+                      <p className="text-sm text-gray-500">
+                        {defaultAddress ? (formatFullAddress(defaultAddress) || "Address") : "Address"}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Progress Bar */}
+                  <div className="relative mb-6">
+                    <div className="h-2.5 bg-gray-200 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-gradient-to-r from-[#EB590E] to-[#D94F0C] rounded-full transition-all duration-100 ease-linear"
+                        style={{
+                          width: `${orderProgress}%`,
+                          boxShadow: '0 0 10px rgba(235, 89, 14, 0.5)'
+                        }}
+                      />
+                    </div>
+                    {/* Animated shimmer effect */}
+                    <div
+                      className="absolute inset-0 h-2.5 rounded-full overflow-hidden pointer-events-none"
+                      style={{
+                        background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent)',
+                        animation: 'shimmer 1.5s infinite',
+                        width: `${orderProgress}%`
+                      }}
+                    />
+                  </div>
+
+                  {/* Cancel Button */}
+                  <button
+                    onClick={() => {
+                      setShowPlacingOrder(false)
+                      setIsPlacingOrder(false)
+                    }}
+                    className="w-full text-right"
+                  >
+                    <span className="text-[#EB590E] font-semibold text-base hover:text-[#D94F0C] transition-colors">
+                      CANCEL
+                    </span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Order Success Celebration Page */}
+          {showOrderSuccess && (
+            <div
+              className="fixed inset-0 z-[70] bg-white flex flex-col items-center justify-center h-screen w-screen overflow-hidden"
+              style={{ animation: 'fadeIn 0.3s ease-out' }}
+            >
+              {/* Confetti Background */}
+              <div className="absolute inset-0 overflow-hidden pointer-events-none">
+                {/* Animated confetti pieces */}
+                {[...Array(50)].map((_, i) => (
+                  <div
+                    key={i}
+                    className="absolute w-3 h-3 rounded-sm"
+                    style={{
+                      left: `${Math.random() * 100}%`,
+                      top: `-10%`,
+                      backgroundColor: ['#EB590E', '#3b82f6', '#f59e0b', '#ef4444', '#D94F0C', '#ec4899'][Math.floor(Math.random() * 6)],
+                      animation: `confettiFall ${2 + Math.random() * 2}s linear ${Math.random() * 2}s infinite`,
+                      transform: `rotate(${Math.random() * 360}deg)`,
+                    }}
+                  />
+                ))}
+              </div>
+
+              {/* Success Content */}
+              <div className="relative z-10 flex flex-col items-center px-6">
+                {/* Success Tick Circle */}
+                <div
+                  className="relative mb-8"
+                  style={{ animation: 'scaleIn 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) 0.2s both' }}
+                >
+                  {/* Outer ring animation */}
+                  <div
+                    className="absolute inset-0 w-32 h-32 rounded-full border-4 border-green-500"
+                    style={{
+                      animation: 'ringPulse 1.5s ease-out infinite',
+                      opacity: 0.3
+                    }}
+                  />
+                  {/* Main circle */}
+                  <div className="w-32 h-32 bg-gradient-to-br from-green-500 to-green-600 rounded-full flex items-center justify-center shadow-2xl">
+                    <svg
+                      className="w-16 h-16 text-white"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="3"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      style={{ animation: 'checkDraw 0.5s ease-out 0.5s both' }}
+                    >
+                      <path d="M5 12l5 5L19 7" className="check-path" />
+                    </svg>
+                  </div>
+                  {/* Sparkles */}
+                  {[...Array(6)].map((_, i) => (
+                    <div
+                      key={i}
+                      className="absolute w-2 h-2 bg-yellow-400 rounded-full"
+                      style={{
+                        top: '50%',
+                        left: '50%',
+                        animation: `sparkle 0.6s ease-out ${0.3 + i * 0.1}s both`,
+                        transform: `rotate(${i * 60}deg) translateY(-80px)`,
+                      }}
+                    />
+                  ))}
+                </div>
+
+                {/* Location Info */}
+                <div
+                  className="text-center"
+                  style={{ animation: 'slideUp 0.5s ease-out 0.6s both' }}
+                >
+                  <div className="flex items-center justify-center gap-2 mb-2">
+                    <div className="w-5 h-5 text-red-500">
+                      <svg viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z" />
+                      </svg>
+                    </div>
+                    <h2 className="text-2xl font-bold text-gray-900">
+                      {defaultAddress?.city || "Your Location"}
+                    </h2>
+                  </div>
+                  <p className="text-gray-500 text-base">
+                    {defaultAddress ? (formatFullAddress(defaultAddress) || defaultAddress?.formattedAddress || defaultAddress?.address || "Delivery Address") : "Delivery Address"}
+                  </p>
+                </div>
+
+                {/* Order Placed Message */}
+                <div
+                  className="mt-12 text-center"
+                  style={{ animation: 'slideUp 0.5s ease-out 0.8s both' }}
+                >
+                  <h3 className="text-3xl font-bold text-[#EB590E] mb-2">Order Placed!</h3>
+                  <p className="text-gray-600">Your delicious food is on its way</p>
+                </div>
+
+                {/* Action Button */}
+                <button
+                  onClick={handleGoToOrders}
+                  className="mt-10 bg-[#EB590E] hover:bg-[#D94F0C] text-white font-semibold py-4 px-12 rounded-xl shadow-lg transition-all hover:shadow-xl hover:scale-105"
+                  style={{ animation: 'slideUp 0.5s ease-out 1s both' }}
+                >
+                  Track Your Order
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Payment Selection Bottom Sheet */}
+          <AnimatePresence>
+            {showPaymentSheet && (
+              <>
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  onClick={() => setShowPaymentSheet(false)}
+                  className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100]"
+                />
+                <motion.div
+                  initial={{ y: "100%" }}
+                  animate={{ y: 0 }}
+                  exit={{ y: "100%" }}
+                  transition={{ type: "spring", damping: 30, stiffness: 350 }}
+                  className="fixed bottom-0 left-0 right-0 bg-white dark:bg-[#1a1a1a] rounded-t-[2rem] z-[101] shadow-2xl overflow-hidden pb-4 max-h-[60vh] md:max-h-[50vh] flex flex-col"
+                >
+                  <div className="p-5 md:p-6 flex flex-col h-full">
+                    {/* Compact Drag handle */}
+                    <div className="w-10 h-1 bg-gray-200 dark:bg-gray-800 rounded-full mx-auto mb-5" />
+
+                    <div className="flex items-center justify-between mb-5">
+                      <div>
+                        <h2 className="text-xl font-extrabold text-gray-900 dark:text-white leading-none">Payment Method</h2>
+                        <p className="text-[11px] font-bold text-gray-400 uppercase tracking-tighter mt-1">Select how you want to pay</p>
+                      </div>
+                      <button
+                        onClick={() => setShowPaymentSheet(false)}
+                        className="w-8 h-8 flex items-center justify-center bg-gray-100 dark:bg-gray-800 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+                      >
+                        <X className="w-4 h-4 text-gray-500" />
+                      </button>
+                    </div>
+
+                    <div className="space-y-3 overflow-y-auto pr-1 custom-scrollbar pb-4 max-h-[45vh]">
+                      {[
+                        {
+                          id: 'razorpay',
+                          name: 'Online Payment',
+                          description: 'UPI, Cards, Netbanking',
+                          icon: <Zap className="w-5 h-5" />,
+                          color: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/40 dark:text-emerald-400',
+                          selectedColor: 'bg-emerald-500 text-white',
+                          badge: 'SECURE'
+                        },
+                        {
+                          id: 'wallet',
+                          name: 'Quick Wallet',
+                          description: 'Pay from your wallet',
+                          icon: <Wallet className="w-5 h-5" />,
+                          color: 'bg-blue-50 text-blue-600 dark:bg-blue-900/40 dark:text-blue-400',
+                          selectedColor: 'bg-blue-500 text-white',
+                          subInfo: `Bal: ${RUPEE_SYMBOL}${walletBalance.toFixed(0)}`,
+                          disabled: walletBalance < total,
+                          disabledText: 'Low Balance'
+                        },
+                        {
+                          id: 'cash',
+                          name: 'Cash on Delivery',
+                          description: 'Pay when order arrives',
+                          icon: <Banknote className="w-5 h-5" />,
+                          color: 'bg-orange-50 text-orange-600 dark:bg-orange-900/40 dark:text-orange-400',
+                          selectedColor: 'bg-orange-500 text-white'
+                        }
+                      ].map((option) => (
+                        <button
+                          key={option.id}
+                          onClick={() => {
+                            if (!option.disabled) {
+                              setSelectedPaymentMethod(option.id)
+                              setShowPaymentSheet(false)
+                            }
+                          }}
+                          className={`w-full flex items-center justify-between p-4 rounded-2xl border-2 transition-all duration-300 group ${selectedPaymentMethod === option.id
+                              ? 'border-[#EB590E] bg-[#EB590E] shadow-lg shadow-orange-500/30'
+                              : 'border-gray-100 dark:border-gray-800/80 bg-white dark:bg-[#222222] hover:border-orange-200 dark:hover:border-orange-900/30 shadow-sm'
+                            } ${option.disabled ? 'opacity-40 grayscale-[0.8] cursor-not-allowed' : 'cursor-pointer active:scale-[0.98]'}`}
+                        >
+                          <div className="flex items-center gap-4">
+                            <div className={`w-11 h-11 rounded-xl flex items-center justify-center transition-all duration-300 ${selectedPaymentMethod === option.id
+                                ? 'bg-white/20 text-white'
+                                : option.color
+                              }`}>
+                              {option.icon}
+                            </div>
+                            <div className="text-left">
+                              <div className="flex items-center gap-2">
+                                <span className={`text-sm font-black tracking-tight leading-none transition-colors ${selectedPaymentMethod === option.id ? 'text-white' : 'text-gray-900 dark:text-gray-100'
+                                  }`}>
+                                  {option.name}
+                                </span>
+                                {option.badge && (
+                                  <span className={`text-[8px] font-black px-1.5 py-0.5 rounded-full shadow-sm tracking-wider ${selectedPaymentMethod === option.id
+                                      ? 'bg-white/20 text-white'
+                                      : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
+                                    }`}>
+                                    {option.badge}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-1.5 mt-1">
+                                <p className={`text-[11px] font-bold transition-colors ${selectedPaymentMethod === option.id ? 'text-white/80' : 'text-gray-400'
+                                  }`}>
+                                  {option.description}
+                                </p>
+                                {option.subInfo && !option.disabled && (
+                                  <>
+                                    <span className={`w-1 h-1 rounded-full ${selectedPaymentMethod === option.id ? 'bg-white/40' : 'bg-orange-300 dark:bg-orange-700'
+                                      }`} />
+                                    <p className={`text-[10px] font-black uppercase tracking-tighter transition-colors ${selectedPaymentMethod === option.id ? 'text-white' : 'text-green-600 dark:text-green-500'
+                                      }`}>
+                                      {option.subInfo}
+                                    </p>
+                                  </>
+                                )}
+                              </div>
+                              {option.disabled && (
+                                <p className="text-[9px] font-black text-red-500 mt-1 uppercase tracking-wide">
+                                  {option.disabledText}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all duration-300 ${selectedPaymentMethod === option.id
+                              ? 'bg-white border-white'
+                              : 'border-gray-200 dark:border-gray-700'
+                            }`}>
+                            {selectedPaymentMethod === option.id && <Check className="w-3.5 h-3.5 text-[#EB590E]" strokeWidth={4} />}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="mt-auto pt-4 border-t border-gray-100 dark:border-gray-800 flex items-center gap-4">
+                      <div className="flex-shrink-0">
+                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest leading-none mb-1">Total Pay</p>
+                        <p className="text-xl font-black text-[#EB590E] tabular-nums">{RUPEE_SYMBOL}{total.toFixed(0)}</p>
+                      </div>
+                      <Button
+                        onClick={() => setShowPaymentSheet(false)}
+                        className="flex-1 bg-[#EB590E] hover:bg-[#D94F0C] text-white h-11 rounded-xl text-sm font-bold shadow-lg shadow-orange-500/20 transition-all active:scale-[0.98]"
+                      >
+                        Confirm Order
+                      </Button>
+                    </div>
+                  </div>
+                </motion.div>
+              </>
+            )}
+          </AnimatePresence>
+
+          {/* Animation Styles */}
+          <style>{`
         @keyframes fadeInBackdrop {
           from { opacity: 0; }
           to { opacity: 1; }
@@ -2724,8 +2849,8 @@ export default function Cart() {
           stroke-dashoffset: 0;
         }
       `}</style>
-    </div>
-  )
+        </div>
+        )
 }
 
 
