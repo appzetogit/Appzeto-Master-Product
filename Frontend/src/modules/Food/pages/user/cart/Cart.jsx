@@ -715,8 +715,7 @@ export default function Cart() {
     }
 
     calculatePricing()
-  }, [cart, defaultAddress, appliedCoupon, couponCode, deliveryFleet, restaurantId])
-  }, [cart, defaultAddress, appliedCoupon, couponCode, restaurantId, feeSettings])
+  }, [cart, defaultAddress, appliedCoupon, couponCode, deliveryFleet, restaurantId, feeSettings])
 
   // Fetch wallet balance
   useEffect(() => {

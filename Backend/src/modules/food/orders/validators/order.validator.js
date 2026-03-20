@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ValidationError } from '../../../core/auth/errors.js';
+import { ValidationError } from '../../../../core/auth/errors.js';
 
 const orderItemSchema = z.object({
     itemId: z.string().min(1, 'Item id required'),

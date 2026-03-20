@@ -2023,10 +2023,6 @@ export const orderAPI = {
 
         return res;
       }),
-    apiClient.get("/food/orders", {
-      params: { limit: 20, page: 1, ...params },
-      contextModule: "user",
-    }),
   getOrderDetails: (orderId) =>
     apiClient.get(`/food/orders/${String(orderId)}`, { contextModule: "user" }),
   cancelOrder: (orderId, body = {}) =>
@@ -2047,9 +2043,6 @@ export const orderAPI = {
       },
       { contextModule: "user" }
     ),
-    apiClient.patch(`/food/orders/${String(orderId)}/ratings`, body ?? {}, {
-      contextModule: "user",
-    }),
 };
 
 const DINING_BOOKINGS_STORAGE_KEY = "food_dining_bookings_v1";
