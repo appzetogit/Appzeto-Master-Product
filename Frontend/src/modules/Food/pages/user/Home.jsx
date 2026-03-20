@@ -1524,7 +1524,7 @@ export default function Home() {
                 cuisines: Array.isArray(restaurant.cuisines)
                   ? restaurant.cuisines
                   : [],
-                rating: restaurant.rating || 4.5,
+                rating: Number(restaurant.rating) || 0,
                 deliveryTime: deliveryTime,
                 distance: distance,
                 distanceInKm: distanceInKm, // Store numeric distance for sorting
@@ -2108,7 +2108,7 @@ export default function Home() {
         mongoId: restaurantId,
         name: getRestaurantDisplayName(restaurant),
         cuisine,
-        rating: Number(restaurant?.rating) || 4.0,
+        rating: Number(restaurant?.rating) || 0,
         distance: "",
         deliveryTime: "",
         image: normalizeImageUrl(image) || foodImages[0],
@@ -2686,8 +2686,8 @@ export default function Home() {
                             className="w-full h-full object-cover"
                             loading="lazy"
                           />
-                          <div className="absolute bottom-1 left-1 px-1.5 py-0.5 rounded-md bg-white/95 text-[10px] font-semibold text-green-700">
-                            {Number(restaurant.rating || 0).toFixed(1)}
+                          <div className={`absolute bottom-1 left-1 px-1.5 py-0.5 rounded-md ${Number(restaurant.rating) > 0 ? "bg-white/95 text-green-700 font-semibold" : "bg-gray-200/90 text-gray-600 font-medium"} text-[10px]`}>
+                            {Number(restaurant.rating) > 0 ? Number(restaurant.rating).toFixed(1) : "New"}
                           </div>
                         </div>
                         <div className="p-2">
@@ -2806,7 +2806,7 @@ export default function Home() {
                 )}
               </AnimatePresence>
               <div
-                className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3  gap-3 sm:gap-4 lg:gap-5 xl:gap-6 pt-1 sm:pt-1.5 lg:pt-2 items-stretch ${isLoadingFilterResults || loadingRestaurants ? "opacity-50" : "opacity-100"} transition-opacity duration-300`}>
+                className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 lg:gap-5 xl:gap-6 pt-1 sm:pt-1.5 lg:pt-2 items-stretch ${isLoadingFilterResults || loadingRestaurants ? "opacity-50" : "opacity-100"} transition-opacity duration-300`}>
                 {filteredRestaurants.map((restaurant, index) => {
                   const nameStr =
                     typeof restaurant?.name === "string"
@@ -2958,11 +2958,11 @@ export default function Home() {
                                         </div>
                                       )}
                                   </div>
-                                  <div className="flex-shrink-0 bg-green-600 text-white px-2 py-1 lg:px-3 lg:py-1.5 rounded-lg flex items-center gap-1 transform transition-transform duration-300 group-hover:scale-110 group-hover:rotate-6">
+                                  <div className={`flex-shrink-0 ${Number(restaurant.rating) > 0 ? "bg-green-600" : "bg-gray-400"} text-white px-2 py-1 lg:px-3 lg:py-1.5 rounded-lg flex items-center gap-1 shadow-sm transform transition-transform duration-300 group-hover:scale-110 group-hover:rotate-6`}>
                                     <span className="text-sm lg:text-base font-bold">
-                                      {restaurant.rating}
+                                      {Number(restaurant.rating) > 0 ? Number(restaurant.rating).toFixed(1) : "New"}
                                     </span>
-                                    <Star className="h-3 w-3 lg:h-4 lg:w-4 fill-white text-white" />
+                                    {Number(restaurant.rating) > 0 && <Star className="h-3 w-3 lg:h-4 lg:w-4 fill-white text-white" />}
                                   </div>
                                 </div>
 
