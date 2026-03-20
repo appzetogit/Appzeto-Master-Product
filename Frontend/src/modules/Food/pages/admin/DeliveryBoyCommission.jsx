@@ -427,7 +427,7 @@ export default function DeliveryBoyCommission() {
                 <p className="font-semibold text-blue-900 mb-1">Fixed + Extra Distance Commission</p>
                 <p className="text-slate-600">
                   Commission is calculated as: <strong>Base payout for 0-{formulaMinDistance} km + Extra per km after {formulaMinDistance} km</strong>.
-                  Example: if base is \u20B925 and extra is \u20B95/km, then 6 km earns \u20B925 + (2 x \u20B95) = \u20B935.
+                  Example: if base is ₹25 and extra is ₹5/km, then 6 km earns ₹25 + (2 x ₹5) = ₹35.
                 </p>
                 <p className="text-slate-600 mt-1">
                   Only the slab with <strong>min distance = 0</strong> can have a base payout. All other slabs should keep base payout set to 0 and use only amount per km.
@@ -694,7 +694,7 @@ export default function DeliveryBoyCommission() {
               />
               {formErrors.basePayout && <p className="text-xs text-red-500 mt-1">{formErrors.basePayout}</p>}
               <p className="text-xs text-slate-500 mt-1">
-                Formula: Base payout + (max(0, distance - {formulaMinDistance}) ? extra per km)
+                Formula: Base payout + (max(0, distance - {formulaMinDistance}) * extra per km)
               </p>
             </div>
           </div>
