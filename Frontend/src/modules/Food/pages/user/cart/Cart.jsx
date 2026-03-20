@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef, useMemo } from "react"
+import { useState, useEffect, useRef, useMemo, Fragment } from "react"
 import { Link, useNavigate } from "react-router-dom"
-import { Plus, Minus, ArrowLeft, ChevronRight, Clock, MapPin, Phone, FileText, Utensils, Tag, Percent, Share2, ChevronUp, ChevronDown, X, Check, Settings, CreditCard, Wallet, Building2, Sparkles } from "lucide-react"
+import { Plus, Minus, ArrowLeft, ChevronRight, Clock, MapPin, Phone, FileText, Utensils, Tag, Percent, Share2, ChevronUp, ChevronDown, X, Check, Settings, CreditCard, Wallet, Building2, Sparkles, Banknote, Zap } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
 import confetti from "canvas-confetti"
 
@@ -35,9 +35,20 @@ const debugError = (...args) => {}
 const formatFullAddress = (address) => {
   if (!address) return ""
 
+  const looksLikeLatLng = (s) => {
+    if (!s) return false
+    const v = String(s).trim()
+    // Matches "12.34, 56.78" (lat,lng) with optional decimals/spaces
+    return /^-?\d+(\.\d+)?\s*,\s*-?\d+(\.\d+)?$/.test(v)
+  }
+
   // Priority 1: Use formattedAddress if available (for live location addresses)
   if (address.formattedAddress && address.formattedAddress !== "Select location") {
-    return address.formattedAddress
+    // If formattedAddress is still raw coordinates, don't show it as-is.
+    // Fall back to composing from city/state/area instead.
+    if (!looksLikeLatLng(address.formattedAddress)) {
+      return address.formattedAddress
+    }
   }
 
   // Priority 2: Build address from parts
@@ -95,13 +106,14 @@ export default function Cart() {
   const { getDefaultAddress, getDefaultPaymentMethod, setDefaultAddress, addresses, paymentMethods, userProfile } = useProfile()
   const { createOrder } = useOrders()
   const { openLocationSelector } = useLocationSelector()
-  const { location: currentLocation } = useUserLocation() // Get live location address
+  const { location: currentLocation, loading: currentLocationLoading } = useUserLocation() // Get live location address
 
   const [showCoupons, setShowCoupons] = useState(false)
   const [appliedCoupon, setAppliedCoupon] = useState(null)
   const [couponCode, setCouponCode] = useState("")
   const [manualCouponCode, setManualCouponCode] = useState("")
-  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState("cash") // COD only for now
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState("cash") 
+  const [showPaymentSheet, setShowPaymentSheet] = useState(false)
   const [walletBalance, setWalletBalance] = useState(0)
   const [isLoadingWallet, setIsLoadingWallet] = useState(false)
   const [note, setNote] = useState("")
@@ -212,8 +224,20 @@ export default function Cart() {
   const selectedAddress = addresses.find((addr) => getAddressId(addr) && getAddressId(addr) === selectedAddressId)
 
   const currentLocationAddress = useMemo(() => {
-    if (!currentLocation?.latitude || !currentLocation?.longitude) return null
-    const formattedAddress = currentLocation?.formattedAddress || currentLocation?.address || ""
+    // `LocationSelectorOverlay` updates backend + localStorage, but Cart's live hook might lag.
+    // So we fall back to `localStorage.userLocation` when `currentLocation` doesn't have a usable payload yet.
+    let locFromStorage = null
+    try {
+      const storedRaw = localStorage.getItem("userLocation")
+      locFromStorage = storedRaw ? JSON.parse(storedRaw) : null
+    } catch {
+      locFromStorage = null
+    }
+
+    const loc = currentLocation?.latitude && currentLocation?.longitude ? currentLocation : locFromStorage
+    if (!loc?.latitude || !loc?.longitude) return null
+
+    const formattedAddress = loc?.formattedAddress || loc?.address || ""
     if (!formattedAddress || formattedAddress === "Select location") return null
 
     return {
@@ -221,15 +245,15 @@ export default function Cart() {
       label: "Home",
       formattedAddress,
       address: formattedAddress,
-      street: currentLocation?.street || currentLocation?.address || currentLocation?.area || "Current Location",
-      additionalDetails: currentLocation?.area || "",
-      city: currentLocation?.city || currentLocation?.area || "Current City",
-      state: currentLocation?.state || currentLocation?.city || "Current State",
-      zipCode: currentLocation?.postalCode || currentLocation?.zipCode || "",
+      street: loc?.street || loc?.address || loc?.area || "Current Location",
+      additionalDetails: loc?.area || "",
+      city: loc?.city || loc?.area || "Current City",
+      state: loc?.state || loc?.city || "Current State",
+      zipCode: loc?.postalCode || loc?.zipCode || "",
       phone: userProfile?.phone || "",
       location: {
         type: "Point",
-        coordinates: [currentLocation.longitude, currentLocation.latitude], // [lng, lat]
+        coordinates: [loc.longitude, loc.latitude], // [lng, lat]
       },
     }
   }, [
@@ -244,6 +268,8 @@ export default function Cart() {
     currentLocation?.postalCode,
     currentLocation?.zipCode,
     userProfile?.phone,
+    // Re-evaluate derived address when mode changes (overlay closes -> Cart rerenders).
+    deliveryAddressMode,
   ])
 
   const defaultAddress = useMemo(() => {
@@ -715,8 +741,7 @@ export default function Cart() {
     }
 
     calculatePricing()
-  }, [cart, defaultAddress, appliedCoupon, couponCode, deliveryFleet, restaurantId])
-  }, [cart, defaultAddress, appliedCoupon, couponCode, restaurantId, feeSettings])
+  }, [cart, defaultAddress, appliedCoupon, couponCode, restaurantId])
 
   // Fetch wallet balance
   useEffect(() => {
@@ -1882,11 +1907,41 @@ export default function Cart() {
                     <MapPin className="h-4 w-4 md:h-5 md:w-5 text-gray-500 dark:text-gray-400" />
                     <div className="flex-1">
                       <p className="text-sm md:text-base text-gray-800 dark:text-gray-200">
-                        Delivery at <span className="font-semibold">Location</span>
+                        Delivery at{" "}
+                        <span className="font-semibold">
+                          {deliveryAddressMode === "current" ? "Current location" : "Location"}
+                        </span>
                       </p>
-                      <p className="text-xs md:text-sm text-gray-500 dark:text-gray-400 line-clamp-2">
-                        {defaultAddress ? (formatFullAddress(defaultAddress) || defaultAddress?.formattedAddress || defaultAddress?.address || "Add delivery address") : "Add delivery address"}
-                      </p>
+                      {deliveryAddressMode === "current" ? (
+                        <div className="mt-1">
+                          {currentLocationLoading || !currentLocationAddress ? (
+                            <p className="text-xs md:text-sm text-gray-500 dark:text-gray-400 animate-pulse">
+                              Finding your current address...
+                            </p>
+                          ) : (
+                            <p className="text-xs md:text-sm text-gray-500 dark:text-gray-400 line-clamp-2">
+                              {formatFullAddress(currentLocationAddress) ||
+                                currentLocationAddress?.formattedAddress ||
+                                currentLocationAddress?.address ||
+                                "Add delivery address"}
+                            </p>
+                          )}
+                          <div className="mt-1 flex items-center gap-2">
+                            <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] md:text-[11px] font-semibold bg-[#FFF2EB] text-[#EB590E] dark:bg-[#EB590E]/10 dark:text-[#EB590E] border border-[#EB590E]/30">
+                              GPS enabled
+                            </span>
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="text-xs md:text-sm text-gray-500 dark:text-gray-400 line-clamp-2">
+                          {defaultAddress
+                            ? formatFullAddress(defaultAddress) ||
+                              defaultAddress?.formattedAddress ||
+                              defaultAddress?.address ||
+                              "Add delivery address"
+                            : "Add delivery address"}
+                        </p>
+                      )}
                       {!hasSavedAddress && (
                         <p className="text-xs md:text-sm text-[#EB590E] mt-1">
                           Select a delivery location to continue
@@ -2101,35 +2156,40 @@ export default function Cart() {
           <div className="px-4 md:px-6 py-3 md:py-4">
             <div className="w-full max-w-md md:max-w-lg mx-auto">
               {/* Pay Using */}
-              <div className="flex items-center justify-between mb-2 md:mb-3">
-                <div className="flex items-center gap-2">
-                  {selectedPaymentMethod === "wallet" ? (
-                    <Wallet className="h-4 w-4 text-gray-600 dark:text-gray-300" />
-                  ) : (
-                    <CreditCard className="h-4 w-4 text-gray-600 dark:text-gray-300" />
-                  )}
+              {/* Pay Using - Slim Pro UI */}
+              <div 
+                className="flex items-center justify-between mb-2 p-2 bg-gray-50 dark:bg-[#222222] rounded-xl border border-gray-100 dark:border-gray-800 cursor-pointer hover:bg-gray-100 dark:hover:bg-[#282828] active:scale-[0.98] transition-all duration-200 shadow-sm"
+                onClick={() => setShowPaymentSheet(true)}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-lg bg-orange-100/80 dark:bg-orange-900/40 flex items-center justify-center flex-shrink-0">
+                    {selectedPaymentMethod === "wallet" ? (
+                      <Wallet className="h-5 w-5 text-[#EB590E]" />
+                    ) : selectedPaymentMethod === "razorpay" ? (
+                      <Zap className="h-5 w-5 text-[#EB590E]" />
+                    ) : (
+                      <Banknote className="h-5 w-5 text-[#EB590E]" />
+                    )}
+                  </div>
                   <div className="leading-tight">
-                    <p className="text-[11px] md:text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                      PAY USING
+                    <p className="text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400 font-bold opacity-80">
+                      PAYING WITH
                     </p>
-                    <p className="text-sm md:text-base font-medium text-gray-800 dark:text-gray-200">
-                      {selectedPaymentLabel}
-                    </p>
+                    <div className="flex items-center gap-1.5">
+                      <p className="text-sm font-bold text-gray-800 dark:text-gray-100">
+                        {selectedPaymentLabel}
+                      </p>
+                      {selectedPaymentMethod === "wallet" && (
+                        <p className="text-[10px] text-green-600 dark:text-green-400 font-bold bg-green-50 dark:bg-green-900/20 px-1 rounded">
+                          {RUPEE_SYMBOL}{walletBalance.toFixed(0)}
+                        </p>
+                      )}
+                    </div>
                   </div>
                 </div>
 
-                <div className="relative">
-                  <select
-                    value={selectedPaymentMethod}
-                    onChange={(e) => setSelectedPaymentMethod(e.target.value)}
-                    className="appearance-none bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-800 dark:text-gray-200 rounded-lg px-3 py-2 pr-9 text-sm md:text-base focus:outline-none focus:ring-2 focus:ring-[#EB590E]/40"
-                  >
-                    <option value="cash">COD</option>
-                    <option value="wallet">
-                      Wallet ({RUPEE_SYMBOL}{isLoadingWallet ? "..." : walletBalance.toFixed(0)})
-                    </option>
-                  </select>
-                  <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500 dark:text-gray-400" />
+                <div className="flex items-center gap-0.5 text-[#EB590E] font-bold text-[11px] uppercase tracking-widest bg-orange-50 dark:bg-orange-900/20 px-2.5 py-1 rounded-lg">
+                  CHANGE <ChevronRight className="h-3.5 w-3.5" />
                 </div>
               </div>
 
@@ -2358,183 +2418,240 @@ export default function Cart() {
         </div>
       )}
 
+      {/* Payment Selection Bottom Sheet */}
+      <AnimatePresence>
+        {showPaymentSheet && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowPaymentSheet(false)}
+              className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100]"
+            />
+            <motion.div
+              initial={{ y: "100%" }}
+              animate={{ y: 0 }}
+              exit={{ y: "100%" }}
+              transition={{ type: "spring", damping: 30, stiffness: 350 }}
+              className="fixed bottom-0 left-0 right-0 bg-white dark:bg-[#1a1a1a] rounded-t-[2rem] z-[101] shadow-2xl overflow-hidden pb-4 max-h-[60vh] md:max-h-[50vh] flex flex-col"
+            >
+              <div className="p-5 md:p-6 flex flex-col h-full">
+                {/* Compact Drag handle */}
+                <div className="w-10 h-1 bg-gray-200 dark:bg-gray-800 rounded-full mx-auto mb-5" />
+                
+                <div className="flex items-center justify-between mb-5">
+                  <div>
+                    <h2 className="text-xl font-extrabold text-gray-900 dark:text-white leading-none">Payment Method</h2>
+                    <p className="text-[11px] font-bold text-gray-400 uppercase tracking-tighter mt-1">Select how you want to pay</p>
+                  </div>
+                  <button 
+                    onClick={() => setShowPaymentSheet(false)}
+                    className="w-8 h-8 flex items-center justify-center bg-gray-100 dark:bg-gray-800 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+                  >
+                    <X className="w-4 h-4 text-gray-500" />
+                  </button>
+                </div>
+
+                <div className="space-y-3 overflow-y-auto pr-1 custom-scrollbar pb-4 max-h-[45vh]">
+                  {[
+                    {
+                      id: 'razorpay',
+                      name: 'Online Payment',
+                      description: 'UPI, Cards, Netbanking',
+                      icon: <Zap className="w-5 h-5" />,
+                      color: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/40 dark:text-emerald-400',
+                      selectedColor: 'bg-emerald-500 text-white',
+                      badge: 'SECURE'
+                    },
+                    {
+                      id: 'wallet',
+                      name: 'Quick Wallet',
+                      description: 'Pay from your wallet',
+                      icon: <Wallet className="w-5 h-5" />,
+                      color: 'bg-blue-50 text-blue-600 dark:bg-blue-900/40 dark:text-blue-400',
+                      selectedColor: 'bg-blue-500 text-white',
+                      subInfo: `Bal: ${RUPEE_SYMBOL}${walletBalance.toFixed(0)}`,
+                      disabled: walletBalance < total,
+                      disabledText: 'Low Balance'
+                    },
+                    {
+                      id: 'cash',
+                      name: 'Cash on Delivery',
+                      description: 'Pay when order arrives',
+                      icon: <Banknote className="w-5 h-5" />,
+                      color: 'bg-orange-50 text-orange-600 dark:bg-orange-900/40 dark:text-orange-400',
+                      selectedColor: 'bg-orange-500 text-white'
+                    }
+                  ].map((option) => (
+                    <button
+                      key={option.id}
+                      onClick={() => {
+                        if (!option.disabled) {
+                          setSelectedPaymentMethod(option.id)
+                          setShowPaymentSheet(false)
+                        }
+                      }}
+                      className={`w-full flex items-center justify-between p-4 rounded-2xl border-2 transition-all duration-300 group ${
+                        selectedPaymentMethod === option.id 
+                        ? 'border-[#EB590E] bg-[#EB590E] shadow-lg shadow-orange-500/30' 
+                        : 'border-gray-100 dark:border-gray-800/80 bg-white dark:bg-[#222222] hover:border-orange-200 dark:hover:border-orange-900/30 shadow-sm'
+                      } ${option.disabled ? 'opacity-40 grayscale-[0.8] cursor-not-allowed' : 'cursor-pointer active:scale-[0.98]'}`}
+                    >
+                      <div className="flex items-center gap-4">
+                        <div className={`w-11 h-11 rounded-xl flex items-center justify-center transition-all duration-300 ${
+                          selectedPaymentMethod === option.id 
+                          ? 'bg-white/20 text-white' 
+                          : option.color
+                        }`}>
+                          {option.icon}
+                        </div>
+                        <div className="text-left">
+                          <div className="flex items-center gap-2">
+                            <span className={`text-sm font-black tracking-tight leading-none transition-colors ${
+                              selectedPaymentMethod === option.id ? 'text-white' : 'text-gray-900 dark:text-gray-100'
+                            }`}>
+                              {option.name}
+                            </span>
+                            {option.badge && (
+                              <span className={`text-[8px] font-black px-1.5 py-0.5 rounded-full shadow-sm tracking-wider ${
+                                selectedPaymentMethod === option.id 
+                                ? 'bg-white/20 text-white' 
+                                : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
+                              }`}>
+                                {option.badge}
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1.5 mt-1">
+                            <p className={`text-[11px] font-bold transition-colors ${
+                              selectedPaymentMethod === option.id ? 'text-white/80' : 'text-gray-400'
+                            }`}>
+                              {option.description}
+                            </p>
+                            {option.subInfo && !option.disabled && (
+                              <>
+                                <span className={`w-1 h-1 rounded-full ${
+                                  selectedPaymentMethod === option.id ? 'bg-white/40' : 'bg-orange-300 dark:bg-orange-700'
+                                }`} />
+                                <p className={`text-[10px] font-black uppercase tracking-tighter transition-colors ${
+                                  selectedPaymentMethod === option.id ? 'text-white' : 'text-green-600 dark:text-green-500'
+                                }`}>
+                                  {option.subInfo}
+                                </p>
+                              </>
+                            )}
+                          </div>
+                          {option.disabled && (
+                            <p className="text-[9px] font-black text-red-500 mt-1 uppercase tracking-wide">
+                              {option.disabledText}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                      
+                      <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all duration-300 ${
+                        selectedPaymentMethod === option.id 
+                        ? 'bg-white border-white' 
+                        : 'border-gray-200 dark:border-gray-700'
+                      }`}>
+                        {selectedPaymentMethod === option.id && <Check className="w-3.5 h-3.5 text-[#EB590E]" strokeWidth={4} />}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+
+                <div className="mt-auto pt-4 border-t border-gray-100 dark:border-gray-800 flex items-center gap-4">
+                  <div className="flex-shrink-0">
+                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest leading-none mb-1">Total Pay</p>
+                    <p className="text-xl font-black text-[#EB590E] tabular-nums">{RUPEE_SYMBOL}{total.toFixed(0)}</p>
+                  </div>
+                  <Button
+                    onClick={() => setShowPaymentSheet(false)}
+                    className="flex-1 bg-[#EB590E] hover:bg-[#D94F0C] text-white h-11 rounded-xl text-sm font-bold shadow-lg shadow-orange-500/20 transition-all active:scale-[0.98]"
+                  >
+                    Confirm Order
+                  </Button>
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
       {/* Animation Styles */}
       <style>{`
         @keyframes fadeInBackdrop {
-          from {
-            opacity: 0;
-          }
-          to {
-            opacity: 1;
-          }
+          from { opacity: 0; }
+          to { opacity: 1; }
         }
         @keyframes slideUpBannerSmooth {
-          from {
-            transform: translateY(100%) scale(0.95);
-            opacity: 0;
-          }
-          to {
-            transform: translateY(0) scale(1);
-            opacity: 1;
-          }
+          from { transform: translateY(100%) scale(0.95); opacity: 0; }
+          to { transform: translateY(0) scale(1); opacity: 1; }
         }
         @keyframes slideUpBanner {
-          from {
-            transform: translateY(100%);
-            opacity: 0;
-          }
-          to {
-            transform: translateY(0);
-            opacity: 1;
-          }
+          from { transform: translateY(100%); opacity: 0; }
+          to { transform: translateY(0); opacity: 1; }
         }
         @keyframes shimmerBanner {
-          0% {
-            transform: translateX(-100%);
-          }
-          100% {
-            transform: translateX(100%);
-          }
+          0% { transform: translateX(-100%); }
+          100% { transform: translateX(100%); }
         }
         @keyframes scaleInBounce {
-          0% {
-            transform: scale(0);
-            opacity: 0;
-          }
-          50% {
-            transform: scale(1.1);
-          }
-          100% {
-            transform: scale(1);
-            opacity: 1;
-          }
+          0% { transform: scale(0); opacity: 0; }
+          50% { transform: scale(1.1); }
+          100% { transform: scale(1); opacity: 1; }
         }
         @keyframes pulseRing {
-          0% {
-            transform: scale(1);
-            opacity: 0.3;
-          }
-          50% {
-            transform: scale(1.4);
-            opacity: 0;
-          }
-          100% {
-            transform: scale(1);
-            opacity: 0;
-          }
+          0% { transform: scale(1); opacity: 0.3; }
+          50% { transform: scale(1.4); opacity: 0; }
+          100% { transform: scale(1); opacity: 0; }
         }
         @keyframes checkMarkDraw {
-          0% {
-            stroke-dasharray: 100;
-            stroke-dashoffset: 100;
-            opacity: 0;
-          }
-          50% {
-            opacity: 1;
-          }
-          100% {
-            stroke-dasharray: 100;
-            stroke-dashoffset: 0;
-            opacity: 1;
-          }
+          0% { stroke-dasharray: 100; stroke-dashoffset: 100; opacity: 0; }
+          50% { opacity: 1; }
+          100% { stroke-dasharray: 100; stroke-dashoffset: 0; opacity: 1; }
         }
         @keyframes slideUpFull {
-          from {
-            transform: translateY(100%);
-          }
-          to {
-            transform: translateY(0);
-          }
+          from { transform: translateY(100%); }
+          to { transform: translateY(0); }
         }
         @keyframes slideUpModal {
-          from {
-            transform: translateY(100%);
-            opacity: 0;
-          }
-          to {
-            transform: translateY(0);
-            opacity: 1;
-          }
+          from { transform: translateY(100%); opacity: 0; }
+          to { transform: translateY(0); opacity: 1; }
         }
         @keyframes shimmer {
-          0% {
-            transform: translateX(-100%);
-          }
-          100% {
-            transform: translateX(100%);
-          }
+          0% { transform: translateX(-100%); }
+          100% { transform: translateX(100%); }
         }
         @keyframes fadeIn {
-          from {
-            opacity: 0;
-          }
-          to {
-            opacity: 1;
-          }
+          from { opacity: 0; }
+          to { opacity: 1; }
         }
         @keyframes scaleIn {
-          from {
-            transform: scale(0);
-            opacity: 0;
-          }
-          to {
-            transform: scale(1);
-            opacity: 1;
-          }
+          from { transform: scale(0); opacity: 0; }
+          to { transform: scale(1); opacity: 1; }
         }
         @keyframes checkDraw {
-          0% {
-            stroke-dasharray: 100;
-            stroke-dashoffset: 100;
-          }
-          100% {
-            stroke-dasharray: 100;
-            stroke-dashoffset: 0;
-          }
+          0% { stroke-dasharray: 100; stroke-dashoffset: 100; }
+          100% { stroke-dasharray: 100; stroke-dashoffset: 0; }
         }
         @keyframes ringPulse {
-          0% {
-            transform: scale(1);
-            opacity: 0.3;
-          }
-          50% {
-            transform: scale(1.3);
-            opacity: 0;
-          }
-          100% {
-            transform: scale(1);
-            opacity: 0;
-          }
+          0% { transform: scale(1); opacity: 0.3; }
+          50% { transform: scale(1.3); opacity: 0; }
+          100% { transform: scale(1); opacity: 0; }
         }
         @keyframes sparkle {
-          0% {
-            transform: rotate(var(--rotation, 0deg)) translateY(0) scale(0);
-            opacity: 1;
-          }
-          100% {
-            transform: rotate(var(--rotation, 0deg)) translateY(-80px) scale(1);
-            opacity: 0;
-          }
+          0% { transform: rotate(var(--rotation, 0deg)) translateY(0) scale(0); opacity: 1; }
+          100% { transform: rotate(var(--rotation, 0deg)) translateY(-80px) scale(1); opacity: 0; }
         }
         @keyframes slideUp {
-          from {
-            transform: translateY(30px);
-            opacity: 0;
-          }
-          to {
-            transform: translateY(0);
-            opacity: 1;
-          }
+          from { transform: translateY(30px); opacity: 0; }
+          to { transform: translateY(0); opacity: 1; }
         }
         @keyframes confettiFall {
-          0% {
-            transform: translateY(-10vh) rotate(0deg);
-            opacity: 1;
-          }
-          100% {
-            transform: translateY(110vh) rotate(720deg);
-            opacity: 0;
-          }
+          0% { transform: translateY(-10vh) rotate(0deg); opacity: 1; }
+          100% { transform: translateY(110vh) rotate(720deg); opacity: 0; }
         }
         .animate-slideUpFull {
           animation: slideUpFull 0.3s ease-out;

@@ -41,7 +41,7 @@ import {
   DialogTitle,
 } from "@food/components/ui/dialog"
 import { authAPI, userAPI } from "@food/api"
-import { firebaseAuth } from "@food/firebase"
+import { firebaseAuth, ensureFirebaseInitialized } from "@food/firebase"
 import { clearModuleAuth } from "@food/utils/auth"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
@@ -278,6 +278,8 @@ export default function Profile() {
       // Sign out from Firebase if user logged in via Google
       try {
         const { signOut } = await import("firebase/auth")
+        // Firebase Auth is lazy-initialized now; ensure it before accessing firebaseAuth.currentUser
+        ensureFirebaseInitialized({ enableAuth: true, enableRealtimeDb: false })
         const currentUser = firebaseAuth.currentUser
         if (currentUser) {
           await signOut(firebaseAuth)
