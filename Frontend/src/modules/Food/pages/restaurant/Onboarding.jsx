@@ -1579,7 +1579,6 @@ export default function RestaurantOnboarding() {
           locationSearchInputRef.current,
           {
             fields: ["formatted_address", "address_components", "geometry"],
-            types: ["geocode"],
             componentRestrictions: { country: "in" },
           }
         )

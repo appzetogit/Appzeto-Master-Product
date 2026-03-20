@@ -10,12 +10,28 @@ function buildOrderIdentityFilter(orderIdOrMongoId) {
     return { orderId: raw };
 }
 
+/** Persist full fee breakdown from order.pricing at event time. */
+export function buildPricingSnapshotFromOrder(orderLike) {
+    const pr = orderLike?.pricing || {};
+    return {
+        subtotal: Number(pr.subtotal) || 0,
+        tax: Number(pr.tax) || 0,
+        packagingFee: Number(pr.packagingFee) || 0,
+        deliveryFee: Number(pr.deliveryFee) || 0,
+        platformFee: Number(pr.platformFee) || 0,
+        discount: Number(pr.discount) || 0,
+        total: Number(pr.total) || 0,
+        currency: String(pr.currency || 'INR'),
+        couponCode: pr.couponCode != null && pr.couponCode !== '' ? String(pr.couponCode) : ''
+    };
+}
+
 /**
  * Persist a ledger row + return the created doc (lean).
  * Does not modify the FoodOrder document — caller updates order.payment separately.
  */
 export async function recordFoodOrderPaymentEvent(payload) {
-    const doc = await FoodOrderPayment.create({
+    const doc = {
         orderId: payload.orderId,
         userId: payload.userId,
         orderReadableId: payload.orderReadableId,
@@ -25,13 +41,23 @@ export async function recordFoodOrderPaymentEvent(payload) {
         amount: payload.amount,
         currency: payload.currency || 'INR',
         amountDue: payload.amountDue,
-        razorpay: payload.razorpay,
-        qr: payload.qr,
         metadata: payload.metadata,
         recordedByRole: payload.recordedByRole || 'SYSTEM',
         recordedById: payload.recordedById
-    });
-    return doc.toObject();
+    };
+
+    if (payload.pricingSnapshot && typeof payload.pricingSnapshot === 'object') {
+        doc.pricingSnapshot = payload.pricingSnapshot;
+    }
+    if (payload.razorpay && typeof payload.razorpay === 'object' && Object.keys(payload.razorpay).length > 0) {
+        doc.razorpay = payload.razorpay;
+    }
+    if (payload.qr && typeof payload.qr === 'object' && Object.keys(payload.qr).length > 0) {
+        doc.qr = payload.qr;
+    }
+
+    const created = await FoodOrderPayment.create(doc);
+    return created.toObject();
 }
 
 /** Snapshot helper from embedded order.payment + pricing */
@@ -43,6 +69,7 @@ export function paymentSnapshotFromOrder(orderLike) {
         amount: orderLike?.pricing?.total ?? p.amountDue ?? 0,
         currency: orderLike?.pricing?.currency || 'INR',
         amountDue: p.amountDue ?? orderLike?.pricing?.total ?? 0,
+        pricingSnapshot: buildPricingSnapshotFromOrder(orderLike),
         razorpay: p.razorpay && Object.keys(p.razorpay).length ? { ...p.razorpay } : undefined,
         qr: p.qr && Object.keys(p.qr).length ? { ...p.qr } : undefined
     };

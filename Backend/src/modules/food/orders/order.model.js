@@ -1,4 +1,6 @@
 import mongoose from 'mongoose';
+/** Side-effect: register FoodOrderPayment so ledger writes always have a model (even if only order.model is imported). */
+import './foodOrderPayment.model.js';
 
 const orderItemSchema = new mongoose.Schema(
     {
@@ -132,6 +134,16 @@ const statusHistorySchema = new mongoose.Schema(
     { _id: false }
 );
 
+const deliveryVerificationSchema = new mongoose.Schema(
+    {
+        dropOtp: {
+            required: { type: Boolean, default: false },
+            verified: { type: Boolean, default: false }
+        }
+    },
+    { _id: false }
+);
+
 const orderSchema = new mongoose.Schema(
     {
         orderId: {
@@ -209,7 +221,13 @@ const orderSchema = new mongoose.Schema(
         },
         note: { type: String, default: '', trim: true },
         sendCutlery: { type: Boolean, default: true },
-        deliveryFleet: { type: String, default: 'standard', trim: true }
+        deliveryFleet: { type: String, default: 'standard', trim: true },
+        /** Plain 4-digit OTP for handover; cleared after successful verify (never expose to partner in API responses). */
+        deliveryOtp: { type: String, default: '', select: false },
+        deliveryVerification: {
+            type: deliveryVerificationSchema,
+            default: () => ({})
+        }
     },
     {
         collection: 'food_orders',

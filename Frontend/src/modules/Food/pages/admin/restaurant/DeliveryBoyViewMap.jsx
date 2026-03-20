@@ -89,7 +89,6 @@ export default function DeliveryBoyViewMap() {
   useEffect(() => {
     if (!mapLoading && mapInstanceRef.current && autocompleteInputRef.current && window.google?.maps?.places && !autocompleteRef.current) {
       const autocomplete = new window.google.maps.places.Autocomplete(autocompleteInputRef.current, {
-        types: ['geocode', 'establishment'],
         componentRestrictions: { country: 'in' }
       })
       

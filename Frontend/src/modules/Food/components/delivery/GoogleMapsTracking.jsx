@@ -99,7 +99,9 @@ export default function GoogleMapsTracking({
 
   const { isLoaded, loadError } = useJsApiLoader({
     id: 'google-map-script',
-    googleMapsApiKey: apiKey || ''
+    googleMapsApiKey: apiKey || '',
+    // Do not load `places` — it pulls Geocoding-related code paths; Directions is in core Maps JS.
+    libraries: [],
   })
 
   // Combine storeLocation with sellerLocations
@@ -602,6 +604,7 @@ export default function GoogleMapsTracking({
           mapTypeControl: false,
           fullscreenControl: false,
           disableDefaultUI: true,
+          clickableIcons: false,
           maxZoom: (showRoute || isTracking) ? 16 : 20, // Limit max zoom when polyline is shown or during live tracking
           styles: [
             {

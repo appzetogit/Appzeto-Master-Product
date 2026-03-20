@@ -38,6 +38,19 @@ export default function PageNavbar({
   useEffect(() => {
     if (autoLocationAttemptedRef.current || loading || !requestLocationRef.current) return
 
+    // If we already have stored coordinates, do not auto-geocode again.
+    // We only update location when the user changes it manually.
+    try {
+      const storedRaw = localStorage.getItem("userLocation")
+      const stored = storedRaw ? JSON.parse(storedRaw) : null
+      const lat = Number(stored?.latitude)
+      const lng = Number(stored?.longitude)
+      const hasStoredCoords = Number.isFinite(lat) && Number.isFinite(lng)
+      if (hasStoredCoords) return
+    } catch {
+      // ignore parsing errors and continue to auto-fetch as fallback for first open
+    }
+
     const hasMissingOrPlaceholderLocation =
       !location ||
       location.formattedAddress === "Select location" ||

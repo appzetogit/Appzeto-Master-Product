@@ -26,6 +26,43 @@ import { getIO, rooms } from '../../../config/socket.js';
 const ORDER_ID_PREFIX = 'FOD-';
 const ORDER_ID_LENGTH = 6;
 
+function generateFourDigitDeliveryOtp() {
+    return String(Math.floor(1000 + Math.random() * 9000));
+}
+
+/** Remove secret fields before returning order JSON to delivery partner / restaurant. */
+function sanitizeOrderForExternal(orderDoc) {
+    const o = orderDoc?.toObject ? orderDoc.toObject() : { ...(orderDoc || {}) };
+    delete o.deliveryOtp;
+    const dv = o.deliveryVerification;
+    if (dv && dv.dropOtp != null) {
+        const d = dv.dropOtp;
+        o.deliveryVerification = {
+            ...dv,
+            dropOtp: {
+                required: Boolean(d.required),
+                verified: Boolean(d.verified)
+            }
+        };
+    }
+    return o;
+}
+
+function emitDeliveryDropOtpToUser(order, plainOtp) {
+    try {
+        const io = getIO();
+        if (!io || !plainOtp || !order?.userId) return;
+        io.to(rooms.user(order.userId)).emit('delivery_drop_otp', {
+            orderMongoId: order._id?.toString?.(),
+            orderId: order.orderId,
+            otp: plainOtp,
+            message: 'Share this OTP with your delivery partner to hand over the order.'
+        });
+    } catch (e) {
+        logger.warn(`emitDeliveryDropOtpToUser failed: ${e?.message || e}`);
+    }
+}
+
 function buildOrderIdentityFilter(orderIdOrMongoId) {
     const raw = String(orderIdOrMongoId || '').trim();
     if (!raw) return null;
@@ -73,6 +110,35 @@ function pushStatusHistory(order, { byRole, byId, from, to, note = '' }) {
         to,
         note
     });
+}
+
+/** Append-only food_order_payments row; never blocks main flow on failure */
+async function appendOrderPaymentLedger(orderDoc, kind, extra = {}) {
+    try {
+        const snap = paymentSnapshotFromOrder(orderDoc);
+        await recordFoodOrderPaymentEvent({
+            orderId: orderDoc._id,
+            userId: orderDoc.userId,
+            orderReadableId: orderDoc.orderId,
+            kind,
+            method: snap.method,
+            status: snap.status,
+            amount: snap.amount,
+            currency: snap.currency,
+            amountDue: snap.amountDue,
+            pricingSnapshot: snap.pricingSnapshot,
+            razorpay: snap.razorpay,
+            qr: snap.qr,
+            metadata: extra.metadata,
+            recordedByRole: extra.recordedByRole || 'SYSTEM',
+            recordedById: extra.recordedById
+        });
+    } catch (err) {
+        const detail = err?.errors ? JSON.stringify(err.errors) : '';
+        logger.error(
+            `appendOrderPaymentLedger failed (${kind}): ${err?.message || err} ${detail}`.trim()
+        );
+    }
 }
 
 function buildDeliverySocketPayload(orderDoc, restaurantDoc = null) {
@@ -561,6 +627,7 @@ export async function getOrderById(orderId, { userId, restaurantId, deliveryPart
     const identity = buildOrderIdentityFilter(orderId);
     if (!identity) throw new ValidationError('Order id required');
     const order = await FoodOrder.findOne(identity)
+        .select('+deliveryOtp')
         .populate('restaurantId', 'restaurantName profileImage area city')
         .populate('dispatch.deliveryPartnerId', 'name phone')
         .lean();
@@ -571,7 +638,27 @@ export async function getOrderById(orderId, { userId, restaurantId, deliveryPart
     if (restaurantId && order.restaurantId?._id?.toString() !== restaurantId.toString()) throw new ForbiddenError('Not your restaurant order');
     if (deliveryPartnerId && order.dispatch?.deliveryPartnerId?._id?.toString() !== deliveryPartnerId.toString()) throw new ForbiddenError('Not assigned to you');
 
-    return order;
+    if (deliveryPartnerId || restaurantId) {
+        return sanitizeOrderForExternal(order);
+    }
+    if (userId) {
+        const drop = order.deliveryVerification?.dropOtp || {};
+        const secret = String(order.deliveryOtp || '').trim();
+        const out = { ...order };
+        delete out.deliveryOtp;
+        out.deliveryVerification = {
+            ...(order.deliveryVerification || {}),
+            dropOtp: {
+                required: Boolean(drop.required),
+                verified: Boolean(drop.verified)
+            }
+        };
+        if (drop.required && !drop.verified && secret) {
+            out.handoverOtp = secret;
+        }
+        return out;
+    }
+    return sanitizeOrderForExternal(order);
 }
 
 export async function cancelOrder(orderId, userId, reason) {
@@ -869,42 +956,86 @@ export async function confirmPickupDelivery(orderId, deliveryPartnerId, billImag
 
 export async function confirmReachedDropDelivery(orderId, deliveryPartnerId) {
     const identity = buildOrderIdentityFilter(orderId);
-    const order = await FoodOrder.findOne(identity);
+    if (!identity) throw new ValidationError('Order id required');
+
+    const order = await FoodOrder.findOne(identity).select('+deliveryOtp');
     if (!order) throw new ValidationError('Order not found');
     if (order.dispatch?.deliveryPartnerId?.toString() !== deliveryPartnerId.toString()) throw new ForbiddenError('Not your order');
+
+    if (order.deliveryVerification?.dropOtp?.verified) {
+        emitOrderUpdate(order, deliveryPartnerId);
+        return sanitizeOrderForExternal(order);
+    }
+
+    const alreadyAtDrop =
+        order.deliveryState?.currentPhase === 'at_drop' || order.deliveryState?.status === 'reached_drop';
+    const fromPhase =
+        order.deliveryState?.status || order.deliveryState?.currentPhase || order.orderStatus || '';
+
+    const existingOtp = String(order.deliveryOtp || '').trim();
+    if (!alreadyAtDrop || !existingOtp) {
+        order.deliveryOtp = generateFourDigitDeliveryOtp();
+        order.deliveryVerification = {
+            ...(order.deliveryVerification?.toObject?.() || order.deliveryVerification || {}),
+            dropOtp: { required: true, verified: false }
+        };
+    }
 
     order.deliveryState = {
         ...(order.deliveryState?.toObject?.() || order.deliveryState || {}),
         currentPhase: 'at_drop',
         status: 'reached_drop',
-        reachedDropAt: new Date()
+        reachedDropAt: order.deliveryState?.reachedDropAt || new Date()
     };
-    pushStatusHistory(order, {
-        byRole: 'DELIVERY_PARTNER',
-        byId: deliveryPartnerId,
-        from: 'picked_up',
-        to: 'reached_drop',
-        note: 'Reached drop location'
-    });
+
+    if (!alreadyAtDrop) {
+        pushStatusHistory(order, {
+            byRole: 'DELIVERY_PARTNER',
+            byId: deliveryPartnerId,
+            from: fromPhase,
+            to: 'reached_drop',
+            note: 'Reached drop location'
+        });
+    }
+
     await order.save();
 
+    const plainOtp = String(order.deliveryOtp || '').trim();
+    emitDeliveryDropOtpToUser(order, plainOtp);
     emitOrderUpdate(order, deliveryPartnerId);
-    return order.toObject();
+    return sanitizeOrderForExternal(order);
 }
 
 export async function verifyDropOtpDelivery(orderId, deliveryPartnerId, otp) {
     const identity = buildOrderIdentityFilter(orderId);
-    const order = await FoodOrder.findOne(identity);
+    const order = await FoodOrder.findOne(identity).select('+deliveryOtp');
     if (!order) throw new ValidationError('Order not found');
     if (order.dispatch?.deliveryPartnerId?.toString() !== deliveryPartnerId.toString()) throw new ForbiddenError('Not your order');
 
-    // For now, simple verification (or mock if no deliveryOtp field exists)
-    // If order.deliveryOtp doesn't exist, we skip validation for testing
-    if (order.deliveryOtp && order.deliveryOtp !== otp) {
-        throw new ValidationError('Invalid OTP');
+    const otpStr = String(otp || '').trim();
+    if (!otpStr) throw new ValidationError('OTP is required');
+
+    if (!order.deliveryVerification?.dropOtp?.required) {
+        throw new ValidationError('OTP verification is not active for this order. Confirm reached drop first.');
+    }
+    if (order.deliveryVerification?.dropOtp?.verified) {
+        return { order: sanitizeOrderForExternal(order) };
     }
 
-    return { success: true, message: 'OTP verified' };
+    const expected = String(order.deliveryOtp || '').trim();
+    if (!expected || expected !== otpStr) {
+        throw new ValidationError('Invalid OTP. Ask the customer for the code shown in their app.');
+    }
+
+    order.deliveryVerification = {
+        ...(order.deliveryVerification?.toObject?.() || order.deliveryVerification || {}),
+        dropOtp: { required: true, verified: true }
+    };
+    order.deliveryOtp = '';
+    await order.save();
+
+    emitOrderUpdate(order, deliveryPartnerId);
+    return { order: sanitizeOrderForExternal(order) };
 }
 
 export async function completeDelivery(orderId, deliveryPartnerId) {
@@ -912,6 +1043,12 @@ export async function completeDelivery(orderId, deliveryPartnerId) {
     const order = await FoodOrder.findOne(identity);
     if (!order) throw new ValidationError('Order not found');
     if (order.dispatch?.deliveryPartnerId?.toString() !== deliveryPartnerId.toString()) throw new ForbiddenError('Not your order');
+
+    if (order.deliveryVerification?.dropOtp?.required && !order.deliveryVerification?.dropOtp?.verified) {
+        throw new ValidationError(
+            'Customer handover OTP is required. Verify the OTP from the customer before completing delivery.'
+        );
+    }
 
     const from = order.orderStatus;
     const prevPayStatus = order.payment.status;
@@ -934,6 +1071,16 @@ export async function completeDelivery(orderId, deliveryPartnerId) {
     });
     await order.save();
 
+    const ledgerKind =
+        payMethod === 'cash' && prevPayStatus === 'cod_pending'
+            ? 'cod_marked_paid_on_delivery'
+            : 'payment_snapshot_sync';
+    await appendOrderPaymentLedger(order, ledgerKind, {
+        recordedByRole: 'DELIVERY_PARTNER',
+        recordedById: deliveryPartnerId,
+        metadata: { previousPaymentStatus: prevPayStatus, orderStatus: 'delivered' }
+    });
+
     emitOrderUpdate(order, deliveryPartnerId);
     return order.toObject();
 }
@@ -942,11 +1089,13 @@ function emitOrderUpdate(order, deliveryPartnerId) {
     try {
         const io = getIO();
         if (io) {
+            const dv = order.deliveryVerification?.toObject?.() || order.deliveryVerification;
             const payload = {
                 orderMongoId: order._id?.toString?.(),
                 orderId: order.orderId,
                 orderStatus: order.orderStatus,
-                deliveryState: order.deliveryState
+                deliveryState: order.deliveryState,
+                deliveryVerification: dv
             };
             io.to(rooms.delivery(deliveryPartnerId)).emit('order_status_update', payload);
             io.to(rooms.restaurant(order.restaurantId)).emit('order_status_update', payload);

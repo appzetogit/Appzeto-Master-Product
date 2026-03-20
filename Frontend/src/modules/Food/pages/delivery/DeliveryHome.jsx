@@ -2472,85 +2472,182 @@ export default function DeliveryHome() {
     }
   }, [])
 
-  const confirmReachedDropFlow = useCallback(() => {
-    // Animate to completion
+  const requestDeliveryOtpFromModal = useCallback(() => {
+    return new Promise((resolve) => {
+      deliveryOtpResolveRef.current = resolve
+      setDeliveryOtpDigits(Array(DELIVERY_DROP_OTP_LENGTH).fill(""))
+      setDeliveryOtpValue("")
+      setDeliveryOtpError("")
+      setShowDeliveryOtpModal(true)
+    })
+  }, [DELIVERY_DROP_OTP_LENGTH])
+
+  const closeDeliveryOtpModal = useCallback((otpValue = null) => {
+    if (deliveryOtpResolveRef.current) {
+      deliveryOtpResolveRef.current(otpValue)
+      deliveryOtpResolveRef.current = null
+    }
+    setShowDeliveryOtpModal(false)
+    setDeliveryOtpDigits(Array(DELIVERY_DROP_OTP_LENGTH).fill(""))
+    setDeliveryOtpValue("")
+    setDeliveryOtpError("")
+  }, [DELIVERY_DROP_OTP_LENGTH])
+
+  const verifyDropOtpForCurrentOrder = useCallback(async (orderIdForApi, options = {}) => {
+    const { skipHideDeliveredAnimation = false } = options
+    const dropOtpVerified = Boolean(selectedRestaurant?.deliveryVerification?.dropOtp?.verified)
+
+    if (dropOtpVerified) {
+      return true
+    }
+
+    if (!skipHideDeliveredAnimation) {
+      setShowOrderDeliveredAnimation(false)
+    }
+    const enteredOtp = await requestDeliveryOtpFromModal()
+    const normalizedOtp = (enteredOtp || "").trim()
+
+    if (!normalizedOtp) {
+      toast.error("Delivery OTP is required before completing this order.")
+      return false
+    }
+
+    try {
+      setIsVerifyingDeliveryOtp(true)
+      const otpVerifyResponse = await deliveryAPI.verifyDropOtp(orderIdForApi, normalizedOtp)
+
+      if (!otpVerifyResponse.data?.success) {
+        toast.error(otpVerifyResponse.data?.message || "Invalid delivery OTP. Please try again.")
+        return false
+      }
+
+      const inner = otpVerifyResponse.data?.data
+      const verifiedOrder = inner?.order ?? inner
+
+      setSelectedRestaurant((prev) => (
+        prev
+          ? {
+              ...prev,
+              deliveryVerification:
+                verifiedOrder?.deliveryVerification || {
+                  dropOtp: { required: true, verified: true }
+                }
+            }
+          : prev
+      ))
+
+      return true
+    } catch (otpError) {
+      const apiMsg = otpError?.response?.data?.message || ""
+      if (/confirm reached drop/i.test(apiMsg)) {
+        toast.error(
+          "Confirm you have reached the customer location first (slide “Reached drop”), then enter the OTP from the customer’s app."
+        )
+      } else {
+        toast.error(apiMsg || "Failed to verify delivery OTP.")
+      }
+      return false
+    } finally {
+      setIsVerifyingDeliveryOtp(false)
+    }
+  }, [requestDeliveryOtpFromModal, selectedRestaurant])
+
+  const confirmReachedDropFlow = useCallback(async () => {
     setReachedDropIsAnimatingToComplete(true)
     setReachedDropButtonProgress(1)
-
-    // Close reached drop popup first
     setShowReachedDropPopup(false)
 
-    // Show Order Delivered popup instantly after Reached Drop is confirmed
-    debugLog('? Showing Order Delivered popup instantly after Reached Drop confirmation')
-    setShowOrderDeliveredAnimation(true)
+    const orderIdForApi =
+      selectedRestaurant?.id ||
+      newOrder?.orderMongoId ||
+      newOrder?._id ||
+      selectedRestaurant?.orderId ||
+      newOrder?.orderId
 
-    // API call in background (async, doesn't block popup)
-    ;(async () => {
-      // Get order ID - prioritize MongoDB _id over orderId string for API call
-      // Backend expects _id (MongoDB ObjectId) in the URL parameter
-      const orderIdForApi = selectedRestaurant?.id ||
-                           newOrder?.orderMongoId ||
-                           newOrder?._id ||
-                           selectedRestaurant?.orderId ||
-                           newOrder?.orderId
+    debugLog('?? Order ID lookup for reached drop:', {
+      selectedRestaurantId: selectedRestaurant?.id,
+      selectedRestaurantOrderId: selectedRestaurant?.orderId,
+      newOrderMongoId: newOrder?.orderMongoId,
+      newOrderId: newOrder?.orderId,
+      finalOrderIdForApi: orderIdForApi
+    })
 
-      debugLog('?? Order ID lookup for reached drop:', {
-        selectedRestaurantId: selectedRestaurant?.id,
-        selectedRestaurantOrderId: selectedRestaurant?.orderId,
-        newOrderMongoId: newOrder?.orderMongoId,
-        newOrderId: newOrder?.orderId,
-        finalOrderIdForApi: orderIdForApi
+    const resetReachedDropUi = () => {
+      setReachedDropIsAnimatingToComplete(false)
+      setReachedDropButtonProgress(0)
+      setShowReachedDropPopup(true)
+    }
+
+    if (!orderIdForApi) {
+      toast.error('Order not found. Please refresh and try again.')
+      resetReachedDropUi()
+      return
+    }
+
+    try {
+      debugLog('?? Confirming reached drop for order:', orderIdForApi)
+      const response = await deliveryAPI.confirmReachedDrop(orderIdForApi)
+
+      if (!response.data?.success) {
+        debugError('? Failed to confirm reached drop:', response.data)
+        toast.error(response.data?.message || 'Failed to confirm reached drop. Please try again.')
+        resetReachedDropUi()
+        return
+      }
+
+      const orderPayload = response.data?.data?.order
+      if (orderPayload && typeof orderPayload === 'object') {
+        setSelectedRestaurant((prev) => {
+          if (!prev) return prev
+          return {
+            ...prev,
+            deliveryVerification: orderPayload.deliveryVerification ?? {
+              dropOtp: { required: true, verified: false }
+            },
+            deliveryState: orderPayload.deliveryState ?? prev.deliveryState,
+            orderStatus: orderPayload.orderStatus ?? prev.orderStatus,
+            status: orderPayload.orderStatus ?? prev.status
+          }
+        })
+      } else {
+        setSelectedRestaurant((prev) =>
+          prev
+            ? {
+                ...prev,
+                deliveryVerification: { dropOtp: { required: true, verified: false } }
+              }
+            : prev
+        )
+      }
+
+      debugLog('? Reached drop confirmed — asking partner for customer OTP before delivered / payment flow')
+
+      const otpOk = await verifyDropOtpForCurrentOrder(orderIdForApi, {
+        skipHideDeliveredAnimation: true
       })
 
-      if (orderIdForApi) {
-        try {
-          // Call backend API to confirm reached drop (in background, don't block popup)
-          // Use MongoDB _id for API call to avoid ObjectId casting errors
-          debugLog('?? Confirming reached drop for order:', orderIdForApi)
-          const response = await deliveryAPI.confirmReachedDrop(orderIdForApi)
-
-          if (response.data?.success) {
-            debugLog('? Reached drop confirmed')
-          } else {
-            debugError('? Failed to confirm reached drop:', response.data)
-            toast.error(response.data?.message || 'Failed to confirm reached drop. Please try again.')
-          }
-        } catch (error) {
-          const status = error.response?.status
-
-          // Handle 500 errors gracefully (server-side issue, popup already shown)
-          if (status === 500) {
-            debugWarn('?? Server error confirming reached drop (500), but popup is shown. Backend will sync status automatically.', {
-              orderIdForApi: orderIdForApi || 'unknown',
-              message: error.response?.data?.message || error.message
-            })
-            return
-          }
-
-          // For other errors, log and show error message
-          debugError('? Error confirming reached drop:', error)
-          debugError('? Error details:', {
-            message: error.message,
-            response: error.response?.data,
-            status: status,
-            orderIdForApi: orderIdForApi || 'unknown',
-            selectedRestaurant: selectedRestaurant,
-            newOrder: newOrder
-          })
-
-          // Show specific error message based on status code
-          let errorMessage = 'Failed to confirm reached drop. Please try again.'
-          if (status === 404) {
-            errorMessage = 'Order not found. Please refresh and try again.'
-          } else if (error.response?.data?.message) {
-            errorMessage = error.response.data.message
-          }
-
-          toast.error(errorMessage)
-        }
+      if (!otpOk) {
+        resetReachedDropUi()
+        return
       }
-    })()
-  }, [newOrder, selectedRestaurant])
+
+      setReachedDropIsAnimatingToComplete(false)
+      setReachedDropButtonProgress(0)
+      debugLog('? OTP verified — showing Order Delivered step')
+      setShowOrderDeliveredAnimation(true)
+    } catch (error) {
+      const status = error.response?.status
+      debugError('? Error confirming reached drop:', error)
+      let errorMessage = 'Failed to confirm reached drop. Please try again.'
+      if (status === 404) {
+        errorMessage = 'Order not found. Please refresh and try again.'
+      } else if (error.response?.data?.message) {
+        errorMessage = error.response.data.message
+      }
+      toast.error(errorMessage)
+      resetReachedDropUi()
+    }
+  }, [newOrder, selectedRestaurant, verifyDropOtpForCurrentOrder])
 
   // Handle Reached Drop button swipe
   const handleReachedDropTouchStart = (e) => {
@@ -3205,27 +3302,6 @@ export default function DeliveryHome() {
   }
 
   // Handle Order Delivered button swipe
-  const requestDeliveryOtpFromModal = useCallback(() => {
-    return new Promise((resolve) => {
-      deliveryOtpResolveRef.current = resolve
-      setDeliveryOtpDigits(Array(DELIVERY_DROP_OTP_LENGTH).fill(""))
-      setDeliveryOtpValue("")
-      setDeliveryOtpError("")
-      setShowDeliveryOtpModal(true)
-    })
-  }, [DELIVERY_DROP_OTP_LENGTH])
-
-  const closeDeliveryOtpModal = useCallback((otpValue = null) => {
-    if (deliveryOtpResolveRef.current) {
-      deliveryOtpResolveRef.current(otpValue)
-      deliveryOtpResolveRef.current = null
-    }
-    setShowDeliveryOtpModal(false)
-    setDeliveryOtpDigits(Array(DELIVERY_DROP_OTP_LENGTH).fill(""))
-    setDeliveryOtpValue("")
-    setDeliveryOtpError("")
-  }, [DELIVERY_DROP_OTP_LENGTH])
-
   const handleDeliveryOtpDigitChange = (index, value) => {
     const digit = String(value || "").replace(/\D/g, "").slice(-1)
     const next = [...deliveryOtpDigits]
@@ -3293,52 +3369,6 @@ export default function DeliveryHome() {
       deliveryOtpSingleInputRef.current?.focus()
     }
   }
-
-  const verifyDropOtpForCurrentOrder = useCallback(async (orderIdForApi) => {
-    const dropOtpRequired = Boolean(selectedRestaurant?.deliveryVerification?.dropOtp?.required)
-    const dropOtpVerified = Boolean(selectedRestaurant?.deliveryVerification?.dropOtp?.verified)
-
-    if (!dropOtpRequired || dropOtpVerified) {
-      return true
-    }
-
-    setShowOrderDeliveredAnimation(false)
-    const enteredOtp = await requestDeliveryOtpFromModal()
-    const normalizedOtp = (enteredOtp || "").trim()
-
-    if (!normalizedOtp) {
-      toast.error("Delivery OTP is required before completing this order.")
-      return false
-    }
-
-    try {
-      setIsVerifyingDeliveryOtp(true)
-      const otpVerifyResponse = await deliveryAPI.verifyDropOtp(orderIdForApi, normalizedOtp)
-
-      if (!otpVerifyResponse.data?.success) {
-        toast.error(otpVerifyResponse.data?.message || "Invalid delivery OTP. Please try again.")
-        return false
-      }
-
-      setSelectedRestaurant((prev) => (
-        prev
-          ? {
-            ...prev,
-            deliveryVerification: otpVerifyResponse.data?.data?.order?.deliveryVerification || {
-              dropOtp: { required: true, verified: true }
-            }
-          }
-          : prev
-      ))
-
-      return true
-    } catch (otpError) {
-      toast.error(otpError?.response?.data?.message || "Failed to verify delivery OTP.")
-      return false
-    } finally {
-      setIsVerifyingDeliveryOtp(false)
-    }
-  }, [requestDeliveryOtpFromModal, selectedRestaurant])
 
   const confirmOrderDeliveredFlow = useCallback(async () => {
     if (orderDeliveredFlowInProgressRef.current) {
@@ -4637,10 +4667,12 @@ export default function DeliveryHome() {
         try {
           const apiKey = await getGoogleMapsApiKey();
           if (apiKey) {
+            // Only load geometry (directions/polylines). Avoid `places`/`drawing` — they pull extra
+            // Google endpoints (including geocoding-style traffic) without being used on this screen.
             const loader = new Loader({
               apiKey: apiKey,
               version: "weekly",
-              libraries: ["places", "geometry", "drawing"]
+              libraries: ["geometry"]
             });
             await loader.load();
             debugLog('? Google Maps loaded via Loader');
@@ -4776,6 +4808,7 @@ export default function DeliveryHome() {
             mapTypeId: mapTypeId,
             tilt: 45,
             heading: 0,
+            clickableIcons: false, // Avoid Geocoding/Places calls from default POI clicks
             disableDefaultUI: false,
             zoomControl: true,
             mapTypeControl: false,
@@ -9421,7 +9454,6 @@ selectedRestaurant?.lng || null,
         isOpen={showOrderDeliveredAnimation}
         onClose={() => {
           setShowOrderDeliveredAnimation(false)
-          setShowPaymentPage(true)
         }}
         selectedRestaurant={selectedRestaurant}
         tripDistance={tripDistance}

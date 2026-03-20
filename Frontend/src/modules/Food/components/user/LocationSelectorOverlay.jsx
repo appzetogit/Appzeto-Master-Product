@@ -77,8 +77,11 @@ export default function LocationSelectorOverlay({ isOpen, onClose }) {
   const [isKeywordSearching, setIsKeywordSearching] = useState(false)
   const [lockMapToAutocomplete, setLockMapToAutocomplete] = useState(true)
   const [GOOGLE_MAPS_API_KEY, setGOOGLE_MAPS_API_KEY] = useState(null)
-  const ENABLE_GOOGLE_GEOCODING = import.meta.env.VITE_ENABLE_GOOGLE_GEOCODING === "true"
-  const ENABLE_GOOGLE_PLACES = import.meta.env.VITE_ENABLE_GOOGLE_PLACES === "true"
+  // Optional: backend reverse geocode (off by default — avoids extra API calls on every map pan)
+  const ENABLE_LOCATION_REVERSE_GEOCODE =
+    import.meta.env.VITE_ENABLE_LOCATION_REVERSE_GEOCODE === "true"
+  // Nominatim keyword search (off by default — each keystroke batch hits OSM)
+  const ENABLE_NOMINATIM_SEARCH = import.meta.env.VITE_ENABLE_NOMINATIM_SEARCH === "true"
   const getAddressId = (address) => address?.id || address?._id || null
 
   const addressAutocompleteSuggestions = useMemo(() => {
@@ -108,6 +111,11 @@ export default function LocationSelectorOverlay({ isOpen, onClose }) {
   useEffect(() => {
     if (!showAddressForm) return
     const q = String(addressAutocompleteValue || "").trim()
+    if (!ENABLE_NOMINATIM_SEARCH) {
+      setKeywordAddressSuggestions([])
+      setIsKeywordSearching(false)
+      return
+    }
     if (q.length < 3) {
       setKeywordAddressSuggestions([])
       setIsKeywordSearching(false)
@@ -156,7 +164,14 @@ export default function LocationSelectorOverlay({ isOpen, onClose }) {
     }, 350)
 
     return () => clearTimeout(t)
-  }, [addressAutocompleteValue, showAddressForm, location?.latitude, location?.longitude, mapPosition])
+  }, [
+    addressAutocompleteValue,
+    showAddressForm,
+    location?.latitude,
+    location?.longitude,
+    mapPosition,
+    ENABLE_NOMINATIM_SEARCH,
+  ])
 
   // Load Google Maps API key from backend
   useEffect(() => {
@@ -1526,40 +1541,48 @@ export default function LocationSelectorOverlay({ isOpen, onClose }) {
     debugLog("? watchPosition started, ID:", watchPositionIdRef.current)
   }
 
+  const MAP_MOVE_DEBOUNCE_MS = 1000
+  const MAP_MOVE_MIN_PAN_METERS = 50
+
   const handleMapMoveEnd = async (lat, lng) => {
-    // Round coordinates to 6 decimal places (about 10cm precision) to avoid duplicate calls
     const roundedLat = parseFloat(lat.toFixed(6))
     const roundedLng = parseFloat(lng.toFixed(6))
+    const coordLabel = `${roundedLat.toFixed(6)}, ${roundedLng.toFixed(6)}`
 
-    // Check if this is the same location as last call
-    if (lastReverseGeocodeCoordsRef.current) {
-      const lastLat = parseFloat(lastReverseGeocodeCoordsRef.current.lat.toFixed(6))
-      const lastLng = parseFloat(lastReverseGeocodeCoordsRef.current.lng.toFixed(6))
+    const last = lastReverseGeocodeCoordsRef.current
+    if (last) {
+      const lastLat = parseFloat(last.lat.toFixed(6))
+      const lastLng = parseFloat(last.lng.toFixed(6))
       if (lastLat === roundedLat && lastLng === roundedLng) {
-        debugLog("?? Skipping reverse geocode - same coordinates as last call")
+        debugLog("?? Skipping map move handler — same coordinates as last call")
+        return
+      }
+      const movedM = calculateDistance(last.lat, last.lng, roundedLat, roundedLng)
+      if (movedM < MAP_MOVE_MIN_PAN_METERS) {
+        debugLog("?? Skipping map move handler — pan below threshold (m):", movedM)
         return
       }
     }
 
-    // Clear any pending timeout
     if (reverseGeocodeTimeoutRef.current) {
       clearTimeout(reverseGeocodeTimeoutRef.current)
     }
 
-    // Debounce: Wait 300ms before making the API call
     reverseGeocodeTimeoutRef.current = setTimeout(async () => {
-      // Update last coordinates
       lastReverseGeocodeCoordsRef.current = { lat: roundedLat, lng: roundedLng }
+
+      // Default: no reverse geocode — coordinates only (no network on every pan)
+      if (!ENABLE_LOCATION_REVERSE_GEOCODE) {
+        setCurrentAddress(coordLabel)
+        setAddressFormData((prev) => ({
+          ...prev,
+          additionalDetails: coordLabel || prev.additionalDetails,
+        }))
+        return
+      }
 
       setLoadingAddress(true)
       try {
-        debugLog("?? Reverse geocoding for coordinates:", { lat: roundedLat, lng: roundedLng })
-        debugLog("?? Coordinates precision:", {
-          lat: roundedLat.toFixed(8),
-          lng: roundedLng.toFixed(8)
-        })
-
-        // Use Google Maps Geocoding API + Places API for complete address details
         let formattedAddress = ""
         let city = ""
         let state = ""
@@ -1570,29 +1593,24 @@ export default function LocationSelectorOverlay({ isOpen, onClose }) {
         let pointOfInterest = ""
         let premise = ""
 
-        // Google Geocoding/Places disabled - new backend in progress. Use backend only (stub) or coords.
-        {
-          try {
-            const response = await locationAPI.reverseGeocode(roundedLat, roundedLng)
-            const backendData = response?.data?.data
-            const result = backendData?.results?.[0] || backendData?.result?.[0] || null
-            if (result) {
-              formattedAddress = result.formatted_address || result.formattedAddress || ""
-              const addressComponents = result.address_components || {}
-              city = addressComponents.city || ""
-              state = addressComponents.state || ""
-              area = addressComponents.area || ""
-            }
-          } catch (backendError) {
-            debugError("? Backend reverse geocode failed (API disabled):", backendError)
-            formattedAddress = `${roundedLat.toFixed(6)}, ${roundedLng.toFixed(6)}`
+        try {
+          const response = await locationAPI.reverseGeocode(roundedLat, roundedLng)
+          const backendData = response?.data?.data
+          const result = backendData?.results?.[0] || backendData?.result?.[0] || null
+          if (result) {
+            formattedAddress = result.formatted_address || result.formattedAddress || ""
+            const addressComponents = result.address_components || {}
+            city = addressComponents.city || ""
+            state = addressComponents.state || ""
+            area = addressComponents.area || ""
           }
+        } catch (backendError) {
+          debugError("? Backend reverse geocode failed:", backendError)
+          formattedAddress = coordLabel
         }
 
         if (formattedAddress || city || state) {
-          // Build complete address if we have components
-          if (!formattedAddress || formattedAddress.split(',').length < 3) {
-            // Build from components
+          if (!formattedAddress || formattedAddress.split(",").length < 3) {
             const addressParts = []
             if (pointOfInterest) addressParts.push(pointOfInterest)
             if (premise && premise !== pointOfInterest) addressParts.push(premise)
@@ -1604,77 +1622,53 @@ export default function LocationSelectorOverlay({ isOpen, onClose }) {
               if (postalCode) addressParts.push(`${state} ${postalCode}`)
               else addressParts.push(state)
             }
-            formattedAddress = addressParts.join(', ')
+            formattedAddress = addressParts.join(", ")
           }
 
-          // Set street from formatted address if not set
           if (!street && formattedAddress) {
-            const parts = formattedAddress.split(',').map(p => p.trim()).filter(p => p.length > 0)
+            const parts = formattedAddress.split(",").map((p) => p.trim()).filter((p) => p.length > 0)
             if (parts.length > 0) {
               street = parts[0]
             }
           }
 
-          // Set area if not set
           if (!area) {
             area = pointOfInterest || premise || street || ""
           }
 
-          // Remove "India" from formatted address if present
-          if (formattedAddress && formattedAddress.endsWith(', India')) {
-            formattedAddress = formattedAddress.replace(', India', '').trim()
+          if (formattedAddress && formattedAddress.endsWith(", India")) {
+            formattedAddress = formattedAddress.replace(", India", "").trim()
           }
 
-          debugLog("? Final extracted address components:", {
-            formattedAddress,
-            street,
-            city,
-            state,
-            area,
-            postalCode,
-            pointOfInterest,
-            premise
-          })
+          setCurrentAddress(formattedAddress || coordLabel)
 
-          // Update current address display
-          setCurrentAddress(formattedAddress || `${roundedLat.toFixed(6)}, ${roundedLng.toFixed(6)}`)
+          const fullAddressForField =
+            formattedAddress ||
+            (pointOfInterest && city && state ? `${pointOfInterest}, ${city}, ${state}` : "") ||
+            (premise && city && state ? `${premise}, ${city}, ${state}` : "") ||
+            (street && city && state ? `${street}, ${city}, ${state}` : "") ||
+            (area && city && state ? `${area}, ${city}, ${state}` : "") ||
+            (city && state ? `${city}, ${state}` : "") ||
+            ""
 
-          // Update form data
-          // Store FULL formatted address in additionalDetails (Address details field) - this is what user sees
-          // This should be the complete address with all parts: POI, Building, Floor, Area, City, State, Pincode
-          const fullAddressForField = formattedAddress ||
-            (pointOfInterest && city && state ? `${pointOfInterest}, ${city}, ${state}` : '') ||
-            (premise && city && state ? `${premise}, ${city}, ${state}` : '') ||
-            (street && city && state ? `${street}, ${city}, ${state}` : '') ||
-            (area && city && state ? `${area}, ${city}, ${state}` : '') ||
-            (city && state ? `${city}, ${state}` : '') ||
-            ''
-
-          setAddressFormData(prev => ({
+          setAddressFormData((prev) => ({
             ...prev,
             street: street || prev.street,
             city: city || prev.city,
             state: state || prev.state,
             zipCode: postalCode || prev.zipCode,
-            additionalDetails: fullAddressForField || prev.additionalDetails, // Store FULL address in Address details field
+            additionalDetails: fullAddressForField || prev.additionalDetails,
           }))
         } else {
-          debugWarn("?? No address data found from Google Maps or backend")
-          setCurrentAddress(`${roundedLat.toFixed(6)}, ${roundedLng.toFixed(6)}`)
+          setCurrentAddress(coordLabel)
         }
       } catch (error) {
         debugError("? Error reverse geocoding:", error)
-        debugError("Error details:", {
-          message: error.message,
-          response: error.response?.data,
-          status: error.response?.status
-        })
-        setCurrentAddress(`${roundedLat.toFixed(6)}, ${roundedLng.toFixed(6)}`)
-        // Don't show error toast, just use coordinates
+        setCurrentAddress(coordLabel)
       } finally {
         setLoadingAddress(false)
       }
-    }, 300) // 300ms debounce delay
+    }, MAP_MOVE_DEBOUNCE_MS)
   }
 
   const handleUseCurrentLocationForAddress = async () => {

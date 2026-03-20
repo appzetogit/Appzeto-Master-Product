@@ -13,7 +13,6 @@ const SearchOverlay = lazy(() => import("./SearchOverlay"))
 const LocationSelectorOverlay = lazy(() => import("./LocationSelectorOverlay"))
 import BottomNavigation from "./BottomNavigation"
 import DesktopNavbar from "./DesktopNavbar"
-import OrderTrackingCard from "./OrderTrackingCard"
 import { useUserNotifications } from "../../hooks/useUserNotifications"
 
 // Create SearchOverlay context with default value
@@ -160,7 +159,6 @@ export default function UserLayout() {
                 <main className={showBottomNav ? "md:pt-40" : ""}>
                   <Outlet />
                 </main>
-                <OrderTrackingCard hasBottomNav={showBottomNav} />
                 {showBottomNav && <BottomNavigation />}
               </LocationSelectorProvider>
             </SearchOverlayProvider>

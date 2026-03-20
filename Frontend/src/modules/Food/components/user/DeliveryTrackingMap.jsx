@@ -1160,10 +1160,12 @@ const DeliveryTrackingMap = ({
             const { Loader } = await import('@googlemaps/js-api-loader');
             const apiKey = await getGoogleMapsApiKey();
             if (apiKey) {
+              // geometry only (directions/markers). Avoid `places`/`drawing` — they load code paths
+              // that hit Geocoding / extra endpoints without being used here.
               const loader = new Loader({
                 apiKey: apiKey,
                 version: "weekly",
-                libraries: ["places", "geometry", "drawing"]
+                libraries: ["geometry"]
               });
               await loader.load();
               debugLog('? Google Maps loaded manually');
@@ -1224,6 +1226,7 @@ const DeliveryTrackingMap = ({
           mapTypeId: mapTypeId,
           tilt: 0, // Flat 2D view for stability
           heading: 0,
+          clickableIcons: false, // Reduces POI-related Geocoding/Places traffic
           mapTypeControl: false, // Hide Map/Satellite selector
           fullscreenControl: false, // Hide fullscreen button
           streetViewControl: false, // Hide street view control

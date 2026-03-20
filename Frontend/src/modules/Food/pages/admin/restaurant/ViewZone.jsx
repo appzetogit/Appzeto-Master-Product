@@ -88,7 +88,7 @@ const coordinatesLength = useMemo(() => zone?.coordinates?.length || 0, [zone?.c
         const loader = new Loader({
           apiKey: apiKey,
           version: "weekly",
-          libraries: ["places", "drawing", "geometry"]
+          libraries: ["geometry"],
         })
 
         const google = await loader.load()

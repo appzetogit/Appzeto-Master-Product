@@ -29,7 +29,8 @@ export default function DeliveryOtpModal({
           </div>
           <h3 className="text-xl font-bold text-gray-900">Verify Delivery OTP</h3>
           <p className="text-sm text-gray-600 mt-1">
-            Enter the {otpLength}-digit OTP from customer (or paste it)
+            The customer gets this code in their app (toast / order screen). Ask them to share the{" "}
+            {otpLength}-digit OTP, then enter it here.
           </p>
         </div>
 

@@ -92,7 +92,6 @@ import api, { publicGetOnce, restaurantAPI, adminAPI } from "@food/api";
 import { API_BASE_URL } from "@food/api/config";
 import OptimizedImage from "@food/components/OptimizedImage";
 import { getRestaurantAvailabilityStatus } from "@food/utils/restaurantAvailability";
-import { useDelayedLoading } from "@food/hooks/useDelayedLoading";
 // Explore More Icons
 import exploreOffers from "@food/assets/explore more icons/offers.png";
 import exploreGourmet from "@food/assets/explore more icons/gourmet.png";
@@ -1031,15 +1030,11 @@ export default function Home() {
   const [activeFilterTab, setActiveFilterTab] = useState("sort");
   const categoryScrollRef = useRef(null);
   const gsapAnimationsRef = useRef([]);
-  const showBannerSkeleton = useDelayedLoading(loadingBanners);
-  const showCategorySkeleton = useDelayedLoading(
-    loadingRealCategories || loadingMenuCategories,
-  );
-  const showExploreSkeleton = useDelayedLoading(loadingLandingConfig);
-  const showRestaurantSkeleton = useDelayedLoading(
-    isLoadingFilterResults || loadingRestaurants,
-    { delay: 140, minDuration: 360 },
-  );
+  // Show skeletons immediately while loading — delayed toggles caused visible layout swap (CLS).
+  const showBannerSkeleton = loadingBanners;
+  const showCategorySkeleton = loadingRealCategories || loadingMenuCategories;
+  const showExploreSkeleton = loadingLandingConfig;
+  const showRestaurantSkeleton = isLoadingFilterResults || loadingRestaurants;
   // Safely get profile context - handle case when ProfileProvider is not available
   let profileContext = null;
   try {
@@ -2191,22 +2186,154 @@ export default function Home() {
     return () => clearInterval(interval);
   }, []); // placeholders is a constant, no need for dependency
 
-  // Lightweight ScrollReveal replacement - CSS only, no IntersectionObserver
-  const ScrollRevealSimple = ({ children, delay = 0, className = "" }) => (
-    <div className={className}>{children}</div>
-  );
+  // Memoized Hero Banner Component for better perf
+  const HeroBannerSection = useMemo(() => {
+    if (showBannerSkeleton) {
+      return (
+        <div className="relative w-full overflow-hidden aspect-[16/9] sm:aspect-[16/7] lg:aspect-[16/6] min-h-[290px] sm:min-h-[340px] lg:min-h-[400px] max-h-[620px] mb-3 md:-mt-40 p-4 sm:p-5">
+          <HeroBannerSkeleton className="h-full rounded-[32px]" />
+        </div>
+      );
+    }
 
-  // Lightweight TextReveal replacement - CSS only
-  const TextRevealSimple = ({ children, className = "" }) => (
-    <div className={className}>{children}</div>
-  );
+    if (heroBannerImages.length === 0) return null;
 
-  // Lightweight ShimmerCard replacement - no animations
-  const ShimmerCardSimple = ({ children, className = "" }) => (
-    <div className={className}>{children}</div>
-  );
+    return (
+      <div
+        ref={heroShellRef}
+        data-home-hero-shell="true"
+        className="relative w-full overflow-hidden aspect-[16/9] sm:aspect-[16/7] lg:aspect-[16/6] min-h-[360px] sm:min-h-[380px] lg:min-h-[400px] max-h-[620px] mb-3 md:-mt-40 group cursor-pointer"
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseUp}
+      >
+
+        <div className="absolute inset-0 z-0 bg-gray-100">
+          {heroBannerImages.map((image, index) => (
+            <div
+              key={`${index}-${image}`}
+              className="absolute inset-0 transition-opacity duration-700 ease-in-out"
+              style={{
+                opacity: currentBannerIndex === index ? 1 : 0,
+                zIndex: currentBannerIndex === index ? 2 : 1,
+                pointerEvents: "none",
+              }}>
+              <img
+                src={image}
+                alt={`Hero Banner ${index + 1}`}
+                className="h-full w-full object-fill object-center"
+                loading={index === currentBannerIndex ? "eager" : "lazy"}
+                fetchPriority={index === currentBannerIndex ? "high" : "low"}
+                draggable={false}
+              />
+            </div>
+          ))}
+        </div>
+
+        <button
+          type="button"
+          className="absolute inset-0 z-20 h-full w-full border-0 p-0 bg-transparent text-left"
+          onClick={() => {
+            const bannerData = heroBannersData[currentBannerIndex];
+            const linkedRestaurants = bannerData?.linkedRestaurants || [];
+            if (linkedRestaurants.length > 0) {
+              const firstRestaurant = linkedRestaurants[0];
+              const restaurantSlug = firstRestaurant.slug || firstRestaurant.restaurantId || firstRestaurant._id;
+              navigate(`/restaurants/${restaurantSlug}`);
+            }
+          }}
+          aria-label={`Open hero banner ${currentBannerIndex + 1}`}
+        />
+
+        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-2 z-30">
+          {heroBannerImages.map((_, index) => (
+            <button
+              key={index}
+              onClick={(e) => {
+                e.stopPropagation();
+                setCurrentBannerIndex(index);
+              }}
+              className={`w-1.5 h-1.5 rounded-full transition-all duration-300 ${
+                currentBannerIndex === index ? "bg-white w-5" : "bg-white/50"
+              }`}
+            />
+          ))}
+        </div>
+      </div>
+    );
+  }, [heroBannerImages, currentBannerIndex, showBannerSkeleton, heroBannersData, navigate]);
+
+  // Memoized Category Rail Component
+  const CategoryRailSection = useMemo(() => {
+    return (
+      <section className="space-y-1 sm:space-y-1.5 lg:space-y-2 min-h-[108px] sm:min-h-[120px]">
+        <div
+          ref={categoryScrollRef}
+          className="flex gap-3 sm:gap-4 lg:gap-5 overflow-x-auto overflow-y-visible scrollbar-hide scroll-smooth px-2 sm:px-3 py-2 sm:py-3"
+          style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
+        >
+          {/* Meals Under 200 Card */}
+          <div 
+            className="flex-shrink-0 flex flex-col items-center gap-2 cursor-pointer transition-transform hover:scale-105 active:scale-95"
+            onClick={() => navigate("/user/under-250")}
+          >
+            <div className="w-16 h-16 sm:w-20 sm:h-20 bg-[#EB590E] rounded-b-full rounded-t-sm shadow-md border-t-4 border-orange-200 flex flex-col items-center justify-center p-1">
+              <span className="text-[10px] sm:text-xs font-bold text-white text-center leading-tight">UNDER</span>
+              <span className="text-sm sm:text-base font-extrabold text-white">₹200</span>
+              <div className="w-10 h-3.5 bg-white rounded-full mt-1 flex items-center justify-center">
+                <span className="text-[8px] font-bold text-[#EB590E]">Explore</span>
+              </div>
+            </div>
+            <span className="text-xs font-medium text-gray-700 dark:text-gray-300">Offers</span>
+          </div>
+
+          {showCategorySkeleton ? (
+            <CategoryChipRowSkeleton className="py-1" />
+          ) : (
+            displayCategories.slice(0, 12).map((category, index) => (
+              <Link
+                key={category.id || index}
+                to={`/user/category/${category.slug || category.name.toLowerCase().replace(/\s+/g, "-")}`}
+                className="flex-shrink-0 flex flex-col items-center gap-2 group transition-all duration-300 hover:-translate-y-1"
+                style={{ animation: `fade-in-up 0.5s ease-out forwards ${index * 0.05}s`, opacity: 0 }}
+              >
+                <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full overflow-hidden shadow-sm border border-gray-100 dark:border-gray-800 group-hover:border-[#EB590E] transition-colors">
+                  <OptimizedImage
+                    src={category.image}
+                    alt={category.name}
+                    className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                    sizes="80px"
+                  />
+                </div>
+                <span className="text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-300 text-center truncate max-w-[72px]">
+                  {category.name}
+                </span>
+              </Link>
+            ))
+          )}
+          
+          {displayCategories.length > 12 && !showCategorySkeleton && (
+            <div 
+              className="flex-shrink-0 flex flex-col items-center gap-2 cursor-pointer group"
+              onClick={() => setShowAllCategoriesModal(true)}
+            >
+              <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-orange-50 dark:bg-orange-950 flex items-center justify-center border border-orange-100 group-hover:border-[#EB590E] transition-all">
+                <Plus className="w-6 h-6 text-[#EB590E]" />
+              </div>
+              <span className="text-xs font-medium text-gray-700">See All</span>
+            </div>
+          )}
+        </div>
+      </section>
+    );
+  }, [displayCategories, showCategorySkeleton, navigate]);
 
   return (
+
     <div className="relative min-h-screen bg-white dark:bg-[#0a0a0a] pb-16 md:pb-6">
       {shouldShowOutOfZoneHome && (
         <div className="fixed inset-0 z-[90] pointer-events-none">
@@ -2334,464 +2461,118 @@ export default function Home() {
         `}</style>
         </div>
 
-        {hasScrolledPastBanner && (
-          <div
-            ref={stickyHeaderRef}
-            className="md:hidden fixed top-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-sm shadow-sm border-b border-gray-200 transition-all duration-300">
-            <motion.div
-              className="relative z-50 pt-2 sm:pt-3 lg:pt-4"
-              initial={{ opacity: 0, y: -20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5, ease: "easeOut" }}>
-              <PageNavbar textColor="black" zIndex={50} />
-            </motion.div>
-
-            {!hasLiveLocation && (
-              <div className="px-3 sm:px-6 lg:px-8 pb-2">
-                <button
-                  type="button"
-                  onClick={handleLocationClick}
-                  className="w-full max-w-2xl lg:max-w-4xl xl:max-w-5xl mx-auto text-left rounded-xl border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-[#151515] px-3 py-2.5 flex items-start gap-2.5">
-                  <MapPin className="h-4 w-4 text-[#EB590E] mt-0.5 flex-shrink-0" />
-                  <div className="min-w-0">
-                    <p className="text-[11px] font-semibold tracking-wide text-gray-500 dark:text-gray-400 uppercase">
-                      Saved Address
-                    </p>
-                    <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
-                      {savedAddressText || "No saved address. Tap to add one."}
-                    </p>
-                  </div>
-                </button>
-              </div>
-            )}
-
-            <motion.div
-              className="w-full py-3 sm:py-4 bg-white/95 transition-colors duration-300"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6, delay: 0.2, ease: "easeOut" }}>
-              <div className="max-w-2xl lg:max-w-4xl xl:max-w-5xl mx-auto px-3 sm:px-6 lg:px-8 flex items-center gap-3 sm:gap-4 lg:gap-6">
-                <motion.div
-                  className="flex-1 relative"
-                  whileHover={{ scale: 1.02 }}
-                  transition={{ type: "spring", stiffness: 300, damping: 20 }}>
-                  <div className="relative bg-gray-50 dark:bg-[#1a1a1a] rounded-xl lg:rounded-2xl shadow-sm border border-gray-200 dark:border-gray-800 p-1 sm:p-1.5 lg:p-2 transition-all duration-300 hover:shadow-lg focus-within:ring-2 focus-within:ring-[#EB590E] focus-within:border-transparent">
-                    <div className="flex items-center gap-2 sm:gap-3 lg:gap-4">
-                      <Search
-                        className="h-4 w-4 sm:h-4 sm:w-4 lg:h-5 lg:w-5 text-[#EB590E] flex-shrink-0 ml-2 sm:ml-3 lg:ml-4"
-                        strokeWidth={2.5}
-                      />
-                      <div className="flex-1 relative">
-                        <div className="relative w-full">
-                          <Input
-                            value={heroSearch}
-                            onChange={(e) => setHeroSearch(e.target.value)}
-                            onFocus={handleSearchFocus}
-                            onClick={handleSearchFocus}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter" && heroSearch.trim()) {
-                                navigate(
-                                  `/user/search?q=${encodeURIComponent(heroSearch.trim())}`,
-                                );
-                                closeSearch();
-                                setHeroSearch("");
-                              }
-                            }}
-                            aria-label="Search restaurants and food"
-                            className="pl-0 pr-2 h-8 sm:h-9 lg:h-11 w-full bg-transparent border-0 text-sm sm:text-base lg:text-lg font-semibold text-gray-700 dark:text-white focus-visible:ring-0 focus-visible:ring-offset-0 rounded-full placeholder:text-gray-500 dark:placeholder:text-gray-400"
-                          />
-                          {!heroSearch && (
-                            <div className="absolute left-0 top-1/2 -translate-y-1/2 pointer-events-none h-5 lg:h-6 overflow-hidden">
-                              <AnimatePresence mode="wait">
-                                <motion.span
-                                  key={placeholderIndex}
-                                  initial={{ y: 16, opacity: 0 }}
-                                  animate={{ y: 0, opacity: 1 }}
-                                  exit={{ y: -16, opacity: 0 }}
-                                  transition={{ duration: 0.3 }}
-                                  className="text-sm sm:text-base lg:text-lg font-semibold text-gray-500 dark:text-gray-400 inline-block">
-                                  {placeholders[placeholderIndex]}
-                                </motion.span>
-                              </AnimatePresence>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </motion.div>
-
-                <motion.div
-                  ref={vegModeToggleRef}
-                  className="flex flex-col items-center gap-0.5 sm:gap-1 lg:gap-1.5 flex-shrink-0 relative"
-                  initial={{ opacity: 0, scale: 0.8 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  transition={{ duration: 0.5, delay: 0.3, ease: "easeOut" }}
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}>
-                  <div className="flex flex-col items-center">
-                    <span className="text-green-700 dark:text-green-500 text-[10px] sm:text-[11px] lg:text-sm font-black leading-none">
-                      VEG
-                    </span>
-                    <span className="text-green-700 dark:text-green-500 text-[8px] sm:text-[10px] lg:text-xs font-black leading-none">
-                      MODE
-                    </span>
-                  </div>
-                  <Switch
-                    checked={vegMode}
-                    onCheckedChange={handleVegModeChange}
-                    aria-label="Toggle Veg Mode"
-                    className="data-[state=checked]:bg-green-600 data-[state=unchecked]:bg-gray-300 dark:data-[state=unchecked]:bg-gray-600 w-9 h-4 sm:w-10 sm:h-5 lg:w-12 lg:h-6 shadow-md [&_[data-slot=switch-thumb]]:bg-white [&_[data-slot=switch-thumb]]:h-3 [&_[data-slot=switch-thumb]]:w-3 sm:[&_[data-slot=switch-thumb]]:h-4 sm:[&_[data-slot=switch-thumb]]:w-4 lg:[&_[data-slot=switch-thumb]]:h-5 lg:[&_[data-slot=switch-thumb]]:w-5 [&_[data-slot=switch-thumb]]:data-[state=checked]:translate-x-5 sm:[&_[data-slot=switch-thumb]]:data-[state=checked]:translate-x-5 lg:[&_[data-slot=switch-thumb]]:data-[state=checked]:translate-x-6 [&_[data-slot=switch-thumb]]:data-[state=unchecked]:translate-x-0"
-                  />
-                </motion.div>
-              </div>
-            </motion.div>
-          </div>
-        )}
-
-        {/* Top Hero Shell: banner */}
-        <div
-          ref={heroShellRef}
-          data-home-hero-shell="true"
-          className="relative w-full overflow-hidden aspect-[16/9] sm:aspect-[16/7] lg:aspect-[16/6] min-h-[290px] sm:min-h-[340px] lg:min-h-[400px] max-h-[620px] mb-3 md:-mt-40"
-          onTouchStart={
-            heroBannerImages.length > 0 ? handleTouchStart : undefined
-          }
-          onTouchMove={
-            heroBannerImages.length > 0 ? handleTouchMove : undefined
-          }
-          onTouchEnd={heroBannerImages.length > 0 ? handleTouchEnd : undefined}
-          onMouseDown={
-            heroBannerImages.length > 0 ? handleMouseDown : undefined
-          }
-          onMouseMove={
-            heroBannerImages.length > 0 ? handleMouseMove : undefined
-          }
-          onMouseUp={heroBannerImages.length > 0 ? handleMouseUp : undefined}
-          onMouseLeave={
-            heroBannerImages.length > 0 ? handleMouseUp : undefined
-          }>
-          {showBannerSkeleton ? (
-            <div className="absolute inset-0 z-0 p-4 sm:p-5">
-              <HeroBannerSkeleton className="h-full rounded-[32px]" />
-            </div>
-          ) : heroBannerImages.length > 0 ? (
-            <div className="absolute inset-0 z-0 bg-gray-100">
-              {heroBannerImages.map((image, index) => (
-                <div
-                  key={`${index}-${image}`}
-                  className="absolute inset-0 transition-opacity duration-700 ease-in-out"
-                  style={{
-                    opacity: currentBannerIndex === index ? 1 : 0,
-                    zIndex: currentBannerIndex === index ? 2 : 1,
-                    pointerEvents: "none",
-                  }}>
-                  <img
-                    src={image}
-                    alt={`Hero Banner ${index + 1}`}
-                    className="h-full w-full object-fill object-center"
-                    loading="eager"
-                    fetchPriority={index === 0 ? "high" : "auto"}
-                    draggable={false}
-                    onError={(e) => {
-                      e.currentTarget.style.background = "#e5e7eb";
-                      e.currentTarget.style.objectFit = "contain";
-                    }}
-                  />
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="absolute inset-0 z-0 bg-gray-100" />
-          )}
-
-          <div className="relative z-30 w-full md:hidden">
-            <motion.div
-              className="relative z-50 pt-2 sm:pt-3 lg:pt-4"
-              initial={{ opacity: 0, y: -20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5, ease: "easeOut" }}>
-              <PageNavbar textColor="black" zIndex={50} />
-            </motion.div>
-
-            {!hasLiveLocation && (
-              <div className="px-3 sm:px-6 lg:px-8 pb-2">
-                <button
-                  type="button"
-                  onClick={handleLocationClick}
-                  className="w-full max-w-2xl lg:max-w-4xl xl:max-w-5xl mx-auto text-left rounded-xl border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-[#151515] px-3 py-2.5 flex items-start gap-2.5">
-                  <MapPin className="h-4 w-4 text-[#EB590E] mt-0.5 flex-shrink-0" />
-                  <div className="min-w-0">
-                    <p className="text-[11px] font-semibold tracking-wide text-gray-500 dark:text-gray-400 uppercase">
-                      Saved Address
-                    </p>
-                    <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
-                      {savedAddressText || "No saved address. Tap to add one."}
-                    </p>
-                  </div>
-                </button>
-              </div>
-            )}
-
-            <motion.div
-              className="w-full py-3 sm:py-4"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6, delay: 0.2, ease: "easeOut" }}>
-              <div className="max-w-2xl lg:max-w-4xl xl:max-w-5xl mx-auto px-3 sm:px-6 lg:px-8 flex items-center gap-3 sm:gap-4 lg:gap-6">
-                <motion.div
-                  className="flex-1 relative"
-                  whileHover={{ scale: 1.02 }}
-                  transition={{ type: "spring", stiffness: 300, damping: 20 }}>
-                  <div className="relative bg-gray-50 dark:bg-[#1a1a1a] rounded-xl lg:rounded-2xl shadow-sm border border-gray-200 dark:border-gray-800 p-1 sm:p-1.5 lg:p-2 transition-all duration-300 hover:shadow-lg focus-within:ring-2 focus-within:ring-[#EB590E] focus-within:border-transparent">
-                    <div className="flex items-center gap-2 sm:gap-3 lg:gap-4">
-                      <Search
-                        className="h-4 w-4 sm:h-4 sm:w-4 lg:h-5 lg:w-5 text-[#EB590E] flex-shrink-0 ml-2 sm:ml-3 lg:ml-4"
-                        strokeWidth={2.5}
-                      />
-                      <div className="flex-1 relative">
-                        <div className="relative w-full">
-                          <Input
-                            value={heroSearch}
-                            onChange={(e) => setHeroSearch(e.target.value)}
-                            onFocus={handleSearchFocus}
-                            onClick={handleSearchFocus}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter" && heroSearch.trim()) {
-                                navigate(
-                                  `/user/search?q=${encodeURIComponent(heroSearch.trim())}`,
-                                );
-                                closeSearch();
-                                setHeroSearch("");
-                              }
-                            }}
-                            aria-label="Search restaurants and food"
-                            className="pl-0 pr-2 h-8 sm:h-9 lg:h-11 w-full bg-transparent border-0 text-sm sm:text-base lg:text-lg font-semibold text-gray-700 dark:text-white focus-visible:ring-0 focus-visible:ring-offset-0 rounded-full placeholder:text-gray-500 dark:placeholder:text-gray-400"
-                          />
-                          {!heroSearch && (
-                            <div className="absolute left-0 top-1/2 -translate-y-1/2 pointer-events-none h-5 lg:h-6 overflow-hidden">
-                              <AnimatePresence mode="wait">
-                                <motion.span
-                                  key={placeholderIndex}
-                                  initial={{ y: 16, opacity: 0 }}
-                                  animate={{ y: 0, opacity: 1 }}
-                                  exit={{ y: -16, opacity: 0 }}
-                                  transition={{ duration: 0.3 }}
-                                  className="text-sm sm:text-base lg:text-lg font-semibold text-gray-500 dark:text-gray-400 inline-block">
-                                  {placeholders[placeholderIndex]}
-                                </motion.span>
-                              </AnimatePresence>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </motion.div>
-
-                <motion.div
-                  ref={vegModeToggleRef}
-                  className="flex flex-col items-center gap-0.5 sm:gap-1 lg:gap-1.5 flex-shrink-0 relative"
-                  initial={{ opacity: 0, scale: 0.8 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  transition={{ duration: 0.5, delay: 0.3, ease: "easeOut" }}
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}>
-                  <div className="flex flex-col items-center">
-                    <span className="text-green-700 dark:text-green-500 text-[10px] sm:text-[11px] lg:text-sm font-black leading-none">
-                      VEG
-                    </span>
-                    <span className="text-green-700 dark:text-green-500 text-[8px] sm:text-[10px] lg:text-xs font-black leading-none">
-                      MODE
-                    </span>
-                  </div>
-                  <Switch
-                    checked={vegMode}
-                    onCheckedChange={handleVegModeChange}
-                    aria-label="Toggle Veg Mode"
-                    className="data-[state=checked]:bg-green-600 data-[state=unchecked]:bg-gray-300 dark:data-[state=unchecked]:bg-gray-600 w-9 h-4 sm:w-10 sm:h-5 lg:w-12 lg:h-6 shadow-md [&_[data-slot=switch-thumb]]:bg-white [&_[data-slot=switch-thumb]]:h-3 [&_[data-slot=switch-thumb]]:w-3 sm:[&_[data-slot=switch-thumb]]:h-4 sm:[&_[data-slot=switch-thumb]]:w-4 lg:[&_[data-slot=switch-thumb]]:h-5 lg:[&_[data-slot=switch-thumb]]:w-5 [&_[data-slot=switch-thumb]]:data-[state=checked]:translate-x-5 sm:[&_[data-slot=switch-thumb]]:data-[state=checked]:translate-x-5 lg:[&_[data-slot=switch-thumb]]:data-[state=checked]:translate-x-6 [&_[data-slot=switch-thumb]]:data-[state=unchecked]:translate-x-0"
-                  />
-                </motion.div>
-              </div>
-            </motion.div>
+        <div className="md:hidden relative">
+          {!hasScrolledPastBanner && (
+            <div className="absolute top-0 left-0 right-0 z-[60] pt-2 pb-4 pointer-events-none">
+              <div className="pointer-events-auto">
+          <div className="pt-2">
+            <PageNavbar textColor="black" zIndex={50} />
           </div>
 
-          {heroBannerImages.length > 0 && (
-            <>
+          <div className="px-3 sm:px-6 pb-2 min-h-[48px] flex items-center">
+            {!hasLiveLocation ? (
               <button
                 type="button"
-                className="absolute inset-0 z-20 h-full w-full border-0 p-0 bg-transparent text-left"
-                onClick={() => {
-                  const bannerData = heroBannersData[currentBannerIndex];
-                  const linkedRestaurants = bannerData?.linkedRestaurants || [];
-                  if (linkedRestaurants.length > 0) {
-                    const firstRestaurant = linkedRestaurants[0];
-                    const restaurantSlug =
-                      firstRestaurant.slug ||
-                      firstRestaurant.restaurantId ||
-                      firstRestaurant._id;
-                    navigate(`/restaurants/${restaurantSlug}`);
-                  }
-                }}
-                style={{
-                  cursor:
-                    (
-                      heroBannersData[currentBannerIndex]?.linkedRestaurants ||
-                      []
-                    ).length > 0
-                      ? "pointer"
-                      : "default",
-                }}
-                aria-label={`Open hero banner ${currentBannerIndex + 1}`}
-              />
+                onClick={handleLocationClick}
+                      className="w-full text-left rounded-xl border border-gray-200/50 dark:border-gray-800/50 bg-white/80 dark:bg-[#151515]/80 backdrop-blur-sm px-3 py-2 flex items-center gap-2 shadow-sm"
+              >
+                <MapPin className="h-3.5 w-3.5 text-[#EB590E] flex-shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-[10px] font-bold text-gray-500 uppercase leading-none mb-0.5">Location</p>
+                  <p className="text-xs font-semibold text-gray-900 dark:text-gray-100 truncate">
+                    {savedAddressText || "Tap to select location"}
+                  </p>
+                </div>
+              </button>
+            ) : null}
+          </div>
 
-              <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-2 z-30">
-                {heroBannerImages.map((_, index) => (
-                  <button
-                    key={index}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setCurrentBannerIndex(index);
-                    }}
-                    className={`w-2 h-2 rounded-full transition-all duration-300 ${
-                      currentBannerIndex === index
-                        ? "bg-white w-6"
-                        : "bg-white/60 hover:bg-white/90"
-                    }`}
-                    aria-label={`Go to slide ${index + 1}`}
-                  />
-                ))}
-              </div>
-            </>
-          )}
-        </div>
-
-        {/* Rest of Content - Container Width with Unified Background */}
-        <motion.div
-          className="relative max-w-7xl mx-auto px-3 sm:px-4 md:px-6 lg:px-8 xl:px-12 space-y-0 pt-2 sm:pt-3 lg:pt-6"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.6, delay: 0.4 }}>
-          {/* Food Categories - Horizontal Scroll */}
-          <motion.section
-            className="space-y-1 sm:space-y-1.5 lg:space-y-2"
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true, margin: "-100px" }}
-            transition={{ duration: 0.5 }}>
-            <div
-              ref={categoryScrollRef}
-              className="flex gap-3 sm:gap-4 lg:gap-5 xl:gap-6 overflow-x-auto overflow-y-visible scrollbar-hide scroll-smooth px-2 sm:px-3 lg:px-4 py-2 sm:py-3 lg:py-4"
-              style={{
-                scrollbarWidth: "none",
-                msOverflowStyle: "none",
-                touchAction: "pan-x pan-y pinch-zoom",
-                overflowY: "hidden",
-              }}>
-              {/* Offer Image - Static, Centered */}
-              {/* Special Offer Badge - Meals Under 200 */}
-              <motion.div
-                className="flex-shrink-0 flex flex-col items-center gap-2 cursor-pointer group"
-                initial={{ opacity: 0, scale: 0.8 }}
-                whileInView={{ opacity: 1, scale: 1 }}
-                viewport={{ once: true }}
-                transition={{ duration: 0.4 }}
-                onClick={() => navigate("/user/under-250")}>
-                <div className="w-16 h-16 sm:w-20 sm:h-20 flex items-center justify-center relative">
-                  {/* Blue Badge Shape */}
-                  <div className="absolute inset-0 bg-[#EB590E] rounded-b-full rounded-t-sm shadow-md border-t-4 border-orange-200 flex flex-col items-center justify-center p-1">
-                    <span className="text-[10px] sm:text-xs font-bold text-white text-center leading-tight">
-                      MEALS UNDER
-                    </span>
-                    <span className="text-sm sm:text-base font-extrabold text-white">
-                      ₹200
-                    </span>
-                    <div className="w-10 h-4 bg-white rounded-full mt-1 flex items-center justify-center">
-                      <span className="text-[8px] font-bold text-[#EB590E]">
-                        Explore
-                      </span>
-                    </div>
+          <div className="px-3 sm:px-6 pb-3 flex items-center gap-3">
+            <div className="flex-1 relative">
+              <div 
+                    className="relative bg-white/90 dark:bg-[#1a1a1a]/90 backdrop-blur-sm rounded-xl border border-gray-200 focus-within:border-[#EB590E] transition-all p-2 shadow-sm"
+                onClick={handleSearchFocus}
+              >
+                <div className="flex items-center gap-3">
+                  <Search className="h-4 w-4 text-[#EB590E] flex-shrink-0" />
+                  <div className="flex-1 h-6 relative overflow-hidden">
+                    <AnimatePresence mode="wait">
+                      {!heroSearch && (
+                        <motion.span
+                          key={placeholderIndex}
+                          initial={{ y: 20, opacity: 0 }}
+                          animate={{ y: 0, opacity: 1 }}
+                          exit={{ y: -20, opacity: 0 }}
+                          className="absolute inset-0 text-sm font-medium text-gray-400"
+                        >
+                          {placeholders[placeholderIndex]}
+                        </motion.span>
+                      )}
+                    </AnimatePresence>
+                    <input
+                      type="text"
+                      value={heroSearch}
+                      onChange={(e) => setHeroSearch(e.target.value)}
+                      onFocus={handleSearchFocus}
+                      className="absolute inset-0 w-full bg-transparent border-0 p-0 text-sm font-semibold text-gray-900 dark:text-white focus:ring-0"
+                      placeholder=" "
+                    />
                   </div>
                 </div>
-              </motion.div>
-              {showCategorySkeleton ? (
-                <CategoryChipRowSkeleton className="py-2" />
-              ) : displayCategories.length > 0 ? (
-                <>
-                  {/* Show only first 10 categories */}
-                  {displayCategories.slice(0, 10).map((category, index) => (
-                    <motion.div
-                      key={category.id || index}
-                      className="flex-shrink-0"
-                      initial={{ opacity: 0, y: 20, scale: 0.9 }}
-                      whileInView={{ opacity: 1, y: 0, scale: 1 }}
-                      viewport={{ once: true }}
-                      transition={{
-                        duration: 0.4,
-                        delay: index * 0.05,
-                        type: "spring",
-                        stiffness: 100,
-                      }}
-                      whileHover={{ scale: 1.05, y: -5 }}
-                      whileTap={{ scale: 0.95 }}>
-                      <Link
-                        to={`/user/category/${category.slug || category.name.toLowerCase().replace(/\s+/g, "-")}`}
-                        className="flex flex-col items-center gap-2 group">
-                        <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full overflow-hidden shadow-sm border border-gray-100 dark:border-gray-800 group-hover:border-[#EB590E] transition-colors duration-300 relative">
-                          <OptimizedImage
-                            src={category.image}
-                            alt={category.name}
-                            className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
-                            sizes="(max-width: 640px) 64px, (max-width: 768px) 80px, 96px"
-                            objectFit="cover"
-                            placeholder="blur"
-                            onError={() => {}}
-                          />
-                        </div>
-                        <span className="text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-300 text-center whitespace-nowrap max-w-[80px] truncate">
-                          {category.name}
-                        </span>
-                      </Link>
-                    </motion.div>
-                  ))}
-                  {/* See All button - show if there are more than 10 categories */}
-                  {displayCategories.length > 10 && (
-                    <motion.div
-                      className="flex-shrink-0 cursor-pointer"
-                      initial={{ opacity: 0, scale: 0.8 }}
-                      whileInView={{ opacity: 1, scale: 1 }}
-                      viewport={{ once: true }}
-                      transition={{ duration: 0.4, delay: 0.1 }}
-                      whileHover={{ scale: 1.05, y: -5 }}
-                      whileTap={{ scale: 0.95 }}
-                      onClick={() => setShowAllCategoriesModal(true)}>
-                      <div className="flex flex-col items-center gap-2 group">
-                        <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full overflow-hidden shadow-sm border border-gray-100 dark:border-gray-800 group-hover:border-[#EB590E] transition-colors duration-300 flex items-center justify-center bg-[#FFF2EB] dark:bg-[#EB590E]/20">
-                          <UtensilsCrossed className="w-5 h-5 sm:w-6 sm:h-6 text-[#EB590E] dark:text-[#EB590E]" />
-                        </div>
-                        <span className="text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-300 text-center whitespace-nowrap max-w-[80px] truncate">
-                          See all
-                        </span>
-                      </div>
-                    </motion.div>
-                  )}
-                </>
-              ) : (
-                // No categories available from API
-                <div className="flex items-center justify-center py-4 text-gray-500 text-sm">
-                  No categories available
-                </div>
-              )}
+              </div>
             </div>
-          </motion.section>
+
+                  <div 
+                    ref={vegModeToggleRef} 
+                    className="flex-shrink-0 flex flex-col items-center gap-1 bg-white/80 dark:bg-[#1a1a1a]/80 backdrop-blur-sm rounded-lg px-2 py-1 shadow-sm"
+                  >
+                    <span className="text-[9px] font-bold text-green-600 leading-none">VEG</span>
+                    <Switch
+                      checked={vegMode}
+                      onCheckedChange={handleVegModeChange}
+                      className="scale-75 translate-x-1"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Sticky Header */}
+          {hasScrolledPastBanner && (
+            <div 
+              className="md:hidden fixed top-0 left-0 right-0 z-[100] bg-white/95 backdrop-blur-md shadow-md border-b border-gray-100 animate-in slide-in-from-top duration-300"
+            >
+              <div className="pt-2">
+                <PageNavbar textColor="black" zIndex={50} />
+              </div>
+              <div className="px-3 sm:px-6 pb-2 flex items-center gap-3">
+                <div className="flex-1 bg-gray-100 rounded-lg p-2.5 flex items-center gap-2" onClick={handleSearchFocus}>
+                  <Search className="h-3.5 w-3.5 text-[#EB590E]" />
+                  <span className="text-xs font-semibold text-gray-400 truncate">{placeholders[placeholderIndex]}</span>
+                </div>
+                <div ref={vegModeToggleRef} className="flex flex-col items-center">
+                  <span className="text-[8px] font-bold text-green-600">VEG</span>
+                  <Switch checked={vegMode} onCheckedChange={handleVegModeChange} className="scale-75" />
+                </div>
+              </div>
+            </div>
+          )}
+          
+          {HeroBannerSection}
+        </div>
+
+        {/* Rest of Content */}
+        <div className="relative max-w-7xl mx-auto px-3 sm:px-4 md:px-6 lg:px-8 xl:px-12 space-y-3 pt-4 sm:pt-6">
+          {CategoryRailSection}
+        </div>
+
 
           {/* Filters */}
           <motion.section
             className="py-1 lg:py-2"
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true, margin: "-50px" }}
-            transition={{ duration: 0.5, delay: 0.2 }}>
+            initial={false}
+            animate={{ opacity: 1, y: 0 }}>
             <div
               className="flex items-center gap-1.5 sm:gap-2 lg:gap-3 overflow-x-auto scrollbar-hide pb-1 lg:pb-2"
               style={{
@@ -2870,18 +2651,11 @@ export default function Home() {
           {recommendedForYouRestaurants.length > 0 && (
             <motion.section
               className="content-auto pt-1 sm:pt-2"
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true, margin: "-50px" }}
-              transition={{ duration: 0.5 }}>
-              <motion.h2
-                className="text-xs sm:text-sm lg:text-base font-semibold text-gray-400 dark:text-gray-500 tracking-widest uppercase mb-2 sm:mb-3 px-1"
-                initial={{ opacity: 0, x: -20 }}
-                whileInView={{ opacity: 1, x: 0 }}
-                viewport={{ once: true }}
-                transition={{ duration: 0.5 }}>
+              initial={false}
+              animate={{ opacity: 1, y: 0 }}>
+              <h2 className="text-xs sm:text-sm lg:text-base font-semibold text-gray-400 dark:text-gray-500 tracking-widest uppercase mb-2 sm:mb-3 px-1">
                 Recommended For You
-              </motion.h2>
+              </h2>
 
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-3">
                 {recommendedForYouRestaurants.map((restaurant, index) => {
@@ -2929,26 +2703,21 @@ export default function Home() {
           {/* Explore More Section */}
           <motion.section
             className="content-auto pt-2 sm:pt-3 lg:pt-4"
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true, margin: "-50px" }}
-            transition={{ duration: 0.5 }}>
-            <motion.h2
-              className="text-xs sm:text-sm lg:text-base font-semibold text-gray-400 dark:text-gray-500 tracking-widest uppercase mb-2 sm:mb-3 lg:mb-4 px-1"
-              initial={{ opacity: 0, x: -20 }}
-              whileInView={{ opacity: 1, x: 0 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.5 }}>
+            initial={false}
+            animate={{ opacity: 1, y: 0 }}>
+            <h2 className="text-xs sm:text-sm lg:text-base font-semibold text-gray-400 dark:text-gray-500 tracking-widest uppercase mb-2 sm:mb-3 lg:mb-4 px-1">
               {exploreMoreHeading}
-            </motion.h2>
+            </h2>
             <div
-              className="flex gap-2 sm:gap-3 lg:gap-4 overflow-x-auto scrollbar-hide pb-2 lg:pb-3"
+              className="flex gap-2 sm:gap-3 lg:gap-4 overflow-x-auto scrollbar-hide pb-2 lg:pb-3 min-h-[132px] w-full"
               style={{
                 scrollbarWidth: "none",
                 msOverflowStyle: "none",
               }}>
               {showExploreSkeleton ? (
-                <ExploreGridSkeleton />
+                <div className="w-full min-w-full shrink-0">
+                  <ExploreGridSkeleton />
+                </div>
               ) : (
                 finalExploreItems.map((item, index) => (
                   <motion.div
@@ -2996,16 +2765,9 @@ export default function Home() {
           {/* Restaurants - Enhanced with Animations */}
           <motion.section
             className="content-auto space-y-0 pt-3 sm:pt-4 lg:pt-6 pb-8 md:pb-10"
-            initial={{ opacity: 0 }}
-            whileInView={{ opacity: 1 }}
-            viewport={{ once: true, margin: "-100px" }}
-            transition={{ duration: 0.6 }}>
-            <motion.div
-              className="px-1 mb-3 lg:mb-4"
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.5 }}>
+            initial={false}
+            animate={{ opacity: 1 }}>
+            <div className="px-1 mb-3 lg:mb-4">
               <div className="flex flex-col gap-0.5 lg:gap-1">
                 <h2 className="text-xs sm:text-sm lg:text-base font-semibold text-gray-400 tracking-widest uppercase">
                   {filteredRestaurants.length} Restaurants Delivering to You
@@ -3014,8 +2776,9 @@ export default function Home() {
                   Featured
                 </span>
               </div>
-            </motion.div>
-            <div className="relative">
+            </div>
+            <div
+              className={`relative ${showRestaurantSkeleton ? "min-h-[360px] sm:min-h-[420px]" : ""}`}>
               {/* Loading Overlay */}
               <AnimatePresence>
                 {showRestaurantSkeleton && (
@@ -3244,7 +3007,7 @@ export default function Home() {
             </Link> */}
             </div>
           </motion.section>
-        </motion.div>
+        </div>
 
         {/* Filter Modal - Bottom Sheet */}
         <AnimatePresence>
@@ -4180,7 +3943,6 @@ export default function Home() {
             </motion.div>
           )}
         </AnimatePresence>
-      </div>
 
       {/* Loading Screen - Switching Off Veg Mode */}
       <AnimatePresence>
@@ -4393,7 +4155,8 @@ export default function Home() {
         )}
 
       <StickyCartCard />
-      <OrderTrackingCard />
+      {/* Live order strip: only on homepage (not in UserLayout) */}
+      <OrderTrackingCard hasBottomNav />
     </div>
   );
 }

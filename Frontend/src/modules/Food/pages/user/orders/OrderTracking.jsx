@@ -272,6 +272,8 @@ const getRestaurantAddressFromOrder = (apiOrder, previousOrder = null, explicitR
 const transformOrderForTracking = (apiOrder, previousOrder = null, explicitRestaurantCoords = null, explicitRestaurantAddress = null) => {
   const restaurantCoords = explicitRestaurantCoords || getRestaurantCoordsFromOrder(apiOrder, previousOrder?.restaurantLocation?.coordinates)
   const restaurantAddress = getRestaurantAddressFromOrder(apiOrder, previousOrder, explicitRestaurantAddress)
+  // API returns `deliveryAddress`; some paths use `address`
+  const addr = apiOrder?.address || apiOrder?.deliveryAddress || {}
 
   return {
     id: apiOrder?.orderId || apiOrder?._id,
@@ -292,16 +294,16 @@ const transformOrderForTracking = (apiOrder, previousOrder = null, explicitResta
     userName: apiOrder?.userName || apiOrder?.userId?.name || apiOrder?.userId?.fullName || previousOrder?.userName || '',
     userPhone: apiOrder?.userPhone || apiOrder?.userId?.phone || previousOrder?.userPhone || '',
     address: {
-      street: apiOrder?.address?.street || previousOrder?.address?.street || '',
-      city: apiOrder?.address?.city || previousOrder?.address?.city || '',
-      state: apiOrder?.address?.state || previousOrder?.address?.state || '',
-      zipCode: apiOrder?.address?.zipCode || previousOrder?.address?.zipCode || '',
-      additionalDetails: apiOrder?.address?.additionalDetails || previousOrder?.address?.additionalDetails || '',
-      formattedAddress: apiOrder?.address?.formattedAddress ||
-        (apiOrder?.address?.street && apiOrder?.address?.city
-          ? `${apiOrder.address.street}${apiOrder.address.additionalDetails ? `, ${apiOrder.address.additionalDetails}` : ''}, ${apiOrder.address.city}${apiOrder.address.state ? `, ${apiOrder.address.state}` : ''}${apiOrder.address.zipCode ? ` ${apiOrder.address.zipCode}` : ''}`
-          : previousOrder?.address?.formattedAddress || apiOrder?.address?.city || ''),
-      coordinates: apiOrder?.address?.location?.coordinates || previousOrder?.address?.coordinates || null
+      street: addr?.street || previousOrder?.address?.street || '',
+      city: addr?.city || previousOrder?.address?.city || '',
+      state: addr?.state || previousOrder?.address?.state || '',
+      zipCode: addr?.zipCode || previousOrder?.address?.zipCode || '',
+      additionalDetails: addr?.additionalDetails || previousOrder?.address?.additionalDetails || '',
+      formattedAddress: addr?.formattedAddress ||
+        (addr?.street && addr?.city
+          ? `${addr.street}${addr.additionalDetails ? `, ${addr.additionalDetails}` : ''}, ${addr.city}${addr.state ? `, ${addr.state}` : ''}${addr.zipCode ? ` ${addr.zipCode}` : ''}`
+          : previousOrder?.address?.formattedAddress || addr?.city || ''),
+      coordinates: addr?.location?.coordinates || previousOrder?.address?.coordinates || null
     },
     restaurantLocation: {
       coordinates: restaurantCoords
@@ -332,6 +334,47 @@ const transformOrderForTracking = (apiOrder, previousOrder = null, explicitResta
   }
 }
 
+/**
+ * Backend uses `orderStatus` (created, confirmed, preparing, ready_for_pickup, picked_up, delivered, cancelled_*).
+ * This page used to read legacy `status` only — so UI never updated. Map canonical + legacy values to tracking steps.
+ */
+function mapBackendOrderStatusToUi(raw) {
+  const s = String(raw || "").toLowerCase()
+  if (!s) return "placed"
+  if (s.includes("cancelled") || s === "cancelled") return "cancelled"
+  if (s === "delivered") return "delivered"
+  if (
+    s === "picked_up" ||
+    s === "ready_for_pickup" ||
+    s === "ready" ||
+    s === "out_for_delivery"
+  ) {
+    return "pickup"
+  }
+  if (s === "preparing" || s === "confirmed") return "preparing"
+  if (s === "created") return "placed"
+  return "placed"
+}
+
+/** Prefer live delivery phase when present (socket / polling include deliveryState). */
+function mapOrderToTrackingUiStatus(orderLike) {
+  if (!orderLike) return "placed"
+  const phase = orderLike.deliveryState?.currentPhase
+  if (
+    phase === "en_route_to_delivery" ||
+    phase === "at_drop" ||
+    phase === "reached_drop"
+  ) {
+    return "pickup"
+  }
+  return mapBackendOrderStatusToUi(orderLike.status || orderLike.orderStatus)
+}
+
+function isFoodOrderCancelledStatus(statusRaw) {
+  const s = String(statusRaw || "").toLowerCase()
+  return s === "cancelled" || s.includes("cancelled")
+}
+
 export default function OrderTracking() {
   const { orderId } = useParams()
   const [searchParams] = useSearchParams()
@@ -355,6 +398,7 @@ export default function OrderTracking() {
   const [isCancelling, setIsCancelling] = useState(false)
   const [timerNow, setTimerNow] = useState(Date.now())
   const lastRealtimeRefreshRef = useRef(0)
+  const trackingOrderIdsRef = useRef(new Set())
 
   const defaultAddress = getDefaultAddress()
   const fallbackCustomerCoords = useMemo(() => {
@@ -400,8 +444,24 @@ export default function OrderTracking() {
 
   const isAdminAccepted = useMemo(() => {
     const status = order?.status
-    return ['confirmed', 'preparing', 'ready'].includes(status)
+    return [
+      "confirmed",
+      "preparing",
+      "ready",
+      "ready_for_pickup",
+      "picked_up",
+    ].includes(status)
   }, [order?.status])
+
+  // Single source of truth: backend order.status (+ deliveryState phase for live ride)
+  useEffect(() => {
+    if (!order) return
+    setOrderStatus(mapOrderToTrackingUiStatus(order))
+  }, [
+    order?.status,
+    order?.deliveryState?.currentPhase,
+    order?.deliveryState?.status,
+  ])
 
   const acceptedAtMs = useMemo(() => {
     const timestamp =
@@ -521,16 +581,6 @@ export default function OrderTracking() {
 
           const transformedOrder = transformOrderForTracking(apiOrder, order, restaurantCoords);
           setOrder(transformedOrder);
-
-          if (newOrderStatus === 'cancelled') {
-            setOrderStatus('cancelled');
-          } else if (newOrderStatus === 'preparing') {
-            setOrderStatus('preparing');
-          } else if (newOrderStatus === 'ready' || newOrderStatus === 'out_for_delivery') {
-            setOrderStatus('pickup');
-          } else if (newOrderStatus === 'delivered') {
-            setOrderStatus('delivered');
-          }
         }
       } catch (err) {
         debugError('Error polling order updates:', err);
@@ -540,46 +590,43 @@ export default function OrderTracking() {
     return () => clearInterval(interval);
   }, [orderId, order?.deliveryState?.status, order?.deliveryState?.currentPhase]);
 
-  // Fetch order from API if not found in context
+  // Fetch order: show context immediately if present, but always refresh from API for live status.
   useEffect(() => {
     const fetchOrder = async () => {
-      // First try to get from context (localStorage)
-      const contextOrder = getOrderById(orderId)
-      if (contextOrder) {
-        contextOrder.mongoId = contextOrder.mongoId ||
+      const rawContext = getOrderById(orderId)
+      let previousForTransform = null
+
+      if (rawContext) {
+        const contextOrder = { ...rawContext }
+        contextOrder.mongoId =
+          contextOrder.mongoId ||
           contextOrder._id ||
-          (typeof contextOrder.id === 'string' && /^[a-f0-9]{24}$/i.test(contextOrder.id) ? contextOrder.id : null);
-        contextOrder.orderId = contextOrder.orderId ||
-          (typeof contextOrder.id === 'string' && contextOrder.id.startsWith('ORD-') ? contextOrder.id : null);
-        // Ensure restaurant location is available in context order
-        if (!contextOrder.restaurantLocation?.coordinates && contextOrder.restaurantId?.location?.coordinates) {
+          (typeof contextOrder.id === "string" && /^[a-f0-9]{24}$/i.test(contextOrder.id)
+            ? contextOrder.id
+            : null)
+        contextOrder.orderId =
+          contextOrder.orderId ||
+          (typeof contextOrder.id === "string" && contextOrder.id.startsWith("ORD-") ? contextOrder.id : null)
+        if (
+          !contextOrder.restaurantLocation?.coordinates &&
+          contextOrder.restaurantId?.location?.coordinates
+        ) {
           contextOrder.restaurantLocation = {
-            coordinates: contextOrder.restaurantId.location.coordinates
-          };
+            coordinates: contextOrder.restaurantId.location.coordinates,
+          }
         }
-        // Also ensure restaurantId is present
         if (!contextOrder.restaurantId && contextOrder.restaurant) {
-          // Try to preserve restaurantId if it exists
-          debugLog('?? Context order missing restaurantId, will fetch from API');
+          debugLog("?? Context order missing restaurantId, will merge from API")
         }
-        const hasRestaurantCoords =
-          Array.isArray(contextOrder?.restaurantLocation?.coordinates) &&
-          contextOrder.restaurantLocation.coordinates.length >= 2;
-
+        previousForTransform = contextOrder
         setOrder(contextOrder)
-
-        // Keep UI responsive with cached data, but fetch fresh order if coords are missing.
-        if (hasRestaurantCoords) {
-          setLoading(false)
-          return
-        }
-      }
-
-      // If not in context, fetch from API
-      try {
+        setLoading(false)
+      } else {
         setLoading(true)
         setError(null)
+      }
 
+      try {
         const response = await orderAPI.getOrderDetails(orderId)
 
         if (response.data?.success && response.data.data?.order) {
@@ -641,31 +688,24 @@ export default function OrderTracking() {
           }
 
           debugLog('?? Final restaurant coordinates:', restaurantCoords);
-          debugLog('?? Customer coordinates:', apiOrder.address?.location?.coordinates);
+          debugLog('?? Customer coordinates:', (apiOrder.address || apiOrder.deliveryAddress)?.location?.coordinates);
 
-          // Transform API order to match component structure
-          setOrder(transformOrderForTracking(apiOrder, null, restaurantCoords, restaurantAddress))
-
-          // Update orderStatus based on API order status
-          if (apiOrder.status === 'cancelled') {
-            setOrderStatus('cancelled');
-          } else if (apiOrder.status === 'preparing') {
-            setOrderStatus('preparing');
-          } else if (apiOrder.status === 'ready') {
-            setOrderStatus('pickup');
-          } else if (apiOrder.status === 'out_for_delivery') {
-            setOrderStatus('pickup');
-          } else if (apiOrder.status === 'delivered') {
-            setOrderStatus('delivered');
-          }
+          // Transform API order to match component structure (merge over context snapshot if any)
+          setOrder(
+            transformOrderForTracking(apiOrder, previousForTransform, restaurantCoords, restaurantAddress)
+          )
         } else {
           throw new Error('Order not found')
         }
       } catch (err) {
         debugError('Error fetching order:', err)
-        setError(err.response?.data?.message || err.message || 'Failed to fetch order')
+        if (!previousForTransform) {
+          setError(err.response?.data?.message || err.message || 'Failed to fetch order')
+        }
       } finally {
-        setLoading(false)
+        if (!previousForTransform) {
+          setLoading(false)
+        }
       }
     }
 
@@ -674,15 +714,11 @@ export default function OrderTracking() {
     }
   }, [orderId, getOrderById])
 
-  // Simulate order status progression
+  // Post-checkout splash only — real status comes from API / poll / socket.
   useEffect(() => {
-    if (confirmed) {
-      const timer1 = setTimeout(() => {
-        setShowConfirmation(false)
-        setOrderStatus('preparing')
-      }, 3000)
-      return () => clearTimeout(timer1)
-    }
+    if (!confirmed) return
+    const timer1 = setTimeout(() => setShowConfirmation(false), 3000)
+    return () => clearTimeout(timer1)
   }, [confirmed])
 
   // Countdown timer
@@ -697,26 +733,32 @@ export default function OrderTracking() {
   useEffect(() => {
     const handleOrderStatusNotification = (event) => {
       const payload = event?.detail || {};
-      const { message, status, estimatedDeliveryTime } = payload;
+      const { message, status, estimatedDeliveryTime, orderId: evtOrderId, orderMongoId } = payload;
 
-      debugLog('?? Order status notification received:', { message, status });
+      const evtKeys = [evtOrderId, orderMongoId, payload?._id].filter(Boolean).map(String)
+      const idMatches =
+        !orderId ||
+        evtKeys.length === 0 ||
+        evtKeys.some((k) => trackingOrderIdsRef.current.has(k))
 
-      // Update order status in UI
-      if (status === 'out_for_delivery') {
-        setOrderStatus('pickup');
-      } else if (status === 'reached_pickup' || status === 'accepted') {
-        setOrderStatus('pickup');
-      } else if (status === 'delivered') {
-        setOrderStatus('delivered');
-      }
+      debugLog('?? Order status notification received:', { message, status, idMatches });
 
-      // Pull latest order state without refresh spam on bursty socket events.
-      const now = Date.now();
-      if (now - lastRealtimeRefreshRef.current > 1500) {
-        lastRealtimeRefreshRef.current = now;
-        setTimeout(() => {
-          handleRefresh();
-        }, 0);
+      if (idMatches) {
+        const next = mapOrderToTrackingUiStatus({
+          status,
+          orderStatus: payload.orderStatus || status,
+          deliveryState: payload.deliveryState,
+        });
+        setOrderStatus(next);
+
+        // Pull latest order state without refresh spam on bursty socket events.
+        const now = Date.now();
+        if (now - lastRealtimeRefreshRef.current > 1500) {
+          lastRealtimeRefreshRef.current = now;
+          setTimeout(() => {
+            handleRefresh();
+          }, 0);
+        }
       }
 
       // Show notification toast
@@ -793,10 +835,6 @@ export default function OrderTracking() {
         if (orderResponse.data?.success && orderResponse.data.data?.order) {
           const apiOrder = orderResponse.data.data.order;
           setOrder(transformOrderForTracking(apiOrder, order));
-          // Update orderStatus to cancelled
-          if (apiOrder.status === 'cancelled') {
-            setOrderStatus('cancelled');
-          }
         }
       } else {
         toast.error(response.data?.message || 'Failed to cancel order');
@@ -877,19 +915,6 @@ export default function OrderTracking() {
         }
 
         setOrder(transformOrderForTracking(apiOrder, order, restaurantCoords, restaurantAddress))
-
-        // Update order status for UI
-        if (apiOrder.status === 'cancelled') {
-          setOrderStatus('cancelled');
-        } else if (apiOrder.status === 'preparing') {
-          setOrderStatus('preparing')
-        } else if (apiOrder.status === 'ready') {
-          setOrderStatus('pickup')
-        } else if (apiOrder.status === 'out_for_delivery') {
-          setOrderStatus('pickup')
-        } else if (apiOrder.status === 'delivered') {
-          setOrderStatus('delivered')
-        }
       }
     } catch (err) {
       debugError('Error refreshing order:', err)

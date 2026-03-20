@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useRef } from "react"
 import { useNavigate } from "react-router-dom"
 import { Search, Download, ChevronDown, Eye, Settings, ArrowUpDown, Loader2, X, MapPin, Phone, Mail, Clock, Star, Building2, User, FileText, CreditCard, Calendar, Image as ImageIcon, ExternalLink, ShieldX, AlertTriangle, Trash2, Plus } from "lucide-react"
-import { adminAPI, restaurantAPI, locationAPI, uploadAPI } from "@food/api"
+import { adminAPI, restaurantAPI, uploadAPI } from "@food/api"
 import { clearModuleAuth } from "@food/utils/auth"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@food/components/ui/dropdown-menu"
 import { exportRestaurantsToPDF } from "@food/components/admin/restaurants/restaurantsExportUtils"
@@ -73,7 +73,6 @@ export default function RestaurantsList() {
   const [profileImagePreview, setProfileImagePreview] = useState("")
   const [isEditingLocation, setIsEditingLocation] = useState(false)
   const [savingLocation, setSavingLocation] = useState(false)
-  const [resolvingAddress, setResolvingAddress] = useState(false)
   const [locationEditError, setLocationEditError] = useState("")
   const [zones, setZones] = useState([])
   const [zonesLoading, setZonesLoading] = useState(false)
@@ -372,68 +371,6 @@ export default function RestaurantsList() {
     }
   }
 
-  const parseReverseGeocodeResult = (responseData = {}) => {
-    const firstResult = responseData?.data?.results?.[0] || responseData?.results?.[0] || null
-    if (!firstResult) return {}
-
-    const addressComponents = firstResult.address_components || {}
-    let area = ""
-    let city = ""
-    let state = ""
-    let pincode = ""
-
-    if (Array.isArray(addressComponents)) {
-      const getComponent = (types) =>
-        addressComponents.find((comp) =>
-          Array.isArray(comp.types) && types.some((t) => comp.types.includes(t)),
-        )
-
-      area =
-        getComponent(["sublocality_level_1", "sublocality", "neighborhood"])?.long_name ||
-        ""
-      city =
-        getComponent(["locality", "administrative_area_level_2"])?.long_name ||
-        ""
-      state = getComponent(["administrative_area_level_1"])?.long_name || ""
-      pincode = getComponent(["postal_code"])?.long_name || ""
-    } else {
-      area = addressComponents.area || ""
-      city = addressComponents.city || ""
-      state = addressComponents.state || ""
-      pincode = addressComponents.pincode || addressComponents.postalCode || ""
-    }
-
-    return {
-      formattedAddress: firstResult.formatted_address || "",
-      area,
-      city,
-      state,
-      pincode,
-    }
-  }
-
-  const reverseGeocodeLocation = async (lat, lng) => {
-    if (!Number.isFinite(Number(lat)) || !Number.isFinite(Number(lng))) return
-    try {
-      setResolvingAddress(true)
-      const response = await locationAPI.reverseGeocode(Number(lat), Number(lng))
-      const parsed = parseReverseGeocodeResult(response?.data)
-      setLocationForm((prev) => ({
-        ...prev,
-        formattedAddress: parsed.formattedAddress || prev.formattedAddress,
-        addressLine1: prev.addressLine1 || parsed.formattedAddress || prev.formattedAddress,
-        area: parsed.area || prev.area,
-        city: parsed.city || prev.city,
-        state: parsed.state || prev.state,
-        pincode: parsed.pincode || prev.pincode,
-      }))
-    } catch (err) {
-      debugWarn("Failed to reverse geocode location:", err)
-    } finally {
-      setResolvingAddress(false)
-    }
-  }
-
   const loadGoogleMapsScript = async () => {
     if (window.google?.maps?.places?.Autocomplete) return true
 
@@ -492,7 +429,6 @@ export default function RestaurantsList() {
       locationSearchInputRef.current,
       {
         fields: ["formatted_address", "address_components", "geometry"],
-        types: ["geocode"],
         componentRestrictions: { country: "in" },
       }
     )
@@ -2276,7 +2212,6 @@ export default function RestaurantsList() {
                           </div>
                         </div>
 
-                        {resolvingAddress && <p className="text-xs text-slate-500">Resolving address...</p>}
                         {locationEditError && <p className="text-xs text-red-600">{locationEditError}</p>}
                         <button
                           onClick={handleSaveLocation}

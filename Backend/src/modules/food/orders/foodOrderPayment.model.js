@@ -25,6 +25,22 @@ const qrSnapshotSchema = new mongoose.Schema(
     { _id: false }
 );
 
+/** Line items + fees at the time of the payment event (order snapshot). */
+const pricingSnapshotSchema = new mongoose.Schema(
+    {
+        subtotal: { type: Number, default: 0 },
+        tax: { type: Number, default: 0 },
+        packagingFee: { type: Number, default: 0 },
+        deliveryFee: { type: Number, default: 0 },
+        platformFee: { type: Number, default: 0 },
+        discount: { type: Number, default: 0 },
+        total: { type: Number, default: 0 },
+        currency: { type: String, default: 'INR', trim: true },
+        couponCode: { type: String, default: '', trim: true }
+    },
+    { _id: false }
+);
+
 const foodOrderPaymentSchema = new mongoose.Schema(
     {
         orderId: {
@@ -80,6 +96,8 @@ const foodOrderPaymentSchema = new mongoose.Schema(
         currency: { type: String, default: 'INR', trim: true },
 
         amountDue: { type: Number, min: 0 },
+
+        pricingSnapshot: { type: pricingSnapshotSchema, default: undefined },
 
         razorpay: { type: razorpaySnapshotSchema, default: undefined },
         qr: { type: qrSnapshotSchema, default: undefined },

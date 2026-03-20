@@ -9,6 +9,7 @@
 
 - **Append-only ledger** (one row per business event).
 - Indexed by `orderId` + `createdAt` for history queries.
+- Each row includes **`pricingSnapshot`**: subtotal, tax, packaging, delivery, platform, discount, total, currency, couponCode (as on the order at event time).
 
 ### Event kinds (`kind`)
 

@@ -203,7 +203,7 @@ export async function verifyDropOtpDeliveryController(req, res, next) {
         const orderId = req.params.orderId;
         const { otp } = req.body;
         const result = await orderService.verifyDropOtpDelivery(orderId, deliveryPartnerId, otp);
-        return sendResponse(res, 200, 'OTP verified', result);
+        return sendResponse(res, 200, 'OTP verified', { order: result.order });
     } catch (err) {
         next(err);
     }

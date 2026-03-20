@@ -1,5 +1,4 @@
 import { useState, useEffect } from "react"
-import { locationAPI } from "@food/api"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -10,8 +9,7 @@ const debugError = (...args) => {}
  * 
  * Features:
  * - HTML5 Geolocation API for user location
- * - Ola Maps Reverse Geocoding via backend API
- * - Extracts ONLY area/subLocality name (e.g., "New Palasia")
+ * - No reverse geocoding by default (avoids extra API calls); coords only unless you add a backend later
  * - Zomato-style location display
  * - Comprehensive error handling
  * 
@@ -189,30 +187,18 @@ export function useLocationSimple() {
       }
 
       navigator.geolocation.getCurrentPosition(
-        async (position) => {
-          try {
-            const { latitude, longitude } = position.coords
-            
-            // Reverse geocode to get area name
-            const locationData = await reverseGeocode(latitude, longitude)
-            
-            // Save to localStorage for quick access
-            localStorage.setItem("userLocation", JSON.stringify(locationData))
-            
-            resolve(locationData)
-          } catch (err) {
-            // If reverse geocoding fails, still return coordinates
-            const fallbackLocation = {
-              latitude: position.coords.latitude,
-              longitude: position.coords.longitude,
-              area: "",
-              city: "",
-              state: "",
-              formattedAddress: "",
-            }
-            localStorage.setItem("userLocation", JSON.stringify(fallbackLocation))
-            reject(err)
+        (position) => {
+          const { latitude, longitude } = position.coords
+          const locationData = {
+            latitude,
+            longitude,
+            area: "",
+            city: "",
+            state: "",
+            formattedAddress: "",
           }
+          localStorage.setItem("userLocation", JSON.stringify(locationData))
+          resolve(locationData)
         },
         (err) => {
           // Handle geolocation errors
