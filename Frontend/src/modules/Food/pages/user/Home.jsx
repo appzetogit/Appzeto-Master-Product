@@ -1416,7 +1416,6 @@ export default function Home() {
           const transformedRestaurants = restaurantsArray
             .filter((restaurant) => {
               const name = (restaurant.restaurantName || restaurant.name || "").toLowerCase()
-              if (name.includes("dummy") || name.includes("test")) return false
               return true
             })
             .map((restaurant, index) => {
@@ -1661,7 +1660,7 @@ export default function Home() {
         }
       }
     },
-    [extractImages, buildRestaurantImageCandidates],
+    [extractImages, buildRestaurantImageCandidates, location?.latitude, location?.longitude],
   );
 
   const applyFiltersAndRefetch = useCallback(
@@ -1697,81 +1696,87 @@ export default function Home() {
 
   // Recalculate distances when user location updates
   useEffect(() => {
-    if (
-      !restaurantsData ||
-      restaurantsData.length === 0 ||
-      !location?.latitude ||
-      !location?.longitude
-    )
-      return;
+    if (!location?.latitude || !location?.longitude) return;
 
-    const calculateDistance = (lat1, lng1, lat2, lng2) => {
-      const R = 6371; // Earth's radius in kilometers
-      const dLat = ((lat2 - lat1) * Math.PI) / 180;
-      const dLng = ((lng2 - lng1) * Math.PI) / 180;
-      const a =
-        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-        Math.cos((lat1 * Math.PI) / 180) *
-          Math.cos((lat2 * Math.PI) / 180) *
-          Math.sin(dLng / 2) *
-          Math.sin(dLng / 2);
-      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-      return R * c; // Distance in kilometers
-    };
+    setRestaurantsData((prevData) => {
+      if (!prevData || prevData.length === 0) return prevData;
 
-    const userLat = location.latitude;
-    const userLng = location.longitude;
-
-    // Recalculate distances for all restaurants
-    const updatedRestaurants = restaurantsData.map((restaurant) => {
-      if (!restaurant.location) return restaurant;
-
-      const restaurantLat =
-        restaurant.location?.latitude ||
-        (restaurant.location?.coordinates &&
-        Array.isArray(restaurant.location.coordinates)
-          ? restaurant.location.coordinates[1]
-          : null);
-      const restaurantLng =
-        restaurant.location?.longitude ||
-        (restaurant.location?.coordinates &&
-        Array.isArray(restaurant.location.coordinates)
-          ? restaurant.location.coordinates[0]
-          : null);
-
-      if (
-        !restaurantLat ||
-        !restaurantLng ||
-        isNaN(restaurantLat) ||
-        isNaN(restaurantLng)
-      ) {
-        return restaurant;
-      }
-
-      const distanceInKm = calculateDistance(
-        userLat,
-        userLng,
-        restaurantLat,
-        restaurantLng,
-      );
-      let calculatedDistance = null;
-
-      // Format distance: show 1 decimal place if >= 1km, otherwise show in meters
-      if (distanceInKm >= 1) {
-        calculatedDistance = `${distanceInKm.toFixed(1)} km`;
-      } else {
-        const distanceInMeters = Math.round(distanceInKm * 1000);
-        calculatedDistance = `${distanceInMeters} m`;
-      }
-
-      return {
-        ...restaurant,
-        distance: calculatedDistance,
-        distanceInKm: distanceInKm, // Preserve numeric distance for sorting
+      const calculateDistance = (lat1, lng1, lat2, lng2) => {
+        const R = 6371; // Earth's radius in kilometers
+        const dLat = ((lat2 - lat1) * Math.PI) / 180;
+        const dLng = ((lng2 - lng1) * Math.PI) / 180;
+        const a =
+          Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+          Math.cos((lat1 * Math.PI) / 180) *
+            Math.cos((lat2 * Math.PI) / 180) *
+            Math.sin(dLng / 2) *
+            Math.sin(dLng / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        return R * c; // Distance in kilometers
       };
+
+      const userLat = location.latitude;
+      const userLng = location.longitude;
+
+      let hasChanges = false;
+      const updatedRestaurants = prevData.map((restaurant) => {
+        if (!restaurant.location) return restaurant;
+
+        const restaurantLat =
+          restaurant.location?.latitude ||
+          (restaurant.location?.coordinates &&
+          Array.isArray(restaurant.location.coordinates)
+            ? restaurant.location.coordinates[1]
+            : null);
+        const restaurantLng =
+          restaurant.location?.longitude ||
+          (restaurant.location?.coordinates &&
+          Array.isArray(restaurant.location.coordinates)
+            ? restaurant.location.coordinates[0]
+            : null);
+
+        if (
+          !restaurantLat ||
+          !restaurantLng ||
+          isNaN(restaurantLat) ||
+          isNaN(restaurantLng)
+        ) {
+          return restaurant;
+        }
+
+        const distanceInKm = calculateDistance(
+          userLat,
+          userLng,
+          restaurantLat,
+          restaurantLng,
+        );
+        let calculatedDistance = null;
+
+        // Format distance: show 1 decimal place if >= 1km, otherwise show in meters
+        if (distanceInKm >= 1) {
+          calculatedDistance = `${distanceInKm.toFixed(1)} km`;
+        } else {
+          const distanceInMeters = Math.round(distanceInKm * 1000);
+          calculatedDistance = `${distanceInMeters} m`;
+        }
+
+        if (
+          restaurant.distance !== calculatedDistance ||
+          restaurant.distanceInKm !== distanceInKm
+        ) {
+          hasChanges = true;
+          return {
+            ...restaurant,
+            distance: calculatedDistance,
+            distanceInKm: distanceInKm, // Preserve numeric distance for sorting
+          };
+        }
+        return restaurant;
+      });
+
+      return hasChanges ? updatedRestaurants : prevData;
     });
 
-    setRestaurantsData(updatedRestaurants);
     debugLog(
       "?? Recalculated distances for all restaurants based on user location",
     );
@@ -2476,7 +2481,9 @@ export default function Home() {
             <PageNavbar textColor="black" zIndex={50} />
           </div>
 
-          <div className="px-3 sm:px-6 pb-2 min-h-[48px] flex items-center">
+          <div
+            className={`px-3 sm:px-6 flex items-center ${hasLiveLocation ? "pb-0 min-h-0" : "pb-2 min-h-[48px]"}`}
+          >
             {!hasLiveLocation ? (
               <button
                 type="button"
@@ -2495,7 +2502,7 @@ export default function Home() {
           </div>
 
           <div className="px-3 sm:px-6 pb-3 flex items-center gap-3">
-            <div className="flex-1 relative -mt-3">
+            <div className="flex-1 relative -mt-4">
               <div 
                     className="relative bg-white/90 dark:bg-[#1a1a1a]/90 backdrop-blur-sm rounded-xl border border-gray-200 focus-within:border-[#EB590E] transition-all p-2 shadow-sm"
                 onClick={handleSearchFocus}
@@ -2554,7 +2561,7 @@ export default function Home() {
                 <PageNavbar textColor="black" zIndex={50} />
               </div>
               <div className="px-3 sm:px-6 pb-2 flex items-center gap-3">
-                <div className="flex-1 bg-gray-100 rounded-lg p-2.5 flex items-center gap-2 -mt-3" onClick={handleSearchFocus}>
+                <div className="flex-1 bg-gray-100 rounded-lg p-2.5 flex items-center gap-2 -mt-4" onClick={handleSearchFocus}>
                   <Search className="h-3.5 w-3.5 text-[#EB590E]" />
                   <span className="text-xs font-semibold text-gray-400 truncate">{placeholders[placeholderIndex]}</span>
                 </div>
@@ -2900,7 +2907,7 @@ export default function Home() {
                               {/* Featured Dish Badge - Top Left */}
                               <div className="absolute top-3 left-3 md:top-4 md:left-4 flex items-center z-10 transform transition-transform duration-300 group-hover:scale-105 group-hover:-translate-y-0.5">
                                 <div className="bg-gray-800/90 backdrop-blur-sm text-white px-2 py-1 md:px-4 md:py-1.5 rounded-md text-xs font-medium flex items-center shadow-lg">
-                                  {restaurant.featuredDish} � ?
+                                  {restaurant.featuredDish} • ₹
                                   {restaurant.featuredPrice}
                                 </div>
                               </div>
