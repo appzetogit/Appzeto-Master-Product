@@ -2520,7 +2520,7 @@ export default function Home() {
                 {/* "What's on your mind today?" Section */}
                 <div className="px-4 py-6 space-y-6 bg-white">
                   <div className="flex items-center gap-4">
-                    <h2 className="text-xl font-black text-gray-900 tracking-tight whitespace-nowrap">What's on your mind today?</h2>
+                    <h2 className="text-xl font-bold text-gray-900 whitespace-nowrap">What's on your mind today?</h2>
                     <div className="h-[1px] bg-gray-100 flex-1"></div>
                     <Link to="/user/categories" className="text-sm font-bold text-gray-400 flex items-center gap-0.5 whitespace-nowrap">
                       View All <ArrowDownUp className="h-3 w-3 rotate-90" />
