@@ -2209,8 +2209,8 @@ export default function Home() {
   const HeroBannerSection = useMemo(() => {
     if (showBannerSkeleton) {
       return (
-        <div className="relative w-full overflow-hidden aspect-[16/9] sm:aspect-[16/7] lg:aspect-[16/6] min-h-[290px] sm:min-h-[340px] lg:min-h-[400px] max-h-[620px] mb-3 md:-mt-40 p-4 sm:p-5">
-          <HeroBannerSkeleton className="h-full rounded-[32px]" />
+        <div className="px-4 py-2">
+          <HeroBannerSkeleton className="h-28 sm:h-36 lg:h-44 rounded-2xl" />
         </div>
       );
     }
@@ -2218,69 +2218,70 @@ export default function Home() {
     if (heroBannerImages.length === 0) return null;
 
     return (
-      <div
-        ref={heroShellRef}
-        data-home-hero-shell="true"
-        className="relative w-full overflow-hidden aspect-[16/9] sm:aspect-[16/7] lg:aspect-[16/6] min-h-[360px] sm:min-h-[380px] lg:min-h-[400px] max-h-[620px] mb-3 md:-mt-40 group cursor-pointer"
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
-      >
+      <div className="px-4 py-2">
+        <div
+          ref={heroShellRef}
+          data-home-hero-shell="true"
+          className="relative w-full overflow-hidden aspect-[1.7/1] rounded-2xl shadow-sm group cursor-pointer bg-white"
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseUp}
+        >
+          <div className="absolute inset-0 z-0">
+            {heroBannerImages.map((image, index) => (
+              <div
+                key={`${index}-${image}`}
+                className="absolute inset-0 transition-opacity duration-700 ease-in-out"
+                style={{
+                  opacity: currentBannerIndex === index ? 1 : 0,
+                  zIndex: currentBannerIndex === index ? 2 : 1,
+                  pointerEvents: "none",
+                }}>
+                <img
+                  src={image}
+                  alt={`Hero Banner ${index + 1}`}
+                  className="h-full w-full object-cover object-center"
+                  loading={index === currentBannerIndex ? "eager" : "lazy"}
+                  fetchPriority={index === currentBannerIndex ? "high" : "low"}
+                  draggable={false}
+                />
+              </div>
+            ))}
+          </div>
 
-        <div className="absolute inset-0 z-0 bg-gray-100">
-          {heroBannerImages.map((image, index) => (
-            <div
-              key={`${index}-${image}`}
-              className="absolute inset-0 transition-opacity duration-700 ease-in-out"
-              style={{
-                opacity: currentBannerIndex === index ? 1 : 0,
-                zIndex: currentBannerIndex === index ? 2 : 1,
-                pointerEvents: "none",
-              }}>
-              <img
-                src={image}
-                alt={`Hero Banner ${index + 1}`}
-                className="h-full w-full object-fill object-center"
-                loading={index === currentBannerIndex ? "eager" : "lazy"}
-                fetchPriority={index === currentBannerIndex ? "high" : "low"}
-                draggable={false}
+          <button
+            type="button"
+            className="absolute inset-0 z-20 h-full w-full border-0 p-0 bg-transparent text-left"
+            onClick={() => {
+              const bannerData = heroBannersData[currentBannerIndex];
+              const linkedRestaurants = bannerData?.linkedRestaurants || [];
+              if (linkedRestaurants.length > 0) {
+                const firstRestaurant = linkedRestaurants[0];
+                const restaurantSlug = firstRestaurant.slug || firstRestaurant.restaurantId || firstRestaurant._id;
+                navigate(`/restaurants/${restaurantSlug}`);
+              }
+            }}
+            aria-label={`Open hero banner ${currentBannerIndex + 1}`}
+          />
+
+          <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-1.5 px-3 py-1.5 bg-black/20 backdrop-blur-md rounded-full border border-white/10 z-30">
+            {heroBannerImages.map((_, index) => (
+              <button
+                key={index}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setCurrentBannerIndex(index);
+                }}
+                className={`h-1.5 rounded-full transition-all duration-300 ${
+                  currentBannerIndex === index ? "bg-white w-5" : "bg-white/40 w-1.5"
+                }`}
               />
-            </div>
-          ))}
-        </div>
-
-        <button
-          type="button"
-          className="absolute inset-0 z-20 h-full w-full border-0 p-0 bg-transparent text-left"
-          onClick={() => {
-            const bannerData = heroBannersData[currentBannerIndex];
-            const linkedRestaurants = bannerData?.linkedRestaurants || [];
-            if (linkedRestaurants.length > 0) {
-              const firstRestaurant = linkedRestaurants[0];
-              const restaurantSlug = firstRestaurant.slug || firstRestaurant.restaurantId || firstRestaurant._id;
-              navigate(`/restaurants/${restaurantSlug}`);
-            }
-          }}
-          aria-label={`Open hero banner ${currentBannerIndex + 1}`}
-        />
-
-        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-2 z-30">
-          {heroBannerImages.map((_, index) => (
-            <button
-              key={index}
-              onClick={(e) => {
-                e.stopPropagation();
-                setCurrentBannerIndex(index);
-              }}
-              className={`w-1.5 h-1.5 rounded-full transition-all duration-300 ${
-                currentBannerIndex === index ? "bg-white w-5" : "bg-white/50"
-              }`}
-            />
-          ))}
+            ))}
+          </div>
         </div>
       </div>
     );
@@ -2547,6 +2548,9 @@ export default function Home() {
                     ))}
                   </div>
                 </div>
+
+                {/* Admin Hero Banners Section - Now below categories */}
+                {HeroBannerSection}
               </motion.div>
             ) : (
               <motion.div
