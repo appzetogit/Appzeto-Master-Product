@@ -20,6 +20,7 @@ import {
 } from '../controllers/restaurantCategory.controller.js';
 import { getMenuController, updateMenuController, getPublicRestaurantMenuController } from '../controllers/restaurantMenu.controller.js';
 import { getPublicRestaurantAddonsController } from '../controllers/publicAddons.controller.js';
+import * as feedbackExperienceController from '../../admin/controllers/feedbackExperience.controller.js';
 import {
     getOutletTimingsByRestaurantIdController,
     getCurrentRestaurantOutletTimingsController,
@@ -99,6 +100,9 @@ router.delete('/categories/:id', authMiddleware, requireRestaurant, deleteCatego
 // Menu (restaurant dashboard) - only fields needed by UI
 router.get('/menu', authMiddleware, requireRestaurant, getMenuController);
 router.patch('/menu', authMiddleware, requireRestaurant, updateMenuController);
+
+// Feedback (restaurant dashboard)
+router.post('/feedback-experience', authMiddleware, requireRestaurant, feedbackExperienceController.createFeedbackExperience);
 
 // Public: restaurant add-ons (user app)
 router.get('/restaurants/:id/addons', getPublicRestaurantAddonsController);

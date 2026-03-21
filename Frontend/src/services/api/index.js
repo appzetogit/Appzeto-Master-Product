@@ -482,6 +482,17 @@ export const adminAPI = {
   deleteZone: (id) =>
     apiClient.delete(`/food/admin/zones/${id}`, { contextModule: "admin" }),
 
+  /** Feedback Experience (admin) */
+  getFeedbackExperiences: (params = {}) =>
+    apiClient.get(API_ENDPOINTS.ADMIN.FEEDBACK_EXPERIENCE, {
+      params,
+      contextModule: "admin",
+    }),
+  deleteFeedbackExperience: (id) =>
+    apiClient.delete(`${API_ENDPOINTS.ADMIN.FEEDBACK_EXPERIENCE}/${id}`, {
+      contextModule: "admin",
+    }),
+
   /** Public env variables (safe subset). Used for runtime keys like Google Maps. */
   // getPublicEnvVariables removed: rely on import.meta.env instead.
 

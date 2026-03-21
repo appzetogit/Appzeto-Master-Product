@@ -402,10 +402,10 @@ export default function Feedback() {
             <p className="text-[10px] tracking-wider text-gray-500 uppercase">Showing data for</p>
             <p className="text-md font-bold text-gray-900">{restaurantData?.name || "Restaurant"}</p>
           </div>
-          <div className="flex items-center gap-1">
-            <Bell className="w-5 h-5 text-gray-700 p-1" />
-            <HelpCircle className="w-5 h-5 text-gray-700 p-1" />
-            <Menu className="w-5 h-5 text-gray-700 p-1" />
+          <div className="flex items-center gap-2">
+            <Bell className="w-6 h-6 text-gray-700" />
+            <HelpCircle className="w-6 h-6 text-gray-700" />
+            <Menu className="w-6 h-6 text-gray-700" />
           </div>
         </div>
         
