@@ -1092,24 +1092,29 @@ export const restaurantAPI = {
     }),
   /**
    * Get a single order by id for restaurant screens.
-   * Backend doesn't yet expose GET /food/restaurant/orders/:id in this repo,
-   * so we fallback to list+filter to keep UI working.
+   * Prefer direct endpoint; fallback to list+filter for backward compatibility.
    */
   getOrderById: async (orderId) => {
-    const res = await restaurantAPI.getOrders({ page: 1, limit: 100 });
-    const orders = res?.data?.data?.orders || [];
-    const match = orders.find(
-      (o) =>
-        String(o._id) === String(orderId) ||
-        String(o.orderId) === String(orderId),
-    );
-    return {
-      ...res,
-      data: {
-        ...res.data,
-        data: { order: match || null },
-      },
-    };
+    try {
+      return await apiClient.get(`/food/restaurant/orders/${String(orderId)}`, {
+        contextModule: "restaurant",
+      });
+    } catch (_err) {
+      const res = await restaurantAPI.getOrders({ page: 1, limit: 100 });
+      const orders = res?.data?.data?.orders || [];
+      const match = orders.find(
+        (o) =>
+          String(o._id) === String(orderId) ||
+          String(o.orderId) === String(orderId),
+      );
+      return {
+        ...res,
+        data: {
+          ...res.data,
+          data: { order: match || null },
+        },
+      };
+    }
   },
   /** Add-ons (restaurant) - approval handled by admin */
   getAddons: (params = {}) =>

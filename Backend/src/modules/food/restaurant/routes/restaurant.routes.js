@@ -115,6 +115,7 @@ router.delete('/addons/:id', authMiddleware, requireRestaurant, deleteAddonContr
 
 // Orders (restaurant dashboard)
 router.get('/orders', authMiddleware, requireRestaurant, orderController.listOrdersRestaurantController);
+router.get('/orders/:orderId', authMiddleware, requireRestaurant, orderController.getOrderByIdRestaurantController);
 router.patch('/orders/:orderId/status', authMiddleware, requireRestaurant, orderController.updateOrderStatusRestaurantController);
 
 // Complaints (restaurant dashboard)
