@@ -9,7 +9,8 @@ import {
     updateRestaurantProfileController,
     updateRestaurantAcceptingOrdersController,
     uploadRestaurantProfileImageController,
-    uploadRestaurantMenuImageController
+    uploadRestaurantMenuImageController,
+    getRestaurantComplaintsController
 } from '../controllers/restaurant.controller.js';
 import {
     listCategoriesController,
@@ -115,6 +116,9 @@ router.delete('/addons/:id', authMiddleware, requireRestaurant, deleteAddonContr
 // Orders (restaurant dashboard)
 router.get('/orders', authMiddleware, requireRestaurant, orderController.listOrdersRestaurantController);
 router.patch('/orders/:orderId/status', authMiddleware, requireRestaurant, orderController.updateOrderStatusRestaurantController);
+
+// Complaints (restaurant dashboard)
+router.get('/complaints', authMiddleware, requireRestaurant, getRestaurantComplaintsController);
 
 export default router;
 

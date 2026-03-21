@@ -20,6 +20,21 @@ const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
 
+const toNumber = (value) => {
+  const num = Number(value)
+  return Number.isFinite(num) ? num : null
+}
+
+const firstNumber = (...values) => {
+  for (const value of values) {
+    const num = toNumber(value)
+    if (num !== null) return num
+  }
+  return null
+}
+
+const formatMoney = (value) => `Rs.${Number(value || 0).toFixed(2)}`
+
 
 // Mock order data - fallback for testing
 const getMockOrderData = (orderId) => {
@@ -140,6 +155,50 @@ export default function OrderDetails() {
         
         if (response.data?.success && response.data.data?.order) {
           const order = response.data.data.order
+          const orderStatusRaw = String(order.status || order.orderStatus || "").toLowerCase()
+          const pricing = order.pricing || {}
+          const computedSubtotal = Array.isArray(order.items)
+            ? order.items.reduce((sum, item) => {
+                const price = Number(item?.price || 0)
+                const qty = Number(item?.quantity || 1)
+                return sum + (Number.isFinite(price) ? price : 0) * (Number.isFinite(qty) ? qty : 1)
+              }, 0)
+            : 0
+
+          const itemSubtotal =
+            firstNumber(
+              pricing.subtotal,
+              pricing.itemsTotal,
+              pricing.itemSubtotal,
+              order.itemSubtotal,
+              order.subtotal
+            ) ?? computedSubtotal
+
+          const taxes =
+            firstNumber(
+              pricing.tax,
+              pricing.gst,
+              order.tax,
+              order.gst
+            ) ?? 0
+
+          const total =
+            firstNumber(
+              pricing.total,
+              order.payment?.amountDue,
+              order.totalAmount,
+              order.total,
+              order.amount
+            ) ??
+            Math.max(
+              0,
+              itemSubtotal +
+                taxes +
+                (firstNumber(pricing.packagingFee, order.packagingFee) ?? 0) +
+                (firstNumber(pricing.deliveryFee, order.deliveryFee) ?? 0) +
+                (firstNumber(pricing.platformFee, order.platformFee) ?? 0) -
+                (firstNumber(pricing.discount, order.discount) ?? 0)
+            )
 
           const addressParts = [
             order.address?.street,
@@ -170,22 +229,22 @@ export default function OrderDetails() {
           } else if (["refunded", "refund"].includes(rawPaymentStatus)) {
             paymentStatus = "REFUNDED"
           } else if (paymentMethod === "cash") {
-            paymentStatus = order.status === "delivered" ? "PAID" : "COD"
+            paymentStatus = orderStatusRaw === "delivered" ? "PAID" : "COD"
           }
           
-          const statusLower = String(order.status || "").toLowerCase()
+          const statusLower = orderStatusRaw
           const reached = {
-            confirmed: order.tracking?.confirmed?.status || ["confirmed", "preparing", "ready", "out_for_delivery", "delivered"].includes(statusLower),
-            preparing: order.tracking?.preparing?.status || ["preparing", "ready", "out_for_delivery", "delivered"].includes(statusLower),
-            ready: order.tracking?.ready?.status || ["ready", "out_for_delivery", "delivered"].includes(statusLower),
-            outForDelivery: order.tracking?.outForDelivery?.status || ["out_for_delivery", "delivered"].includes(statusLower),
+            confirmed: order.tracking?.confirmed?.status || ["confirmed", "preparing", "ready", "ready_for_pickup", "picked_up", "out_for_delivery", "delivered"].includes(statusLower),
+            preparing: order.tracking?.preparing?.status || ["preparing", "ready", "ready_for_pickup", "picked_up", "out_for_delivery", "delivered"].includes(statusLower),
+            ready: order.tracking?.ready?.status || ["ready", "ready_for_pickup", "picked_up", "out_for_delivery", "delivered"].includes(statusLower),
+            outForDelivery: order.tracking?.outForDelivery?.status || ["picked_up", "out_for_delivery", "delivered"].includes(statusLower),
             delivered: order.tracking?.delivered?.status || statusLower === "delivered"
           }
 
           // Transform API order data to match component structure
           const transformedOrder = {
             id: order.orderId || order._id,
-            status: order.status?.toUpperCase() || 'PENDING',
+            status: orderStatusRaw.toUpperCase() || 'PENDING',
             date: new Date(order.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }),
             time: new Date(order.createdAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }),
             restaurant: order.restaurantName || 'Restaurant',
@@ -203,9 +262,9 @@ export default function OrderDetails() {
               type: item.isVeg ? 'Veg' : 'Non-Veg'
             })) || [],
             billing: {
-              itemSubtotal: order.pricing?.subtotal || 0,
-              taxes: order.pricing?.tax || 0,
-              total: order.pricing?.total || 0,
+              itemSubtotal,
+              taxes,
+              total,
               paymentStatus
             },
             reason: order.cancellationReason || '',
@@ -383,7 +442,7 @@ export default function OrderDetails() {
       `${item.quantity}x`,
       item.name,
       item.type || "-",
-      `?${item.price}`
+      formatMoney(item.price)
     ])
 
     // Use autoTable with the doc instance
@@ -419,11 +478,11 @@ export default function OrderDetails() {
     doc.setFontSize(10)
     doc.setFont("helvetica", "normal")
     doc.text("Item Subtotal:", 15, yPosition)
-    doc.text(`?${orderData.billing.itemSubtotal}`, pageWidth - 15, yPosition, { align: "right" })
+    doc.text(formatMoney(orderData.billing.itemSubtotal), pageWidth - 15, yPosition, { align: "right" })
     yPosition += 6
 
     doc.text("Taxes:", 15, yPosition)
-    doc.text(`?${orderData.billing.taxes}`, pageWidth - 15, yPosition, { align: "right" })
+    doc.text(formatMoney(orderData.billing.taxes), pageWidth - 15, yPosition, { align: "right" })
     yPosition += 6
 
     // Dashed line for total
@@ -435,7 +494,7 @@ export default function OrderDetails() {
     doc.setFont("helvetica", "bold")
     doc.setFontSize(11)
     doc.text("Total Bill:", 15, yPosition)
-    doc.text(`?${orderData.billing.total}`, pageWidth - 15, yPosition, { align: "right" })
+    doc.text(formatMoney(orderData.billing.total), pageWidth - 15, yPosition, { align: "right" })
     yPosition += 6
 
     doc.setFontSize(9)
@@ -720,7 +779,7 @@ export default function OrderDetails() {
                     <p className="text-sm font-semibold text-gray-900">
                       {item.quantity} x {item.name}
                     </p>
-                    <p className="text-sm font-semibold text-gray-900">?{item.price}</p>
+                    <p className="text-sm font-semibold text-gray-900">{formatMoney(item.price)}</p>
                   </div>
                   {item.type && (
                     <div className="flex items-center gap-2 text-xs text-gray-500">
@@ -741,11 +800,11 @@ export default function OrderDetails() {
           <div className="bg-white  rounded-lg p-4">
             <div className="flex items-center justify-between mb-3">
               <span className="text-sm text-gray-600">Item subtotal</span>
-              <span className="text-sm text-gray-900">?{orderData.billing.itemSubtotal}</span>
+              <span className="text-sm text-gray-900">{formatMoney(orderData.billing.itemSubtotal)}</span>
             </div>
             <div className="flex items-center justify-between mb-3">
               <span className="text-sm text-gray-600">Taxes</span>
-              <span className="text-sm text-gray-900">?{orderData.billing.taxes}</span>
+              <span className="text-sm text-gray-900">{formatMoney(orderData.billing.taxes)}</span>
             </div>
             <div className="my-3"></div>
             <div className="flex items-center justify-between">
@@ -755,7 +814,7 @@ export default function OrderDetails() {
                   {orderData.billing.paymentStatus}
                 </span>
               </div>
-              <span className="text-sm font-semibold text-gray-900">?{orderData.billing.total}</span>
+              <span className="text-sm font-semibold text-gray-900">{formatMoney(orderData.billing.total)}</span>
             </div>
           </div>
         </div>

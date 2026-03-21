@@ -1174,6 +1174,12 @@ export const restaurantAPI = {
   /** Public: list coupons/offers created by admin */
   getPublicOffers: (params = {}, config = {}) =>
     apiClient.get("/food/restaurant/offers", { params, ...config }),
+  /** List restaurant complaints (for current restaurant dashboard) */
+  getComplaints: (params = {}) =>
+    apiClient.get("/food/restaurant/complaints", {
+      params,
+      contextModule: "restaurant",
+    }),
 };
 
 function stableStringify(value) {
