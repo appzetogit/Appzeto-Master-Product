@@ -9571,6 +9571,39 @@ selectedRestaurant?.lng || null,
 
                     setShowCustomerReviewPopup(false)
                     setShowPaymentPage(true)
+                    
+                    // Call completeDelivery API with rating and review
+                    const response = await deliveryAPI.completeDelivery(orderIdForApi, {
+                      rating: customerRating > 0 ? customerRating : null,
+                      review: customerReviewText.trim() || "",
+                    })
+                    
+                    if (response.data?.success) {
+                      // Get updated earnings from response
+                      // Note: completeDelivery API already adds earnings and COD cash collected to wallet
+                      const earnings = response.data.data?.earnings?.amount || 
+                                     response.data.data?.totalEarning ||
+                                     orderEarnings
+                      setOrderEarnings(earnings)
+                      
+                      debugLog('? Delivery completed and earnings added to wallet:', earnings)
+                      debugLog('? Wallet transaction:', response.data.data?.walletTransaction)
+                      
+                      // Notify wallet listeners (Pocket balance, Pocket page) so cash collected updates
+                      window.dispatchEvent(new Event('deliveryWalletStateUpdated'))
+                      
+                      // Show success message
+                      if (earnings > 0) {
+                        toast.success(`₹${earnings.toFixed(2)} added to your wallet! 🎉💰`)
+                      }
+                      
+                      // Close review popup and show payment page
+                      setShowCustomerReviewPopup(false)
+                      setShowPaymentPage(true)
+                    } else {
+                      debugError('? Failed to submit review:', response.data)
+                      toast.error(response.data?.message || 'Failed to submit review. Please try again.')
+                    }
                   } catch (error) {
                     debugError('? Error submitting review:', error)
                     toast.error('Failed to submit review. Please try again.')
