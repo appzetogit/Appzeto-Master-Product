@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { motion } from "framer-motion"
 import { 
@@ -10,8 +10,6 @@ import {
   FileText, 
   Wallet,
   ChevronRight,
-  Languages,
-  Check
 } from "lucide-react"
 import BottomNavOrders from "@food/components/restaurant/BottomNavOrders"
 import { toast } from "sonner"
@@ -57,49 +55,11 @@ const helpTopics = [
 export default function HelpCentre() {
   const navigate = useNavigate()
   const [searchQuery, setSearchQuery] = useState("")
-  const [selectedLanguage, setSelectedLanguage] = useState(
-    localStorage.getItem("restaurantHelpLanguage") || "en"
-  )
-  const [showLanguagePopup, setShowLanguagePopup] = useState(false)
-
-  const languageOptions = [
-    { code: "en", label: "English" },
-    { code: "hi", label: "Hindi" },
-  ]
-
-  const contentByLanguage = {
-    en: {
-      headerTitle: "Help Center",
-      helpTitle: "How can we help you",
-      searchPlaceholder: "Search by issue",
-      noResultPrefix: "No help topics found matching",
-    },
-    hi: {
-      headerTitle: "Help Center",
-      helpTitle: "How can we help you",
-      searchPlaceholder: "Search by issue",
-      noResultPrefix: "No help topics found matching",
-    },
-  }
-
-  const content = contentByLanguage[selectedLanguage] || contentByLanguage.en
 
   const filteredTopics = helpTopics.filter(topic =>
     topic.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
     topic.subtitle.toLowerCase().includes(searchQuery.toLowerCase())
   )
-
-  const selectedLanguageLabel = useMemo(
-    () => languageOptions.find((lang) => lang.code === selectedLanguage)?.label || "English",
-    [selectedLanguage]
-  )
-
-  const handleLanguageChange = (languageCode) => {
-    setSelectedLanguage(languageCode)
-    localStorage.setItem("restaurantHelpLanguage", languageCode)
-    setShowLanguagePopup(false)
-    toast.success(`Language changed to ${languageOptions.find((l) => l.code === languageCode)?.label || "English"}`)
-  }
 
   return (
     <div className="min-h-screen bg-white flex flex-col">
@@ -113,17 +73,7 @@ export default function HelpCentre() {
             >
               <ChevronLeft className="w-6 h-6 text-gray-900" />
             </button>
-            <h1 className="text-lg font-bold text-gray-900">{content.headerTitle}</h1>
-          </div>
-          <div className="flex items-center gap-4">
-            <button
-              onClick={() => setShowLanguagePopup(true)}
-              className="p-1 hover:bg-gray-100 rounded-full transition-colors"
-              aria-label="Change language"
-              title={`Language: ${selectedLanguageLabel}`}
-            >
-              <Languages className="w-6 h-6 text-gray-700" />
-            </button>
+            <h1 className="text-lg font-bold text-gray-900">Help Center</h1>
           </div>
         </div>
       </div>
@@ -133,7 +83,7 @@ export default function HelpCentre() {
         {/* How can we help you section */}
         <div className="mb-6">
           <h2 className="text-base font-bold text-gray-900 mb-3">
-            {content.helpTitle}
+            How can we help you
           </h2>
           
           {/* Search Bar */}
@@ -143,7 +93,7 @@ export default function HelpCentre() {
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder={content.searchPlaceholder}
+              placeholder="Search by issue"
               className="w-full pl-10 pr-4 py-3 text-sm text-gray-900 placeholder-gray-400 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-400"
             />
           </div>
@@ -194,44 +144,11 @@ export default function HelpCentre() {
         {filteredTopics.length === 0 && (
           <div className="text-center py-12">
             <p className="text-sm text-gray-500">
-              {content.noResultPrefix} "{searchQuery}"
+              No help topics found matching "{searchQuery}"
             </p>
           </div>
         )}
       </div>
-
-      {showLanguagePopup && (
-        <div
-          className="fixed inset-0 z-[60] bg-black/40 flex items-end sm:items-center sm:justify-center"
-          onClick={() => setShowLanguagePopup(false)}
-        >
-          <div
-            className="w-full sm:w-[420px] bg-white rounded-t-2xl sm:rounded-2xl p-4 shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 className="text-base font-bold text-gray-900 mb-3">Select language</h3>
-            <div className="space-y-2">
-              {languageOptions.map((option) => {
-                const isSelected = selectedLanguage === option.code
-                return (
-                  <button
-                    key={option.code}
-                    onClick={() => handleLanguageChange(option.code)}
-                    className={`w-full px-4 py-3 rounded-xl border flex items-center justify-between text-left transition-colors ${
-                      isSelected
-                        ? "border-gray-900 bg-gray-50"
-                        : "border-gray-200 hover:border-gray-300"
-                    }`}
-                  >
-                    <span className="text-sm font-medium text-gray-900">{option.label}</span>
-                    {isSelected && <Check className="w-4 h-4 text-gray-900" />}
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Bottom Navigation */}
       <BottomNavOrders />

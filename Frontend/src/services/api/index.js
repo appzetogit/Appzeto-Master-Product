@@ -238,6 +238,36 @@ export const adminAPI = {
       params,
       contextModule: "admin",
     }),
+  /** List restaurant withdrawal requests (admin). */
+  getWithdrawals: (params = {}) =>
+    apiClient.get("/food/admin/withdrawals", {
+      params,
+      contextModule: "admin",
+    }),
+  /** Update status of a withdrawal request. */
+  updateWithdrawalStatus: (id, body) =>
+    apiClient.patch(`/food/admin/withdrawals/${id}`, body, {
+      contextModule: "admin",
+    }),
+  /** List delivery withdrawal requests (admin). */
+  getDeliveryWithdrawals: (params = {}) =>
+    apiClient.get("/food/admin/delivery/withdrawals", {
+      params,
+      contextModule: "admin",
+    }),
+  /** Update status of a delivery withdrawal request. */
+  updateDeliveryWithdrawalStatus: (id, body) =>
+    apiClient.patch(`/food/admin/delivery/withdrawals/${id}`, body, {
+      contextModule: "admin",
+    }),
+  /** Delivery withdrawal aliases */
+  getDeliveryWithdrawalRequests: (params) => adminAPI.getDeliveryWithdrawals(params),
+  approveDeliveryWithdrawal: (id) => adminAPI.updateDeliveryWithdrawalStatus(id, { status: "approved" }),
+  rejectDeliveryWithdrawal: (id, reason) => adminAPI.updateDeliveryWithdrawalStatus(id, { status: "rejected", rejectionReason: reason }),
+  // Aliases for RestaurantWithdraws page
+  getWithdrawalRequests: (params) => adminAPI.getWithdrawals(params),
+  approveWithdrawalRequest: (id) => adminAPI.updateWithdrawalStatus(id, { status: "approved" }),
+  rejectWithdrawalRequest: (id, reason) => adminAPI.updateWithdrawalStatus(id, { status: "rejected", rejectionReason: reason }),
   /** Delivery boy wallets (stub until backend implements - returns empty so list still loads) */
   getDeliveryBoyWallets: (params) =>
     apiClient.get("/food/admin/delivery/wallets", {
@@ -481,6 +511,17 @@ export const adminAPI = {
   /** Delete zone */
   deleteZone: (id) =>
     apiClient.delete(`/food/admin/zones/${id}`, { contextModule: "admin" }),
+
+  /** Feedback Experience (admin) */
+  getFeedbackExperiences: (params = {}) =>
+    apiClient.get(API_ENDPOINTS.ADMIN.FEEDBACK_EXPERIENCE, {
+      params,
+      contextModule: "admin",
+    }),
+  deleteFeedbackExperience: (id) =>
+    apiClient.delete(`${API_ENDPOINTS.ADMIN.FEEDBACK_EXPERIENCE}/${id}`, {
+      contextModule: "admin",
+    }),
 
   /** Public env variables (safe subset). Used for runtime keys like Google Maps. */
   // getPublicEnvVariables removed: rely on import.meta.env instead.
@@ -789,15 +830,16 @@ export const restaurantAPI = {
         },
       },
     }),
-  /** Submit a withdrawal request (stubbed). */
-  createWithdrawalRequest: (amount) => {
-    return Promise.resolve({
-      data: {
-        success: true,
-        message: `Withdrawal request for ₹${Number(amount).toFixed(2)} received.`,
-      },
-    });
-  },
+  /** Submit a real withdrawal request to the backend. */
+  createWithdrawalRequest: (amount) =>
+    apiClient.post("/food/restaurant/withdraw", { amount: Number(amount) }, {
+      contextModule: "restaurant"
+    }),
+  /** List withdrawal history for current restaurant. */
+  getWithdrawalHistory: () =>
+    apiClient.get("/food/restaurant/withdrawals", {
+      contextModule: "restaurant"
+    }),
   /** Update restaurant profile fields (name/cuisines/location/menuImages). */
   updateProfile: (body) =>
     apiClient
@@ -1092,24 +1134,29 @@ export const restaurantAPI = {
     }),
   /**
    * Get a single order by id for restaurant screens.
-   * Backend doesn't yet expose GET /food/restaurant/orders/:id in this repo,
-   * so we fallback to list+filter to keep UI working.
+   * Prefer direct endpoint; fallback to list+filter for backward compatibility.
    */
   getOrderById: async (orderId) => {
-    const res = await restaurantAPI.getOrders({ page: 1, limit: 100 });
-    const orders = res?.data?.data?.orders || [];
-    const match = orders.find(
-      (o) =>
-        String(o._id) === String(orderId) ||
-        String(o.orderId) === String(orderId),
-    );
-    return {
-      ...res,
-      data: {
-        ...res.data,
-        data: { order: match || null },
-      },
-    };
+    try {
+      return await apiClient.get(`/food/restaurant/orders/${String(orderId)}`, {
+        contextModule: "restaurant",
+      });
+    } catch (_err) {
+      const res = await restaurantAPI.getOrders({ page: 1, limit: 100 });
+      const orders = res?.data?.data?.orders || [];
+      const match = orders.find(
+        (o) =>
+          String(o._id) === String(orderId) ||
+          String(o.orderId) === String(orderId),
+      );
+      return {
+        ...res,
+        data: {
+          ...res.data,
+          data: { order: match || null },
+        },
+      };
+    }
   },
   /** Add-ons (restaurant) - approval handled by admin */
   getAddons: (params = {}) =>
@@ -1171,9 +1218,19 @@ export const restaurantAPI = {
     apiClient.get(`/food/restaurant/restaurants/${String(id)}/addons`, {
       ...config,
     }),
-  /** Public: list coupons/offers created by admin */
   getPublicOffers: (params = {}, config = {}) =>
     apiClient.get("/food/restaurant/offers", { params, ...config }),
+  /** Resend delivery notification (restaurant dashboard) */
+  resendDeliveryNotification: (orderId) =>
+    apiClient.post(`/food/restaurant/orders/${String(orderId)}/resend-notification`, {}, {
+      contextModule: "restaurant",
+    }),
+  /** List restaurant complaints (for current restaurant dashboard) */
+  getComplaints: (params = {}) =>
+    apiClient.get("/food/restaurant/complaints", {
+      params,
+      contextModule: "restaurant",
+    }),
 };
 
 function stableStringify(value) {
@@ -1403,6 +1460,9 @@ export const deliveryAPI = {
   logout: (refreshToken) => {
     deliveryMeCached = null;
     deliveryMeCacheTime = 0;
+    try {
+      localStorage.removeItem("app:isOnline");
+    } catch (_) {}
     const token =
       refreshToken ||
       (typeof localStorage !== "undefined"
@@ -1746,6 +1806,10 @@ export const deliveryAPI = {
     apiClient.get("/food/delivery/cash-limit", {
       contextModule: "delivery",
     }),
+  createWithdrawalRequest: (body) =>
+    apiClient.post("/food/delivery/wallet/withdraw", body ?? {}, {
+      contextModule: "delivery"
+    }),
   /** Wallet transactions - from wallet response (no separate backend endpoint) */
   getWalletTransactions: (params) =>
     apiClient
@@ -2015,8 +2079,44 @@ export const orderAPI = {
 
         return res;
       }),
-  getOrderDetails: (orderId) =>
-    apiClient.get(`/food/orders/${String(orderId)}`, { contextModule: "user" }),
+  getOrderDetails: (() => {
+    const inFlight = new Map();
+    const cache = new Map();
+    /** Dedupes overlapping calls (StrictMode, poll + socket) without hiding fresh data for long. */
+    const CACHE_MS = 800;
+
+    return (orderId, options = {}) => {
+      const key = String(orderId ?? "").trim();
+      if (!key) {
+        return Promise.reject(new Error("orderId required"));
+      }
+
+      const force = options.force === true;
+      const now = Date.now();
+      if (!force) {
+        const hit = cache.get(key);
+        if (hit && now - hit.at < CACHE_MS) {
+          return Promise.resolve(hit.res);
+        }
+      }
+
+      const pending = inFlight.get(key);
+      if (pending) return pending;
+
+      const p = apiClient
+        .get(`/food/orders/${key}`, { contextModule: "user" })
+        .then((res) => {
+          cache.set(key, { at: Date.now(), res });
+          return res;
+        })
+        .finally(() => {
+          inFlight.delete(key);
+        });
+
+      inFlight.set(key, p);
+      return p;
+    };
+  })(),
   cancelOrder: (orderId, body = {}) =>
     apiClient.patch(`/food/orders/${String(orderId)}/cancel`, body ?? {}, {
       contextModule: "user",

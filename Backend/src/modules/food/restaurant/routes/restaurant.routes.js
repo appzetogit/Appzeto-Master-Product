@@ -9,8 +9,13 @@ import {
     updateRestaurantProfileController,
     updateRestaurantAcceptingOrdersController,
     uploadRestaurantProfileImageController,
-    uploadRestaurantMenuImageController
+    uploadRestaurantMenuImageController,
+    getRestaurantComplaintsController
 } from '../controllers/restaurant.controller.js';
+import {
+    createWithdrawalRequestController,
+    listMyWithdrawalsController
+} from '../controllers/withdrawal.controller.js';
 import {
     listCategoriesController,
     createCategoryController,
@@ -19,6 +24,7 @@ import {
 } from '../controllers/restaurantCategory.controller.js';
 import { getMenuController, updateMenuController, getPublicRestaurantMenuController } from '../controllers/restaurantMenu.controller.js';
 import { getPublicRestaurantAddonsController } from '../controllers/publicAddons.controller.js';
+import * as feedbackExperienceController from '../../admin/controllers/feedbackExperience.controller.js';
 import {
     getOutletTimingsByRestaurantIdController,
     getCurrentRestaurantOutletTimingsController,
@@ -74,6 +80,8 @@ router.patch('/availability', authMiddleware, requireRestaurant, updateRestauran
 router.get('/outlet-timings', authMiddleware, requireRestaurant, getCurrentRestaurantOutletTimingsController);
 router.put('/outlet-timings', authMiddleware, requireRestaurant, upsertCurrentRestaurantOutletTimingsController);
 router.get('/finance', authMiddleware, requireRestaurant, getRestaurantFinanceController);
+router.post('/withdraw', authMiddleware, requireRestaurant, createWithdrawalRequestController);
+router.get('/withdrawals', authMiddleware, requireRestaurant, listMyWithdrawalsController);
 router.post(
     '/profile/profile-image',
     authMiddleware,
@@ -99,6 +107,9 @@ router.delete('/categories/:id', authMiddleware, requireRestaurant, deleteCatego
 router.get('/menu', authMiddleware, requireRestaurant, getMenuController);
 router.patch('/menu', authMiddleware, requireRestaurant, updateMenuController);
 
+// Feedback (restaurant dashboard)
+router.post('/feedback-experience', authMiddleware, requireRestaurant, feedbackExperienceController.createFeedbackExperience);
+
 // Public: restaurant add-ons (user app)
 router.get('/restaurants/:id/addons', getPublicRestaurantAddonsController);
 
@@ -114,7 +125,12 @@ router.delete('/addons/:id', authMiddleware, requireRestaurant, deleteAddonContr
 
 // Orders (restaurant dashboard)
 router.get('/orders', authMiddleware, requireRestaurant, orderController.listOrdersRestaurantController);
+router.get('/orders/:orderId', authMiddleware, requireRestaurant, orderController.getOrderByIdRestaurantController);
 router.patch('/orders/:orderId/status', authMiddleware, requireRestaurant, orderController.updateOrderStatusRestaurantController);
+router.post('/orders/:orderId/resend-notification', authMiddleware, requireRestaurant, orderController.resendDeliveryNotificationRestaurantController);
+
+// Complaints (restaurant dashboard)
+router.get('/complaints', authMiddleware, requireRestaurant, getRestaurantComplaintsController);
 
 export default router;
 

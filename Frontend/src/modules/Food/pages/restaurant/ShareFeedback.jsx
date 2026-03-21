@@ -30,19 +30,21 @@ export default function ShareFeedback() {
     
     try {
       setIsSubmitting(true)
-      // Save feedback experience to backend (public route)
-      await api.post(API_ENDPOINTS.ADMIN.FEEDBACK_EXPERIENCE_CREATE, {
-        rating,
-        module: 'restaurant'
+      // Save feedback experience to backend
+      const response = await api.post(API_ENDPOINTS.ADMIN.FEEDBACK_EXPERIENCE_CREATE, {
+        rating: Math.ceil(rating / 2) || 1, // Convert 0-10 to 1-5 for backend
+        module: 'restaurant',
+        comment: `User rated ${rating}/10 overall experience`
       })
-      setShowThanks(true)
+      
+      if (response.data?.success) {
+        setShowThanks(true)
+      } else {
+        throw new Error(response.data?.message || 'Failed to submit')
+      }
     } catch (error) {
       debugError('Error submitting feedback:', error)
-      // Still show thanks popup even if backend save fails (graceful degradation)
-      if (error.response?.status !== 401) {
-        toast.error('Failed to save feedback, but thank you for your input!')
-      }
-      setShowThanks(true)
+      toast.error(error.message || 'Failed to save feedback')
     } finally {
       setIsSubmitting(false)
     }

@@ -4,6 +4,7 @@ import * as adminController from '../controllers/admin.controller.js';
 import * as foodApprovalController from '../controllers/foodApproval.controller.js';
 import * as addonsApprovalController from '../controllers/addonsApproval.controller.js';
 import * as businessSettingsController from '../controllers/businessSettings.controller.js';
+import * as feedbackExperienceController from '../controllers/feedbackExperience.controller.js';
 import * as diningAdminController from '../../dining/controllers/diningAdmin.controller.js';
 import * as orderController from '../../orders/controllers/order.controller.js';
 import { getAdminPageController, upsertAdminPageController } from '../controllers/pageContent.controller.js';
@@ -97,6 +98,10 @@ router.post('/offers', adminController.createAdminOffer);
 router.patch('/offers/:id/cart-visibility', adminController.updateAdminOfferCartVisibility);
 router.delete('/offers/:id', adminController.deleteAdminOffer);
 
+// ----- Feedback Experience (Admin) -----
+router.get('/feedback-experiences', feedbackExperienceController.getFeedbackExperiences);
+router.delete('/feedback-experiences/:id', feedbackExperienceController.deleteFeedbackExperience);
+
 // ----- Fee Settings -----
 router.get('/fee-settings', adminController.getFeeSettings);
 router.put('/fee-settings', adminController.createOrUpdateFeeSettings);
@@ -174,5 +179,11 @@ router.patch('/settings/dispatch', orderController.updateDispatchSettingsControl
 // ----- CMS Pages (About + legal) -----
 router.get('/pages-social-media/:key', getAdminPageController);
 router.put('/pages-social-media/:key', upsertAdminPageController);
+
+// ----- Withdrawals (admin) -----
+router.get('/withdrawals', adminController.getWithdrawals);
+router.patch('/withdrawals/:id', adminController.updateWithdrawalStatus);
+router.get('/delivery/withdrawals', adminController.getDeliveryWithdrawals);
+router.patch('/delivery/withdrawals/:id', adminController.updateDeliveryWithdrawalStatus);
 
 export default router;

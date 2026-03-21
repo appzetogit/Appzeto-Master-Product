@@ -132,6 +132,17 @@ export async function listOrdersRestaurantController(req, res, next) {
     }
 }
 
+export async function getOrderByIdRestaurantController(req, res, next) {
+    try {
+        const restaurantId = req.user?.userId;
+        const orderId = req.params.orderId;
+        const order = await orderService.getOrderById(orderId, { restaurantId });
+        return sendResponse(res, 200, 'Order retrieved', { order });
+    } catch (err) {
+        next(err);
+    }
+}
+
 export async function updateOrderStatusRestaurantController(req, res, next) {
     try {
         const restaurantId = req.user?.userId;
@@ -305,6 +316,17 @@ export async function assignDeliveryPartnerController(req, res, next) {
         const dto = validateAssignDeliveryDto(req.body);
         const order = await orderService.assignDeliveryPartnerAdmin(orderId, dto.deliveryPartnerId, adminId);
         return sendResponse(res, 200, 'Delivery partner assigned', { order });
+    } catch (err) {
+        next(err);
+    }
+}
+
+export async function resendDeliveryNotificationRestaurantController(req, res, next) {
+    try {
+        const restaurantId = req.user?.userId;
+        const orderId = req.params.orderId;
+        const result = await orderService.resendDeliveryNotificationRestaurant(orderId, restaurantId);
+        return sendResponse(res, 200, 'Notification resent successfully', result);
     } catch (err) {
         next(err);
     }
