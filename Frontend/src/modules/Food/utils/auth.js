@@ -121,11 +121,8 @@ export function getCurrentUserRole(module = null) {
  * @returns {boolean} - True if authenticated
  */
 export function isModuleAuthenticated(module) {
-  // Check the authenticated flag in localStorage
-  const authFlag = localStorage.getItem(`${module}_authenticated`) === "true";
   const token = getModuleToken(module);
-  
-  return authFlag || (token && !isTokenExpired(token));
+  return !!token && !isTokenExpired(token);
 }
 
 /**

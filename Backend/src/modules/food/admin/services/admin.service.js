@@ -24,6 +24,7 @@ import { FoodSafetyEmergencyReport } from '../models/safetyEmergencyReport.model
 import { FoodAddon } from '../../restaurant/models/foodAddon.model.js';
 import { FoodSupportTicket } from '../../user/models/supportTicket.model.js';
 import { FoodOrder } from '../../orders/models/order.model.js';
+import { FoodRestaurantCommissionLedger } from '../../orders/models/restaurantCommissionLedger.model.js';
 
 const parseBooleanLike = (value, fieldName) => {
     if (typeof value === 'boolean') return value;
@@ -543,12 +544,32 @@ export async function getTransactionReport(query = {}) {
         orderAmount: order.pricing?.total || 0,
     }));
 
+    const orderMongoIds = orders.map((o) => o._id);
+    const restaurantCommissionRows = orderMongoIds.length
+        ? await FoodRestaurantCommissionLedger.find({
+            orderId: { $in: orderMongoIds }
+        })
+            .select('payout')
+            .lean()
+        : [];
+
+    const restaurantEarning = restaurantCommissionRows.reduce(
+        (sum, r) => sum + (Number(r?.payout) || 0),
+        0
+    );
+
+    // Delivery earning comes from distance slab computation stored on the order.
+    const deliverymanEarning = orders.reduce(
+        (sum, o) => sum + (Number(o?.riderEarning) || 0),
+        0
+    );
+
     const summary = {
         completedTransaction: orders.filter(o => o.orderStatus === 'delivered').reduce((sum, o) => sum + (o.pricing?.total || 0), 0),
         refundedTransaction: orders.filter(o => o.orderStatus === 'refunded').length,
         adminEarning: orders.reduce((sum, o) => sum + (o.platformProfit || o.pricing?.platformFee || 0), 0),
-        restaurantEarning: orders.reduce((sum, o) => sum + (o.restaurantSettlement || 0), 0),
-        deliverymanEarning: orders.reduce((sum, o) => sum + (o.deliveryPartnerSettlement || 0), 0),
+        restaurantEarning,
+        deliverymanEarning,
     };
 
     return { transactions, summary };
@@ -1589,6 +1610,10 @@ export async function updateRestaurantById(id, body = {}) {
     if (!doc) return null;
 
     const toStr = (v) => (v != null ? String(v).trim() : '');
+    const toFinite = (v) => {
+        const n = Number(v);
+        return Number.isFinite(n) ? n : undefined;
+    };
 
     if (body.name !== undefined || body.restaurantName !== undefined) {
         const name = toStr(body.name !== undefined ? body.name : body.restaurantName);
@@ -1603,6 +1628,10 @@ export async function updateRestaurantById(id, body = {}) {
 
     if (body.pureVegRestaurant !== undefined) {
         doc.pureVegRestaurant = parseBooleanLike(body.pureVegRestaurant, 'pureVegRestaurant');
+    }
+
+    if (body.isAcceptingOrders !== undefined) {
+        doc.isAcceptingOrders = parseBooleanLike(body.isAcceptingOrders, 'isAcceptingOrders');
     }
 
     if (body.cuisines !== undefined) {
@@ -1624,6 +1653,9 @@ export async function updateRestaurantById(id, body = {}) {
 
     if (body.openingTime !== undefined) doc.openingTime = toStr(body.openingTime);
     if (body.closingTime !== undefined) doc.closingTime = toStr(body.closingTime);
+    if (body.openDays !== undefined && Array.isArray(body.openDays)) {
+        doc.openDays = body.openDays.map(d => toStr(d)).filter(Boolean);
+    }
     if (body.offer !== undefined) doc.offer = toStr(body.offer);
 
     if (body.estimatedDeliveryTime !== undefined) {
@@ -1640,11 +1672,39 @@ export async function updateRestaurantById(id, body = {}) {
         }
     }
 
-    if (body.profileImage !== undefined) {
-        const imageUrl = body.profileImage && typeof body.profileImage === 'object'
-            ? String(body.profileImage.url || '').trim()
-            : toStr(body.profileImage);
-        doc.profileImage = imageUrl || undefined;
+    // Business & Docs
+    if (body.panNumber !== undefined) doc.panNumber = toStr(body.panNumber);
+    if (body.nameOnPan !== undefined) doc.nameOnPan = toStr(body.nameOnPan);
+    if (body.gstRegistered !== undefined) doc.gstRegistered = parseBooleanLike(body.gstRegistered, 'gstRegistered');
+    if (body.gstNumber !== undefined) doc.gstNumber = toStr(body.gstNumber);
+    if (body.gstLegalName !== undefined) doc.gstLegalName = toStr(body.gstLegalName);
+    if (body.gstAddress !== undefined) doc.gstAddress = toStr(body.gstAddress);
+    if (body.fssaiNumber !== undefined) doc.fssaiNumber = toStr(body.fssaiNumber);
+    if (body.fssaiExpiry !== undefined) doc.fssaiExpiry = body.fssaiExpiry ? new Date(body.fssaiExpiry) : undefined;
+
+    // Bank Details
+    if (body.accountNumber !== undefined) doc.accountNumber = toStr(body.accountNumber);
+    if (body.ifscCode !== undefined) doc.ifscCode = toStr(body.ifscCode);
+    if (body.accountHolderName !== undefined) doc.accountHolderName = toStr(body.accountHolderName);
+    if (body.accountType !== undefined) doc.accountType = toStr(body.accountType);
+
+    // Featured Info
+    if (body.featuredDish !== undefined) doc.featuredDish = toStr(body.featuredDish);
+    if (body.featuredPrice !== undefined) doc.featuredPrice = toFinite(body.featuredPrice);
+
+    // Images
+    const getUrl = (v) => (v && typeof v === 'object' ? v.url : v);
+    if (body.profileImage !== undefined) doc.profileImage = toStr(getUrl(body.profileImage)) || undefined;
+    if (body.panImage !== undefined) doc.panImage = toStr(getUrl(body.panImage)) || undefined;
+    if (body.gstImage !== undefined) doc.gstImage = toStr(getUrl(body.gstImage)) || undefined;
+    if (body.fssaiImage !== undefined) doc.fssaiImage = toStr(getUrl(body.fssaiImage)) || undefined;
+
+    if (body.menuImages !== undefined) {
+        if (Array.isArray(body.menuImages)) {
+            doc.menuImages = body.menuImages.map(m => toStr(getUrl(m))).filter(Boolean);
+        } else {
+            doc.menuImages = [toStr(getUrl(body.menuImages))].filter(Boolean);
+        }
     }
 
     await doc.save();

@@ -23,9 +23,39 @@ const apiClient = axios.create({
 
 function getModuleFromUrl(url = "") {
   const u = typeof url === "string" ? url : (url?.url || "");
-  if (u.includes("/admin/") || u.includes("/food/admin/") || u.includes("/food/auth/admin") || u.includes("/auth/admin") || u.includes("admin/login")) return "admin";
-  if (u.includes("/food/auth/restaurant") || u.includes("/auth/restaurant")) return "restaurant";
-  if (u.includes("/food/auth/delivery") || u.includes("/auth/delivery")) return "delivery";
+  if (!u) return "user";
+  
+  const normalized = u.toLowerCase();
+  
+  // Admin detection
+  if (
+    normalized.includes("/admin/") || 
+    normalized.includes("/food/admin/") || 
+    normalized.includes("/food/auth/admin") || 
+    normalized.includes("/auth/admin") || 
+    normalized.includes("admin/login")
+  ) return "admin";
+  
+  // Delivery detection - Catch all delivery-specific functional and auth routes
+  if (
+    normalized.includes("/food/delivery") || 
+    normalized.includes("/auth/delivery") || 
+    normalized.includes("/delivery/")
+  ) return "delivery";
+  
+  // Restaurant detection - Catch all restaurant-specific functional and auth routes
+  if (
+    normalized.includes("/food/restaurant/") || 
+    normalized.includes("/auth/restaurant") || 
+    normalized.includes("/restaurant/")
+  ) {
+    // Exception: /food/restaurants (plural) is usually a public user app route
+    if (normalized.includes("/food/restaurants") && !normalized.includes("/food/restaurant/")) {
+       return "user";
+    }
+    return "restaurant";
+  }
+  
   return "user";
 }
 
@@ -38,8 +68,15 @@ function getAccessToken(config) {
   const module = getModuleFromConfig(config);
   const key = `${module}_accessToken`;
   try {
-    // Prefer module-scoped tokens only (prevents wrong-role token leakage).
-    return localStorage.getItem(key) || null;
+    // 1. Try module-specific token first
+    const moduleToken = localStorage.getItem(key);
+    if (moduleToken) return moduleToken;
+    
+    // 2. Fallback to generic token only for non-admin modules
+    if (module !== "admin") {
+      return localStorage.getItem("accessToken") || null;
+    }
+    return null;
   } catch {
     return null;
   }
@@ -47,7 +84,15 @@ function getAccessToken(config) {
 
 function getRefreshToken(module) {
   try {
-    return localStorage.getItem(`${module}_refreshToken`) || null;
+    // 1. Try module-specific refresh token
+    const moduleRefreshToken = localStorage.getItem(`${module}_refreshToken`);
+    if (moduleRefreshToken) return moduleRefreshToken;
+    
+    // 2. Fallback to generic refresh token only for non-admin modules
+    if (module !== "admin") {
+      return localStorage.getItem("refreshToken") || null;
+    }
+    return null;
   } catch {
     return null;
   }
@@ -141,6 +186,10 @@ apiClient.interceptors.response.use(
       if (newAccessToken) {
         try {
           localStorage.setItem(`${module}_accessToken`, newAccessToken);
+          // Dispatch a custom event specifically for the module that refreshed
+          window.dispatchEvent(new CustomEvent("authRefreshed", { 
+            detail: { module, token: newAccessToken } 
+          }));
         } catch (_) {}
         onRefreshed(newAccessToken, module);
         original.headers.Authorization = `Bearer ${newAccessToken}`;

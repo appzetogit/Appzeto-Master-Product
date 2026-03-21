@@ -752,5 +752,5 @@ export const refreshAccessToken = async (token) => {
     role: payload.role,
   });
 
-  return { accessToken: newAccessToken };
+  return { accessToken: newAccessToken, refreshToken: token };
 };

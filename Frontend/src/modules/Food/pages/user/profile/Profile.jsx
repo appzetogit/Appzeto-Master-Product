@@ -346,9 +346,12 @@ export default function Profile() {
       // Sign out from Firebase if user logged in via Google
       try {
         const { signOut } = await import("firebase/auth");
-        const currentUser = firebaseAuth.currentUser;
-        if (currentUser) {
-          await signOut(firebaseAuth);
+        // Firebase Auth is lazy-initialized now; only attempt sign out if it was actually used
+        if (firebaseAuth) {
+           const currentUser = firebaseAuth.currentUser;
+           if (currentUser) {
+             await signOut(firebaseAuth);
+           }
         }
       } catch (firebaseError) {
         // Continue even if Firebase logout fails

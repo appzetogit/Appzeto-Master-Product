@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, useMemo, Fragment } from "react"
 import { Link, useNavigate } from "react-router-dom"
-import { Plus, Minus, ArrowLeft, ChevronRight, Clock, MapPin, Phone, FileText, Utensils, Tag, Percent, Share2, ChevronUp, ChevronDown, X, Check, Settings, CreditCard, Wallet, Building2, Sparkles, Banknote, Zap } from "lucide-react"
-import { Plus, Minus, ArrowLeft, ChevronRight, Clock, MapPin, Phone, FileText, Utensils, Tag, Percent, Share2, ChevronUp, ChevronDown, X, Check, Settings, CreditCard, Wallet, Building2, Sparkles, Zap, CheckCircle2 } from "lucide-react"
+import { Plus, Minus, ArrowLeft, ChevronRight, Clock, MapPin, Phone, FileText, Utensils, Tag, Percent, Share2, ChevronUp, ChevronDown, X, Check, Settings, CreditCard, Wallet, Building2, Sparkles, Banknote, Zap, CheckCircle2 } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
 import confetti from "canvas-confetti"
 
@@ -1790,7 +1789,7 @@ export default function Cart() {
                 <div className="bg-white dark:bg-[#1a1a1a] px-4 md:px-6 py-5 rounded-2xl shadow-sm border border-slate-100 dark:border-gray-800">
                   <div className="flex items-center gap-2 md:gap-3 mb-3 md:mb-4">
                     <div className="w-6 h-6 md:w-8 md:h-8 bg-gray-100 dark:bg-gray-800 rounded flex items-center justify-center">
-                      <span className="text-xs md:text-base">???</span>
+                      <Sparkles className="h-4 w-4 md:h-5 md:w-5 text-[#EB590E]" />
                     </div>
                     <span className="text-sm md:text-base font-semibold text-gray-800 dark:text-gray-200">Complete your meal with</span>
                   </div>
@@ -2047,47 +2046,39 @@ export default function Cart() {
                       <MapPin className="h-5 w-5 text-[#EB590E]" />
                     </div>
                     <div className="flex-1">
-                      <p className="text-sm md:text-base text-gray-800 dark:text-gray-200">
-                        Delivery at{" "}
-                        <span className="font-semibold">
-                          {deliveryAddressMode === "current" ? "Current location" : "Location"}
-                        </span>
-                        <p className="text-base font-bold text-gray-800 dark:text-gray-200">
-                          Delivery at Location
-                        </p>
-                        {deliveryAddressMode === "current" ? (
-                          <div className="mt-1">
-                            {currentLocationLoading || !currentLocationAddress ? (
-                              <p className="text-xs md:text-sm text-gray-500 dark:text-gray-400 animate-pulse">
-                                Finding your current address...
-                              </p>
-                            ) : (
-                              <p className="text-xs md:text-sm text-gray-500 dark:text-gray-400 line-clamp-2">
-                                {formatFullAddress(currentLocationAddress) ||
-                                  currentLocationAddress?.formattedAddress ||
-                                  currentLocationAddress?.address ||
-                                  "Add delivery address"}
-                              </p>
-                            )}
-                            <div className="mt-1 flex items-center gap-2">
-                              <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] md:text-[11px] font-semibold bg-[#FFF2EB] text-[#EB590E] dark:bg-[#EB590E]/10 dark:text-[#EB590E] border border-[#EB590E]/30">
-                                GPS enabled
-                              </span>
-                            </div>
-                          </div>
-                        ) : (
-                          <p className="text-xs md:text-sm text-gray-500 dark:text-gray-400 line-clamp-2">
-                            {defaultAddress
-                              ? formatFullAddress(defaultAddress) ||
-                              defaultAddress?.formattedAddress ||
-                              defaultAddress?.address ||
-                              "Add delivery address"
-                              : "Add delivery address"}
+                        <div className="flex flex-col">
+                          <p className="text-sm md:text-base text-gray-800 dark:text-gray-200">
+                            Delivery at{" "}
+                            <span className="font-semibold">
+                              {deliveryAddressMode === "current" ? "Current location" : "Location"}
+                            </span>
                           </p>
-                        )}
-                        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 line-clamp-2 pr-4">
-                          {defaultAddress ? (formatFullAddress(defaultAddress) || defaultAddress?.formattedAddress || defaultAddress?.address || "Add delivery address") : "Add delivery address"}
-                        </p>
+                          {deliveryAddressMode === "current" ? (
+                            <div className="mt-1">
+                              {currentLocationLoading || !currentLocationAddress ? (
+                                <p className="text-xs md:text-sm text-gray-500 dark:text-gray-400 animate-pulse">
+                                  Finding your current address...
+                                </p>
+                              ) : (
+                                <p className="text-xs md:text-sm text-gray-500 dark:text-gray-400 line-clamp-2">
+                                  {formatFullAddress(currentLocationAddress) ||
+                                    currentLocationAddress?.formattedAddress ||
+                                    currentLocationAddress?.address ||
+                                    "Add delivery address"}
+                                </p>
+                              )}
+                              <div className="mt-1 flex items-center gap-2">
+                                <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] md:text-[11px] font-semibold bg-[#FFF2EB] text-[#EB590E] dark:bg-[#EB590E]/10 dark:text-[#EB590E] border border-[#EB590E]/30">
+                                  GPS enabled
+                                </span>
+                              </div>
+                            </div>
+                          ) : (
+                            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 line-clamp-2 pr-4">
+                              {defaultAddress ? (formatFullAddress(defaultAddress) || defaultAddress?.formattedAddress || defaultAddress?.address || "Add delivery address") : "Add delivery address"}
+                            </p>
+                          )}
+                        </div>
                         {!hasSavedAddress && (
                           <p className="text-sm text-[#EB590E] mt-2 font-medium">
                             Select a delivery location to continue
@@ -2181,8 +2172,7 @@ export default function Cart() {
                   <ChevronRight className="h-4 w-4 md:h-5 md:w-5 text-gray-400" />
                 </Link>
               </div>
-
-              {/* Bill Details */}
+{/* Bill Details */}
               <div className="bg-white dark:bg-[#1a1a1a] px-4 md:px-6 py-5 rounded-2xl shadow-sm border border-slate-100 dark:border-gray-800">
                 <button
                   onClick={() => setShowBillDetails(!showBillDetails)}
@@ -2305,115 +2295,71 @@ export default function Cart() {
 
       {/* Bottom Sticky - Place Order */}
       <div className="bg-white dark:bg-[#1a1a1a] border-t dark:border-gray-800 shadow-lg z-30 flex-shrink-0 fixed bottom-0 left-0 right-0">
-        <div className="max-w-7xl mx-auto">
-          <div className="px-4 md:px-6 py-3 md:py-4">
-            <div className="w-full max-w-md md:max-w-lg mx-auto">
-              {/* Pay Using */}
-              {/* Pay Using - Slim Pro UI */}
-              <div
-                className="flex items-center justify-between mb-2 p-2 bg-gray-50 dark:bg-[#222222] rounded-xl border border-gray-100 dark:border-gray-800 cursor-pointer hover:bg-gray-100 dark:hover:bg-[#282828] active:scale-[0.98] transition-all duration-200 shadow-sm"
-                onClick={() => setShowPaymentSheet(true)}
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-lg bg-orange-100/80 dark:bg-orange-900/40 flex items-center justify-center flex-shrink-0">
-                    {selectedPaymentMethod === "wallet" ? (
-                      <Wallet className="h-5 w-5 text-[#EB590E]" />
-                    ) : selectedPaymentMethod === "razorpay" ? (
-                      <Zap className="h-5 w-5 text-[#EB590E]" />
-                    ) : (
-                      <Banknote className="h-5 w-5 text-[#EB590E]" />
+        <div className="max-w-7xl mx-auto px-4 md:px-6 py-3 md:py-4">
+          <div className="w-full max-w-lg mx-auto space-y-3">
+            {/* Pay Using - Slim Pro UI */}
+            <div
+              className="flex items-center justify-between p-2 bg-gray-50 dark:bg-[#222222] rounded-xl border border-gray-100 dark:border-gray-800 cursor-pointer hover:bg-gray-100 dark:hover:bg-[#282828] active:scale-[0.98] transition-all duration-200 shadow-sm"
+              onClick={() => setShowPaymentSheet(true)}
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-lg bg-orange-100/80 dark:bg-orange-900/40 flex items-center justify-center flex-shrink-0">
+                  {selectedPaymentMethod === "wallet" ? (
+                    <Wallet className="h-5 w-5 text-[#EB590E]" />
+                  ) : selectedPaymentMethod === "razorpay" ? (
+                    <Zap className="h-5 w-5 text-[#EB590E]" />
+                  ) : (
+                    <Banknote className="h-5 w-5 text-[#EB590E]" />
+                  )}
+                </div>
+                <div className="leading-tight">
+                  <p className="text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400 font-bold opacity-80">
+                    PAYING WITH
+                  </p>
+                  <div className="flex items-center gap-1.5">
+                    <p className="text-sm font-bold text-gray-800 dark:text-gray-100">
+                      {selectedPaymentLabel}
+                    </p>
+                    {selectedPaymentMethod === "wallet" && (
+                      <p className="text-[10px] text-green-600 dark:text-green-400 font-bold bg-green-50 dark:bg-green-900/20 px-1 rounded">
+                        {RUPEE_SYMBOL}{walletBalance.toFixed(0)}
+                      </p>
                     )}
                   </div>
-                  <div className="leading-tight">
-                    <p className="text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400 font-bold opacity-80">
-                      PAYING WITH
-                    </p>
-                    <div className="flex items-center gap-1.5">
-                      <p className="text-sm font-bold text-gray-800 dark:text-gray-100">
-                        {selectedPaymentLabel}
-                      </p>
-                      {selectedPaymentMethod === "wallet" && (
-                        <p className="text-[10px] text-green-600 dark:text-green-400 font-bold bg-green-50 dark:bg-green-900/20 px-1 rounded">
-                          {RUPEE_SYMBOL}{walletBalance.toFixed(0)}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-0.5 text-[#EB590E] font-bold text-[11px] uppercase tracking-widest bg-orange-50 dark:bg-orange-900/20 px-2.5 py-1 rounded-lg">
-                  CHANGE <ChevronRight className="h-3.5 w-3.5" />
                 </div>
               </div>
-              <div className="bg-white dark:bg-[#1a1a1a] shadow-[0_-4px_20px_-10px_rgba(0,0,0,0.15)] dark:shadow-none dark:border-t dark:border-gray-800 z-30 flex-shrink-0 fixed bottom-0 left-0 right-0 pt-2 pb-4 md:py-4 px-4 md:px-6">
-                <div className="w-full max-w-7xl mx-auto flex items-center justify-between gap-4 flex-wrap sm:flex-nowrap">
-                  {/* Pay Using */}
-                  <div className="flex flex-col flex-1 pl-2">
-                    <span className="text-[10px] text-gray-500 dark:text-gray-400 font-bold tracking-wider uppercase mb-0.5">Pay Using</span>
-                    <div className="relative group cursor-pointer w-fit">
-                      <select
-                        value={selectedPaymentMethod}
-                        onChange={(e) => setSelectedPaymentMethod(e.target.value)}
-                        className="appearance-none bg-transparent font-bold text-gray-900 dark:text-white pr-6 outline-none cursor-pointer border-b md:border-b-[1.5px] border-dashed border-gray-400 hover:border-gray-800 transition-colors"
-                        style={{ MozAppearance: 'none', WebkitAppearance: 'none' }}
-                      >
-                        <option value="cash" className="text-sm md:text-base font-medium text-gray-900">Cash on Delivery</option>
-                        <option value="wallet" className="text-sm md:text-base font-medium text-gray-900">
-                          Wallet ({RUPEE_SYMBOL}{isLoadingWallet ? "..." : walletBalance.toFixed(0)})
-                        </option>
-                      </select>
-                      <ChevronUp className="pointer-events-none absolute right-0 top-1/2 -translate-y-1/2 h-3 w-3 md:h-4 md:w-4 text-[#EB590E]" />
-                    </div>
-                  </div>
 
-                  <Button
-                    size="lg"
-                    onClick={handlePlaceOrder}
-                    disabled={isPlacingOrder || (selectedPaymentMethod === "wallet" && walletBalance < total)}
-                    className="w-full bg-[#EB590E] hover:bg-[#D94F0C] dark:bg-[#EB590E] dark:hover:bg-[#D94F0C] text-white px-6 md:px-10 h-14 md:h-16 rounded-lg md:rounded-xl text-base md:text-lg font-bold shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {(selectedPaymentMethod === "razorpay" ||
-                      selectedPaymentMethod === "wallet") && (
-                        <div className="text-left mr-3 md:mr-4">
-                          <p className="text-sm md:text-base opacity-90">{RUPEE_SYMBOL}{total.toFixed(0)}</p>
-                          <p className="text-xs md:text-sm opacity-75">TOTAL</p>
-                        </div>
-                      )}
-                    <span className="font-bold text-base md:text-lg">
-                      {isPlacingOrder
-                        ? "Processing..."
-                        : !hasSavedAddress
-                          ? "Add Address to Continue"
-                          : "Place Order"}
-                    </span>
-                    <ChevronRight className="h-5 w-5 md:h-6 md:w-6 ml-2" />
-                  </Button>
-                </div>
+              <div className="flex items-center gap-0.5 text-[#EB590E] font-bold text-[11px] uppercase tracking-widest bg-orange-50 dark:bg-orange-900/20 px-2.5 py-1 rounded-lg">
+                CHANGE <ChevronRight className="h-3.5 w-3.5" />
               </div>
-              <button
-                onClick={handlePlaceOrder}
-                disabled={isPlacingOrder || (selectedPaymentMethod === "wallet" && walletBalance < total)}
-                className="w-full sm:w-auto sm:flex-[2] md:min-w-[280px] lg:max-w-[400px] bg-gradient-to-r from-[#EB590E] to-[#E23744] hover:from-[#D94F0C] hover:to-[#CF2834] text-white px-6 h-12 md:h-14 rounded-2xl font-bold shadow-lg shadow-[#EB590E]/30 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-between transition-transform active:scale-[0.98]"
-              >
-                {(selectedPaymentMethod === "razorpay" || selectedPaymentMethod === "wallet" || selectedPaymentMethod === "cash") && (
-                  <div className="text-left flex flex-col justify-center border-r-[1.5px] border-white/20 pr-4">
-                    <span className="text-xs md:text-sm font-semibold text-white/90">{RUPEE_SYMBOL}{total.toFixed(2)}</span>
-                    <span className="text-[9px] md:text-[10px] uppercase font-bold tracking-wider text-white/80 mt-[-2px]">Total</span>
-                  </div>
-                )}
-                <div className="flex items-center gap-1 mx-auto text-sm md:text-lg tracking-wide">
-                  {isPlacingOrder
-                    ? "Processing..."
-                    : !hasSavedAddress
-                      ? "Select Address"
-                      : "Place Order"}
-                  <div className="flex align-center h-full">
-                    <ChevronRight className="h-4 w-4 md:h-5 md:w-5" />
-                  </div>
-                </div>
-              </button>
             </div>
+
+            {/* Place Order Button */}
+            <button
+              onClick={handlePlaceOrder}
+              disabled={isPlacingOrder || (selectedPaymentMethod === "wallet" && walletBalance < total)}
+              className="w-full bg-gradient-to-r from-[#EB590E] to-[#E23744] hover:from-[#D94F0C] hover:to-[#CF2834] text-white px-6 h-12 md:h-14 rounded-2xl font-bold shadow-lg shadow-[#EB590E]/30 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-between transition-transform active:scale-[0.98]"
+            >
+              {(selectedPaymentMethod === "razorpay" || selectedPaymentMethod === "wallet" || selectedPaymentMethod === "cash") && (
+                <div className="text-left flex flex-col justify-center border-r-[1.5px] border-white/20 pr-4">
+                  <span className="text-xs md:text-sm font-semibold text-white/90">{RUPEE_SYMBOL}{total.toFixed(2)}</span>
+                  <span className="text-[9px] md:text-[10px] uppercase font-bold tracking-wider text-white/80 mt-[-2px]">Total</span>
+                </div>
+              )}
+              <div className="flex items-center gap-1 mx-auto text-sm md:text-lg tracking-wide">
+                {isPlacingOrder
+                  ? "Processing..."
+                  : !hasSavedAddress
+                    ? "Select Address"
+                    : "Place Order"}
+                <div className="flex align-center h-full">
+                  <ChevronRight className="h-4 w-4 md:h-5 md:w-5" />
+                </div>
+              </div>
+            </button>
           </div>
+        </div>
+      </div>
 
           {/* Placing Order Modal */}
           {showPlacingOrder && (
@@ -2851,6 +2797,4 @@ export default function Cart() {
       `}</style>
         </div>
         )
-}
-
-
+}      
