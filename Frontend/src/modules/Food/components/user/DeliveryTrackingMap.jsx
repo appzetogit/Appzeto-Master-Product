@@ -84,6 +84,7 @@ const DeliveryTrackingMap = ({
   const iconCacheRef = useRef(new Map());
   const currentLocationRef = useRef(null);
   const routePolylineRef = useRef(null);
+  const routePolylineShadowRef = useRef(null);
   const routePolylinePointsRef = useRef(null); // Full route from Firebase/Directions for route-based animation
   const visibleRoutePolylinePointsRef = useRef(null); // Remaining route rendered on the map
   const fullRoutePolylineRef = useRef(null);
@@ -411,14 +412,13 @@ const DeliveryTrackingMap = ({
 
         } else {
           // Fallback to straight line if directions fail, so user sees SOMETHING
-          if (status !== 'OK' && status !== 'UNKNOWN_ERROR') {
-            debugWarn('Directions API failed (' + status + '), falling back to straight line');
-            drawStraightLineRoute(start, end);
-          }
+          debugWarn('Directions API failed (' + status + '), falling back to straight line');
+          drawStraightLineRoute(start, end);
         }
       });
     } catch (error) {
       debugWarn('Error calling Directions API:', error);
+      drawStraightLineRoute(start, end);
     }
   }, [ENABLE_GOOGLE_DIRECTIONS, routeColor, preserveViewportState, restoreViewportState, renderInitialVisibleRouteFromPolyline]);
 
@@ -500,15 +500,28 @@ const DeliveryTrackingMap = ({
     if (routePolylineRef.current) {
       routePolylineRef.current.setMap(null);
     }
+    if (routePolylineShadowRef.current) {
+      routePolylineShadowRef.current.setMap(null);
+    }
+
+    routePolylineShadowRef.current = new window.google.maps.Polyline({
+      path: normalizedPoints,
+      geodesic: true,
+      strokeColor: '#FFFFFF',
+      strokeOpacity: 0.65,
+      strokeWeight: 9,
+      map: mapInstance.current,
+      zIndex: 998
+    });
 
     routePolylineRef.current = new window.google.maps.Polyline({
       path: normalizedPoints,
       geodesic: true,
-      strokeColor: routeColor,
-      strokeOpacity: 0.92,
-      strokeWeight: 5,
+      strokeColor: '#1E88E5',
+      strokeOpacity: 1,
+      strokeWeight: 6,
       map: mapInstance.current,
-      zIndex: 2
+      zIndex: 999
     });
 
     if (directionsRendererRef.current) {
@@ -516,7 +529,7 @@ const DeliveryTrackingMap = ({
     }
 
     return true;
-  }, [normalizeRoutePoints, routeColor]);
+  }, [normalizeRoutePoints]);
 
   const fitRouteViewportIfNeeded = useCallback((start, end) => {
     if (!mapInstance.current || !window.google?.maps) return;
@@ -794,8 +807,20 @@ const DeliveryTrackingMap = ({
     const mainStatus = order.status || "";
 
     debugLog('?? Determining route based on phase:', { currentPhase, status, mainStatus, deliveryBoyLocation: !!deliveryBoyLocation });
-    const activeDeliveryStatuses = ['en_route_to_delivery', 'picked_up', 'out_for_delivery', 'reached_drop'];
-    const activePickupStatuses = ['at_pickup', 'reached_pickup', 'order_confirmed', 'ready_for_pickup'];
+    const activeDeliveryStatuses = [
+      'en_route_to_delivery',
+      'picked_up',
+      'out_for_delivery',
+      'reached_drop',
+      'order_confirmed',
+      'en_route_to_drop'
+    ];
+    const activePickupStatuses = [
+      'en_route_to_pickup',
+      'at_pickup',
+      'ready_for_pickup',
+      'accepted'
+    ];
 
     // Phase 3: Delivery boy going to customer
     if (activeDeliveryStatuses.includes(currentPhase) || 
@@ -807,7 +832,7 @@ const DeliveryTrackingMap = ({
       };
     }
 
-    // Phase 2: Pickup completed/confirmed - show route from delivery boy to customer/restaurant transition
+    // Phase 2: On the way to pickup / waiting at pickup.
     if (activePickupStatuses.includes(currentPhase) || 
         activePickupStatuses.includes(status) || 
         activePickupStatuses.includes(mainStatus)) {
@@ -817,7 +842,7 @@ const DeliveryTrackingMap = ({
       };
     }
 
-    // Phase 1: Delivery boy going to restaurant (en_route_to_pickup)
+    // Explicit fallback for pickup-travel states
     if (currentPhase === 'en_route_to_pickup' || status === 'accepted') {
       return {
         start: { lat: deliveryBoyLocation.lat, lng: deliveryBoyLocation.lng },
@@ -1745,6 +1770,8 @@ const DeliveryTrackingMap = ({
         lastRouteUpdateRef.current = now;
         if (ENABLE_GOOGLE_DIRECTIONS) {
           drawRoute(restaurantCoords, customerCoords);
+        } else {
+          drawStraightLineRoute(restaurantCoords, customerCoords);
         }
       }
       return;
@@ -1773,6 +1800,8 @@ const DeliveryTrackingMap = ({
       lastRouteUpdateRef.current = now;
       if (ENABLE_GOOGLE_DIRECTIONS) {
         drawRoute(route.start, route.end);
+      } else {
+        drawStraightLineRoute(route.start, route.end);
       }
       debugLog('?? Route updated:', {
         phase: order?.deliveryState?.currentPhase,
@@ -1989,6 +2018,12 @@ const DeliveryTrackingMap = ({
   // Cleanup animation controller on unmount
   useEffect(() => {
     return () => {
+      if (routePolylineRef.current) {
+        routePolylineRef.current.setMap(null);
+      }
+      if (routePolylineShadowRef.current) {
+        routePolylineShadowRef.current.setMap(null);
+      }
       if (animationControllerRef.current) {
         animationControllerRef.current.destroy();
         animationControllerRef.current = null;
