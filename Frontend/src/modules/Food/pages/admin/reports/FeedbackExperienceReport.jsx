@@ -45,7 +45,19 @@ export default function FeedbackExperienceReport() {
       }
       const response = await adminAPI.getFeedbackExperiences(params)
       if (response.data && response.data.data) {
-        setFeedbackExperiences(response.data.data.feedbackExperiences || [])
+        const rawData = response.data.data.feedbacks || []
+        const formattedData = rawData.map(fb => ({
+          _id: fb._id,
+          userName: fb.userName || 'N/A',
+          userEmail: fb.userEmail || 'N/A',
+          userPhone: fb.userPhone || 'N/A',
+          restaurantName: fb.restaurantId?.restaurantName || 'N/A',
+          rating: fb.rating * 2, // Convert 1-5 back to 1-10 for UI
+          experience: fb.comment || 'N/A',
+          module: fb.module,
+          createdAt: fb.createdAt
+        }))
+        setFeedbackExperiences(formattedData)
         setStatistics(response.data.data.statistics || null)
       }
     } catch (error) {
@@ -119,7 +131,6 @@ export default function FeedbackExperienceReport() {
   }
 
   const handleDelete = async (id) => {
-    if (!confirm('Are you sure you want to delete this feedback?')) return
     try {
       await adminAPI.deleteFeedbackExperience(id)
       toast.success('Feedback deleted successfully')

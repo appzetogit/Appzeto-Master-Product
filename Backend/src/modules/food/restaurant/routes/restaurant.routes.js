@@ -13,6 +13,10 @@ import {
     getRestaurantComplaintsController
 } from '../controllers/restaurant.controller.js';
 import {
+    createRestaurantSupportTicketController,
+    listRestaurantSupportTicketsController
+} from '../controllers/supportTicket.controller.js';
+import {
     createWithdrawalRequestController,
     listMyWithdrawalsController
 } from '../controllers/withdrawal.controller.js';
@@ -24,6 +28,7 @@ import {
 } from '../controllers/restaurantCategory.controller.js';
 import { getMenuController, updateMenuController, getPublicRestaurantMenuController } from '../controllers/restaurantMenu.controller.js';
 import { getPublicRestaurantAddonsController } from '../controllers/publicAddons.controller.js';
+import * as feedbackExperienceController from '../../admin/controllers/feedbackExperience.controller.js';
 import {
     getOutletTimingsByRestaurantIdController,
     getCurrentRestaurantOutletTimingsController,
@@ -106,6 +111,9 @@ router.delete('/categories/:id', authMiddleware, requireRestaurant, deleteCatego
 router.get('/menu', authMiddleware, requireRestaurant, getMenuController);
 router.patch('/menu', authMiddleware, requireRestaurant, updateMenuController);
 
+// Feedback (restaurant dashboard)
+router.post('/feedback-experience', authMiddleware, requireRestaurant, feedbackExperienceController.createFeedbackExperience);
+
 // Public: restaurant add-ons (user app)
 router.get('/restaurants/:id/addons', getPublicRestaurantAddonsController);
 
@@ -127,6 +135,8 @@ router.post('/orders/:orderId/resend-notification', authMiddleware, requireResta
 
 // Complaints (restaurant dashboard)
 router.get('/complaints', authMiddleware, requireRestaurant, getRestaurantComplaintsController);
+router.post('/support/tickets', authMiddleware, requireRestaurant, createRestaurantSupportTicketController);
+router.get('/support/tickets', authMiddleware, requireRestaurant, listRestaurantSupportTicketsController);
 
 export default router;
 

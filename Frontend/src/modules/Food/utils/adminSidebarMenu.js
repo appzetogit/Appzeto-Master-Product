@@ -56,6 +56,7 @@ export const adminSidebarMenu = [
           { label: "Restaurants List", path: "/admin/food/restaurants" },
           { label: "New Joining Request", path: "/admin/food/restaurants/joining-request" },
           { label: "Restaurant Commission", path: "/admin/food/restaurants/commission" },
+          { label: "Restaurant Reviews", path: "/admin/food/restaurants/reviews" },
           { label: "Restaurant Complaints", path: "/admin/food/restaurants/complaints" },
         ],
       },
@@ -123,7 +124,7 @@ export const adminSidebarMenu = [
       },
       {
         type: "link",
-        label: "Support Tickets",
+        label: "Support Tickets (User & Restaurant)",
         path: "/admin/food/support-tickets",
         icon: "MessageSquare",
       },
@@ -179,6 +180,7 @@ export const adminSidebarMenu = [
     items: [
       { type: "link", label: "Transaction Report", path: "/admin/food/transaction-report", icon: "FileText" },
       { type: "link", label: "Order Report", path: "/admin/food/order-report/regular", icon: "FileText" },
+      { type: "link", label: "Tax Report", path: "/admin/food/tax-report", icon: "Receipt" },
       {
         type: "expandable",
         label: "Restaurant Report",

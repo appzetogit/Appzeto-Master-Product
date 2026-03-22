@@ -232,6 +232,16 @@ export const adminAPI = {
       params,
       contextModule: "admin",
     }),
+  getDeliverymanReviews: (params = {}) =>
+    apiClient.get("/food/admin/delivery/reviews", {
+      params,
+      contextModule: "admin",
+    }),
+  getContactMessages: (params = {}) =>
+    apiClient.get("/food/admin/contact-messages", {
+      params,
+      contextModule: "admin",
+    }),
   /** Dashboard summary stats (admin home) */
   getDashboardStats: (params = {}) =>
     apiClient.get("/food/admin/dashboard-stats", {
@@ -314,6 +324,11 @@ export const adminAPI = {
       params: { limit: 1000, ...params },
       contextModule: "admin",
       ...config,
+    }),
+  getRestaurantReviews: (params = {}) =>
+    apiClient.get("/food/admin/restaurants/reviews", {
+      params: { page: 1, limit: 1000, ...params },
+      contextModule: "admin",
     }),
   /** Categories (admin) */
   getCategories: (params = {}) =>
@@ -497,6 +512,16 @@ export const adminAPI = {
       params: { page: 1, limit: 1000, ...params },
       contextModule: "admin",
     }),
+  getTaxReport: (params = {}) =>
+    apiClient.get("/food/admin/reports/tax", {
+      params: { page: 1, limit: 1000, ...params },
+      contextModule: "admin",
+    }),
+  getTaxReportDetail: (id, params = {}) =>
+    apiClient.get(`/food/admin/reports/tax/${id}`, {
+      params,
+      contextModule: "admin",
+    }),
   /** Get single zone by id */
   getZoneById: (id) =>
     apiClient.get(`/food/admin/zones/${id}`, { contextModule: "admin" }),
@@ -511,6 +536,17 @@ export const adminAPI = {
   /** Delete zone */
   deleteZone: (id) =>
     apiClient.delete(`/food/admin/zones/${id}`, { contextModule: "admin" }),
+
+  /** Feedback Experience (admin) */
+  getFeedbackExperiences: (params = {}) =>
+    apiClient.get(API_ENDPOINTS.ADMIN.FEEDBACK_EXPERIENCE, {
+      params,
+      contextModule: "admin",
+    }),
+  deleteFeedbackExperience: (id) =>
+    apiClient.delete(`${API_ENDPOINTS.ADMIN.FEEDBACK_EXPERIENCE}/${id}`, {
+      contextModule: "admin",
+    }),
 
   /** Public env variables (safe subset). Used for runtime keys like Google Maps. */
   // getPublicEnvVariables removed: rely on import.meta.env instead.
@@ -1217,6 +1253,16 @@ export const restaurantAPI = {
   /** List restaurant complaints (for current restaurant dashboard) */
   getComplaints: (params = {}) =>
     apiClient.get("/food/restaurant/complaints", {
+      params,
+      contextModule: "restaurant",
+    }),
+  /** Restaurant support tickets */
+  createSupportTicket: (body = {}) =>
+    apiClient.post("/food/restaurant/support/tickets", body ?? {}, {
+      contextModule: "restaurant",
+    }),
+  getSupportTickets: (params = {}) =>
+    apiClient.get("/food/restaurant/support/tickets", {
       params,
       contextModule: "restaurant",
     }),

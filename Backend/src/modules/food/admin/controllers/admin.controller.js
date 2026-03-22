@@ -178,6 +178,46 @@ export async function getTransactionReport(req, res, next) {
     }
 }
 
+export async function getTaxReport(req, res, next) {
+    try {
+        const data = await adminService.getTaxReport(req.query || {});
+        res.status(200).json({
+            success: true,
+            message: 'Tax report fetched successfully',
+            data
+        });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function getTaxReportDetail(req, res, next) {
+    try {
+        const { id } = req.params;
+        const data = await adminService.getTaxReportDetail(id, req.query || {});
+        res.status(200).json({
+            success: true,
+            message: 'Tax report detail fetched successfully',
+            data
+        });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function getRestaurantReviews(req, res, next) {
+    try {
+        const data = await adminService.getRestaurantReviews(req.query);
+        res.status(200).json({
+            success: true,
+            message: 'Restaurant reviews fetched successfully',
+            data
+        });
+    } catch (error) {
+        next(error);
+    }
+}
+
 export async function getRestaurantById(req, res, next) {
     try {
         const { id } = req.params;
@@ -1068,6 +1108,32 @@ export async function getDeliveryPartners(req, res, next) {
         res.status(200).json({
             success: true,
             message: 'Delivery partners fetched successfully',
+            data
+        });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function getDeliverymanReviews(req, res, next) {
+    try {
+        const data = await adminService.getDeliverymanReviews(req.query);
+        res.status(200).json({
+            success: true,
+            message: 'Deliveryman reviews fetched successfully',
+            data
+        });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function getContactMessages(req, res, next) {
+    try {
+        const data = await adminService.getContactMessages(req.query);
+        res.status(200).json({
+            success: true,
+            message: 'Contact messages fetched successfully',
             data
         });
     } catch (error) {

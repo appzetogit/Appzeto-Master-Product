@@ -14,6 +14,7 @@ import { FoodEarningAddonHistory } from '../models/earningAddonHistory.model.js'
 import { FoodRestaurantCommission } from '../models/restaurantCommission.model.js';
 import { FoodDeliveryCommissionRule } from '../models/deliveryCommissionRule.model.js';
 import { FoodFeeSettings } from '../models/feeSettings.model.js';
+import { FeedbackExperience } from '../models/feedbackExperience.model.js';
 import { FoodUser } from '../../../../core/users/user.model.js';
 import { FoodRefreshToken } from '../../../../core/refreshTokens/refreshToken.model.js';
 import { FoodDeliveryCashLimit } from '../models/deliveryCashLimit.model.js';
@@ -23,6 +24,7 @@ import { FoodReferralLog } from '../models/referralLog.model.js';
 import { FoodSafetyEmergencyReport } from '../models/safetyEmergencyReport.model.js';
 import { FoodAddon } from '../../restaurant/models/foodAddon.model.js';
 import { FoodSupportTicket } from '../../user/models/supportTicket.model.js';
+import { FoodRestaurantSupportTicket } from '../../restaurant/models/supportTicket.model.js';
 import { FoodOrder } from '../../orders/models/order.model.js';
 import { FoodTransaction } from '../../orders/models/foodTransaction.model.js';
 import { FoodRestaurantWithdrawal } from '../../restaurant/models/foodRestaurantWithdrawal.model.js';
@@ -796,6 +798,114 @@ export async function getRestaurantReport(query = {}) {
     return { restaurants, total, page, limit };
 }
 
+export async function getTaxReport(query = {}) {
+    const { fromDate, toDate, search } = query;
+    const match = {
+        orderStatus: 'delivered' // Typically tax is reported on delivered/completed orders
+    };
+
+    if (fromDate && toDate) {
+        match.createdAt = { $gte: new Date(fromDate), $lte: new Date(toDate) };
+    }
+
+    if (search) {
+        // Search by order ID if provided
+        match.orderId = { $regex: search, $options: 'i' };
+    }
+
+    // Aggregate tax by income source (Restaurants, Delivery, Platform)
+    // For now, we'll group by Restaurant as the primary income source
+    const taxData = await FoodOrder.aggregate([
+        { $match: match },
+        {
+            $group: {
+                _id: '$restaurantId',
+                totalIncome: { $sum: { $ifNull: ['$pricing.total', 0] } },
+                totalTax: { $sum: { $ifNull: ['$pricing.tax', 0] } },
+                orderCount: { $sum: 1 }
+            }
+        },
+        {
+            $lookup: {
+                from: 'food_restaurants',
+                localField: '_id',
+                foreignField: '_id',
+                as: 'restaurant'
+            }
+        },
+        { $unwind: { path: '$restaurant', preserveNullAndEmptyArrays: true } },
+        {
+            $project: {
+                incomeSource: { $ifNull: ['$restaurant.restaurantName', 'Unknown Restaurant'] },
+                totalIncome: 1,
+                totalTax: 1,
+                orderCount: 1
+            }
+        },
+        { $sort: { totalTax: -1 } }
+    ]);
+
+    const stats = {
+        totalIncome: 0,
+        totalTax: 0
+    };
+
+    const reports = taxData.map((item, index) => {
+        stats.totalIncome += item.totalIncome;
+        stats.totalTax += item.totalTax;
+        return {
+            sl: index + 1,
+            id: item._id,
+            incomeSource: item.incomeSource,
+            totalIncome: `₹${item.totalIncome.toFixed(2)}`,
+            totalTax: `₹${item.totalTax.toFixed(2)}`,
+            orderCount: item.orderCount
+        };
+    });
+
+    return {
+        reports,
+        stats: {
+            totalIncome: `₹${stats.totalIncome.toFixed(2)}`,
+            totalTax: `₹${stats.totalTax.toFixed(2)}`
+        }
+    };
+}
+
+export async function getTaxReportDetail(restaurantId, query = {}) {
+    if (!restaurantId || !mongoose.Types.ObjectId.isValid(restaurantId)) {
+        throw new ValidationError('Invalid restaurant ID');
+    }
+
+    const { fromDate, toDate } = query;
+    const match = {
+        restaurantId: new mongoose.Types.ObjectId(restaurantId),
+        orderStatus: 'delivered'
+    };
+
+    if (fromDate && toDate) {
+        match.createdAt = { $gte: new Date(fromDate), $lte: new Date(toDate) };
+    }
+
+    const orders = await FoodOrder.find(match)
+        .select('orderId pricing createdAt orderStatus')
+        .sort({ createdAt: -1 })
+        .lean();
+
+    const restaurant = await FoodRestaurant.findById(restaurantId).select('restaurantName').lean();
+
+    return {
+        restaurantName: restaurant?.restaurantName || 'Unknown Restaurant',
+        orders: orders.map(o => ({
+            id: o._id,
+            orderId: o.orderId,
+            totalAmount: `₹${(o.pricing?.total || 0).toFixed(2)}`,
+            taxAmount: `₹${(o.pricing?.tax || 0).toFixed(2)}`,
+            date: o.createdAt
+        }))
+    };
+}
+
 // ----- Customers / Users (admin) -----
 export async function getCustomers(query = {}) {
     const limit = Math.min(Math.max(parseInt(query.limit, 10) || 50, 1), 1000);
@@ -964,29 +1074,87 @@ export async function getSupportTickets(query = {}) {
     const limit = Math.min(Math.max(parseInt(query.limit, 10) || 50, 1), 1000);
     const page = Math.max(parseInt(query.page, 10) || 1, 1);
     const skip = (page - 1) * limit;
-    const filter = {};
+    const source = String(query.source || 'all').toLowerCase();
+    const search = String(query.search || '').trim();
+
+    const userFilter = {};
+    const restaurantFilter = {};
     if (query.status && ['open', 'in-progress', 'resolved'].includes(String(query.status))) {
-        filter.status = String(query.status);
+        userFilter.status = String(query.status);
+        restaurantFilter.status = String(query.status);
     }
     if (query.type && ['order', 'restaurant', 'other'].includes(String(query.type))) {
-        filter.type = String(query.type);
+        userFilter.type = String(query.type);
     }
-    const [list, total] = await Promise.all([
-        FoodSupportTicket.find(filter)
-            .sort({ createdAt: -1 })
-            .skip(skip)
-            .limit(limit)
-            .populate('userId', 'name phone email')
-            .populate('restaurantId', 'restaurantName city area')
-            .populate({
-                path: 'orderId',
-                select: 'restaurantId',
-                populate: { path: 'restaurantId', select: 'restaurantName city area' }
-            })
-            .lean(),
-        FoodSupportTicket.countDocuments(filter)
+    if (query.category && ['orders', 'payments', 'menu', 'restaurant', 'technical', 'other'].includes(String(query.category))) {
+        restaurantFilter.category = String(query.category);
+    }
+
+    const userSearchOr = [];
+    const restaurantSearchOr = [];
+    if (search) {
+        const searchRegex = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+        userSearchOr.push(
+            { issueType: searchRegex },
+            { description: searchRegex }
+        );
+        restaurantSearchOr.push(
+            { issueType: searchRegex },
+            { subject: searchRegex },
+            { description: searchRegex },
+            { orderRef: searchRegex }
+        );
+        const [restaurantIds, userIds, orderIds] = await Promise.all([
+            FoodRestaurant.find({ restaurantName: searchRegex }).select('_id').lean(),
+            FoodUser.find({ name: searchRegex }).select('_id').lean(),
+            FoodOrder.find({ orderId: searchRegex }).select('_id').lean()
+        ]);
+        if (restaurantIds.length) {
+            const ids = restaurantIds.map((r) => r._id);
+            userSearchOr.push({ restaurantId: { $in: ids } });
+            restaurantSearchOr.push({ restaurantId: { $in: ids } });
+        }
+        if (userIds.length) {
+            userSearchOr.push({ userId: { $in: userIds.map((u) => u._id) } });
+        }
+        if (orderIds.length) {
+            userSearchOr.push({ orderId: { $in: orderIds.map((o) => o._id) } });
+        }
+    }
+    if (userSearchOr.length) userFilter.$or = userSearchOr;
+    if (restaurantSearchOr.length) restaurantFilter.$or = restaurantSearchOr;
+
+    const shouldFetchUser = source === 'all' || source === 'user';
+    const shouldFetchRestaurant = source === 'all' || source === 'restaurant';
+
+    const [userList, userTotal, restaurantList, restaurantTotal] = await Promise.all([
+        shouldFetchUser
+            ? FoodSupportTicket.find(userFilter)
+                  .sort({ createdAt: -1 })
+                  .skip(source === 'all' ? 0 : skip)
+                  .limit(source === 'all' ? limit * page : limit)
+                  .populate('userId', 'name phone email')
+                  .populate('restaurantId', 'restaurantName city area')
+                  .populate({
+                      path: 'orderId',
+                      select: 'restaurantId',
+                      populate: { path: 'restaurantId', select: 'restaurantName city area' }
+                  })
+                  .lean()
+            : Promise.resolve([]),
+        shouldFetchUser ? FoodSupportTicket.countDocuments(userFilter) : Promise.resolve(0),
+        shouldFetchRestaurant
+            ? FoodRestaurantSupportTicket.find(restaurantFilter)
+                  .sort({ createdAt: -1 })
+                  .skip(source === 'all' ? 0 : skip)
+                  .limit(source === 'all' ? limit * page : limit)
+                  .populate('restaurantId', 'restaurantName city area')
+                  .lean()
+            : Promise.resolve([]),
+        shouldFetchRestaurant ? FoodRestaurantSupportTicket.countDocuments(restaurantFilter) : Promise.resolve(0)
     ]);
-    const tickets = list.map((t) => {
+
+    const mappedUserTickets = userList.map((t) => {
         const user =
             t.userId && typeof t.userId === 'object' && t.userId !== null
                 ? {
@@ -1032,6 +1200,7 @@ export async function getSupportTickets(query = {}) {
 
         return {
             _id: t._id,
+            source: 'user',
             userId,
             type: t.type,
             orderId: t.orderId || null,
@@ -1047,11 +1216,64 @@ export async function getSupportTickets(query = {}) {
             restaurantName
         };
     });
+
+    const mappedRestaurantTickets = restaurantList.map((t) => {
+        const restaurant =
+            t.restaurantId && typeof t.restaurantId === 'object'
+                ? {
+                      _id: t.restaurantId._id,
+                      name: t.restaurantId.restaurantName || '',
+                      city: t.restaurantId.city || '',
+                      area: t.restaurantId.area || ''
+                  }
+                : null;
+        const restaurantId =
+            restaurant && restaurant._id ? String(restaurant._id) : t.restaurantId ? String(t.restaurantId) : null;
+        return {
+            _id: t._id,
+            source: 'restaurant',
+            userId: null,
+            type: 'restaurant-support',
+            category: t.category || 'other',
+            orderId: null,
+            orderRef: t.orderRef || '',
+            restaurantId,
+            issueType: t.issueType,
+            subject: t.subject || '',
+            description: t.description,
+            priority: t.priority || 'medium',
+            status: t.status,
+            adminResponse: t.adminResponse,
+            createdAt: t.createdAt,
+            updatedAt: t.updatedAt,
+            user: null,
+            restaurant,
+            restaurantName: restaurant ? restaurant.name : ''
+        };
+    });
+
+    let tickets = [];
+    let total = 0;
+    if (source === 'user') {
+        tickets = mappedUserTickets;
+        total = userTotal;
+    } else if (source === 'restaurant') {
+        tickets = mappedRestaurantTickets;
+        total = restaurantTotal;
+    } else {
+        const merged = [...mappedUserTickets, ...mappedRestaurantTickets].sort(
+            (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        );
+        tickets = merged.slice(skip, skip + limit);
+        total = userTotal + restaurantTotal;
+    }
+
     return { tickets, total, page, limit };
 }
 
 export async function updateSupportTicket(id, body = {}) {
     if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
+    const source = String(body.source || 'user').toLowerCase();
     const set = {};
     if (body.status && ['open', 'in-progress', 'resolved'].includes(String(body.status))) {
         set.status = String(body.status);
@@ -1059,7 +1281,9 @@ export async function updateSupportTicket(id, body = {}) {
     if (typeof body.adminResponse === 'string') {
         set.adminResponse = body.adminResponse;
     }
-    const updated = await FoodSupportTicket.findByIdAndUpdate(id, { $set: set }, { new: true }).lean();
+    if (!Object.keys(set).length) return null;
+    const model = source === 'restaurant' ? FoodRestaurantSupportTicket : FoodSupportTicket;
+    const updated = await model.findByIdAndUpdate(id, { $set: set }, { new: true }).lean();
     return updated || null;
 }
 
@@ -1429,6 +1653,78 @@ export async function deleteSafetyEmergencyReport(id) {
     return deleted;
 }
 
+export async function getContactMessages(query = {}) {
+    const limit = Math.min(Math.max(parseInt(query.limit, 10) || 10, 1), 100);
+    const page = Math.max(parseInt(query.page, 10) || 1, 1);
+    const skip = (page - 1) * limit;
+
+    // Fix old records with 'User' instead of 'FoodUser' for population to work
+    await FeedbackExperience.updateMany({ userModel: 'User' }, { $set: { userModel: 'FoodUser' } });
+
+    const filter = {};
+    if (query.rating && !isNaN(query.rating)) {
+        filter.rating = parseInt(query.rating);
+    }
+
+    if (query.search && String(query.search).trim()) {
+        const term = String(query.search).trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const searchRegex = new RegExp(term, 'i');
+        
+        const [users, restaurants, partners] = await Promise.all([
+            FoodUser.find({
+                $or: [{ name: searchRegex }, { email: searchRegex }, { phone: searchRegex }]
+            }).select('_id').lean(),
+            FoodRestaurant.find({
+                $or: [{ restaurantName: searchRegex }, { ownerEmail: searchRegex }, { ownerPhone: searchRegex }]
+            }).select('_id').lean(),
+            FoodDeliveryPartner.find({
+                $or: [{ name: searchRegex }, { email: searchRegex }, { phone: searchRegex }]
+            }).select('_id').lean()
+        ]);
+
+        filter.$or = [
+            { comment: searchRegex },
+            { userId: { $in: [...users.map(u => u._id), ...restaurants.map(r => r._id), ...partners.map(p => p._id)] } }
+        ];
+    }
+
+    const [list, total] = await Promise.all([
+        FeedbackExperience.find(filter)
+            .sort({ createdAt: -1 })
+            .skip(skip)
+            .limit(limit)
+            .populate('userId')
+            .lean(),
+        FeedbackExperience.countDocuments(filter)
+    ]);
+
+    const reviews = list.map((doc) => {
+        const user = (doc.userId && typeof doc.userId === 'object') ? doc.userId : {};
+        return {
+            _id: doc._id,
+            customer: {
+                name: user.name || user.restaurantName || 'Unknown',
+                email: user.email || user.ownerEmail || 'N/A',
+                phone: user.phone || user.ownerPhone || 'N/A'
+            },
+            comment: doc.comment || '',
+            rating: doc.rating || 0,
+            submittedAt: doc.createdAt,
+            module: doc.module
+        };
+    });
+
+    return {
+        reviews,
+        pagination: {
+            total,
+            page,
+            limit,
+            totalPages: Math.ceil(total / limit) || 1
+        }
+    };
+}
+
 // ----- Delivery Cash Limit (admin) -----
 export async function getDeliveryCashLimitSettings() {
     const doc = await FoodDeliveryCashLimit.findOne({ isActive: true }).sort({ createdAt: -1 }).lean();
@@ -1512,6 +1808,62 @@ export async function upsertDeliveryEmergencyHelp(body = {}) {
         contactPolice: created.contactPolice || '',
         insurance: created.insurance || ''
     };
+}
+
+export async function getRestaurantReviews(query = {}) {
+    const limit = Math.min(Math.max(parseInt(query.limit, 10) || 50, 1), 1000);
+    const page = Math.max(parseInt(query.page, 10) || 1, 1);
+    const skip = (page - 1) * limit;
+
+    const filter = {
+        'ratings.restaurant.rating': { $exists: true, $ne: null }
+    };
+
+    if (query.search && String(query.search).trim()) {
+        const term = String(query.search).trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const searchRegex = new RegExp(term, 'i');
+        
+        const restaurants = await FoodRestaurant.find({
+            $or: [{ restaurantName: searchRegex }]
+        }).select('_id').lean();
+        
+        const customers = await FoodUser.find({
+            $or: [{ name: searchRegex }, { email: searchRegex }]
+        }).select('_id').lean();
+
+        filter.$or = [
+            { orderId: searchRegex },
+            { 'ratings.restaurant.comment': searchRegex },
+            { restaurantId: { $in: restaurants.map(r => r._id) } },
+            { userId: { $in: customers.map(c => c._id) } }
+        ];
+    }
+
+    const [docs, total] = await Promise.all([
+        FoodOrder.find(filter)
+            .sort({ createdAt: -1 })
+            .skip(skip)
+            .limit(limit)
+            .populate('userId', 'name email phone')
+            .populate('restaurantId', 'restaurantName')
+            .select('orderId userId restaurantId ratings.restaurant createdAt')
+            .lean(),
+        FoodOrder.countDocuments(filter)
+    ]);
+
+    const reviews = docs.map((doc, index) => ({
+        sl: skip + index + 1,
+        orderId: doc.orderId,
+        restaurant: doc.restaurantId?.restaurantName || 'Unknown',
+        restaurantId: doc.restaurantId?._id || 'N/A',
+        customer: doc.userId?.name || 'Unknown',
+        customerId: doc.userId?._id || 'N/A',
+        review: doc.ratings?.restaurant?.comment || '',
+        rating: doc.ratings?.restaurant?.rating || 0,
+        submittedAt: doc.createdAt
+    }));
+
+    return { reviews, total, page, limit };
 }
 
 export async function getRestaurantById(id) {
@@ -3232,6 +3584,73 @@ export async function getDeliveryPartnerById(id) {
             }
             : null
     };
+}
+
+export async function getDeliverymanReviews(query = {}) {
+    const limit = Math.min(Math.max(parseInt(query.limit, 10) || 50, 1), 1000);
+    const page = Math.max(parseInt(query.page, 10) || 1, 1);
+    const skip = (page - 1) * limit;
+
+    const filter = {
+        'ratings.deliveryPartner.rating': { $exists: true, $ne: null }
+    };
+
+    if (query.search && String(query.search).trim()) {
+        const term = String(query.search).trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const searchRegex = new RegExp(term, 'i');
+        
+        // Find delivery partners matching search
+        const partners = await FoodDeliveryPartner.find({
+            $or: [
+                { name: searchRegex },
+                { phone: searchRegex }
+            ]
+        }).select('_id').lean();
+        
+        // Find customers matching search
+        const customers = await FoodUser.find({
+            $or: [
+                { name: searchRegex },
+                { email: searchRegex }
+            ]
+        }).select('_id').lean();
+
+        filter.$or = [
+            { orderId: searchRegex },
+            { 'ratings.deliveryPartner.comment': searchRegex },
+            { 'dispatch.deliveryPartnerId': { $in: partners.map(p => p._id) } },
+            { userId: { $in: customers.map(c => c._id) } }
+        ];
+    }
+
+    const [docs, total] = await Promise.all([
+        FoodOrder.find(filter)
+            .sort({ createdAt: -1 })
+            .skip(skip)
+            .limit(limit)
+            .populate('userId', 'name email phone')
+            .populate('dispatch.deliveryPartnerId', 'name phone')
+            .select('orderId userId dispatch.deliveryPartnerId ratings.deliveryPartner createdAt deliveryState.deliveredAt')
+            .lean(),
+        FoodOrder.countDocuments(filter)
+    ]);
+
+    const reviews = docs.map((doc, index) => ({
+        sl: skip + index + 1,
+        orderId: doc.orderId,
+        deliveryman: doc.dispatch?.deliveryPartnerId?.name || 'Unknown',
+        deliverymanId: doc.dispatch?.deliveryPartnerId?._id || 'N/A',
+        deliverymanPhone: doc.dispatch?.deliveryPartnerId?.phone || 'N/A',
+        customer: doc.userId?.name || 'Unknown',
+        customerId: doc.userId?._id || 'N/A',
+        customerPhone: doc.userId?.phone || 'N/A',
+        review: doc.ratings?.deliveryPartner?.comment || '',
+        rating: doc.ratings?.deliveryPartner?.rating || 0,
+        submittedAt: doc.createdAt,
+        deliveredAt: doc.deliveryState?.deliveredAt
+    }));
+
+    return { reviews, total, page, limit };
 }
 
 export async function approveDeliveryPartner(id) {
