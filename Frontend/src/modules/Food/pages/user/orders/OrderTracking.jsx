@@ -38,6 +38,10 @@ import { useCompanyName } from "@food/hooks/useCompanyName"
 import circleIcon from "@food/assets/circleicon.png"
 import { RESTAURANT_PIN_SVG, CUSTOMER_PIN_SVG, RIDER_BIKE_SVG } from "@food/constants/mapIcons"
 
+// Fallback definitions in case imports fail at runtime or are shadowed
+const DEFAULT_CUSTOMER_PIN = `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="#10B981"><path d="M12 2C8.13 2 5 5.13 5 9c0 4.17 4.42 9.92 6.24 12.11.4.48 1.08.48 1.52 0C14.58 18.92 19 13.17 19 9c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5S10.62 6.5 12 6.5 14.5 7.62 14.5 9 13.38 11.5 12 11.5z"/><circle cx="12" cy="9" r="3" fill="#FFFFFF"/></svg>`;
+const SAFE_CUSTOMER_PIN = typeof CUSTOMER_PIN_SVG !== 'undefined' ? CUSTOMER_PIN_SVG : DEFAULT_CUSTOMER_PIN;
+
 const debugLog = (...args) => console.log('[OrderTracking]', ...args)
 const debugWarn = (...args) => console.warn('[OrderTracking]', ...args)
 const debugError = (...args) => console.error('[OrderTracking]', ...args)
@@ -388,7 +392,7 @@ function mapBackendOrderStatusToUi(raw) {
   const s = String(raw || "").toLowerCase()
   if (!s) return "placed"
   if (s === "created" || s === "confirmed") return "placed"
-  if (s === "preparing" || s === "processed") return "preparing"
+  if (s === "preparing" || s === "processed" || s === "accepted") return "preparing"
   if (s === "ready" || s === "ready_for_pickup" || s === "reached_pickup" || s === "order_confirmed") return "pickup"
   if (s === "picked_up" || s === "out_for_delivery" || s === "en_route_to_delivery") return "delivery"
   if (s === "reached_drop" || s === "at_drop" || s === "at_delivery") return "at_drop"
@@ -1280,7 +1284,7 @@ export default function OrderTracking() {
             }
           />
           <SectionItem
-            iconNode={<div dangerouslySetInnerHTML={{ __html: CUSTOMER_PIN_SVG }} className="w-8 h-8 scale-110" />}
+            iconNode={<div dangerouslySetInnerHTML={{ __html: SAFE_CUSTOMER_PIN }} className="w-8 h-8 scale-110" />}
             title="Delivery at Location"
             subtitle={(() => {
               // Priority 1: Use order address formattedAddress (live location address)

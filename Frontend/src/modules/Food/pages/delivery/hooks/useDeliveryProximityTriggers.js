@@ -57,11 +57,12 @@ export function useDeliveryProximityTriggers({
     if (!selectedRestaurant || isDeliveredOrCompleted) return;
     if (showNewOrderPopup || showOrderIdConfirmationPopup || showReachedDropPopup) return;
 
-    // If order ID already confirmed or out for delivery, do not show pickup.
+    // If order is definitively picked up or out for delivery, do not show pickup.
     const isOutForDelivery =
       orderStatus === "out_for_delivery" ||
       deliveryPhase === "en_route_to_delivery" ||
-      deliveryStateStatus === "order_confirmed";
+      deliveryPhase === "picked_up";
+      
     if (isOutForDelivery) {
       if (showreachedPickupPopup) setShowreachedPickupPopup(false);
       return;
@@ -302,9 +303,7 @@ export function useDeliveryProximityTriggers({
       (orderStatus === "out_for_delivery" ||
         deliveryPhase === "en_route_to_delivery" ||
         deliveryPhase === "picked_up" ||
-        deliveryPhase === "at_delivery" ||
-        deliveryStateStatus === "order_confirmed" ||
-        deliveryStateStatus === "en_route_to_delivery");
+        deliveryPhase === "at_delivery");
 
     const riderPos =
       riderLocation && riderLocation.length === 2
@@ -331,7 +330,6 @@ export function useDeliveryProximityTriggers({
     const isInDeliveryPhase =
       isOutForDelivery ||
       deliveryPhase === "picked_up" ||
-      deliveryStateStatus === "order_confirmed" ||
       orderStatus === "out_for_delivery";
     if (!isInDeliveryPhase) return;
 

@@ -360,8 +360,8 @@ export function useNewOrderAcceptSwipe({
                     }),
                   );
                 } catch {}
-
-                setShowreachedPickupPopup(true);
+                // Population of directions is done above, no need to show popup immediately
+                // setShowreachedPickupPopup(true);
               }, 300);
             } else {
               toast.error(response.data?.message || "Failed to accept order. Please try again.");

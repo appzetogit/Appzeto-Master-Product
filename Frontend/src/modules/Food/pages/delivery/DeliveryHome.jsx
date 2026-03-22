@@ -3751,12 +3751,11 @@ const ENABLE_GOOGLE_DIRECTIONS = import.meta.env.VITE_ENABLE_GOOGLE_DIRECTIONS !
             
             // Close Order ID confirmation popup
             setShowOrderIdConfirmationPopup(false)
-            // Move to next stage immediately so rider always sees the next slider.
-            setShowReachedDropPopup(true)
-
-            toast.success('Order is out for delivery. You can now swipe Reached Drop.', { duration: 4000 })
+            // setShowReachedDropPopup(true)
             
-            debugLog('? Showing Reached Drop popup after order ID confirmation')
+            toast.success('Order is out for delivery.', { duration: 4000 })
+            
+            // debugLog('? Showing Reached Drop popup after order ID confirmation')
             
           } else {
             debugError('? Failed to confirm order ID:', response.data)
@@ -6727,7 +6726,7 @@ const ENABLE_GOOGLE_DIRECTIONS = import.meta.env.VITE_ENABLE_GOOGLE_DIRECTIONS !
               setShowreachedPickupPopup(true)
             } else if (restoredStage === 'order_id_confirmation') {
               setShowOrderIdConfirmationPopup(true)
-            } else if (restoredStage === 'reached_drop' || restoredStage === 'en_route_to_drop') {
+            } else if (restoredStage === 'reached_drop') {
               setShowReachedDropPopup(true)
             } else if (restoredStage === 'order_delivered') {
               setShowOrderDeliveredAnimation(true)
@@ -8333,29 +8332,6 @@ selectedRestaurant?.lng || null,
 
   // Handle chevron click to slide up swipe bar
   const handleChevronUpClick = () => {
-    // If we have an active order but popups are hidden, restore the popup instead of opening sections
-    if (newOrder || selectedRestaurant) {
-      const phase = String(newOrder?.deliveryState?.currentPhase || '').toLowerCase();
-      const status = String(newOrder?.deliveryState?.status || newOrder?.status || '').toLowerCase();
-      
-      if (status.includes('confirmed') || phase.includes('otp')) {
-        setShowOrderIdConfirmationPopup(true);
-        return;
-      }
-      if (phase.includes('pickup') || status.includes('pickup') || status === 'assigned') {
-        setShowreachedPickupPopup(true);
-        return;
-      }
-      if (phase.includes('drop') || phase.includes('delivery') || status.includes('drop')) {
-        setShowReachedDropPopup(true);
-        return;
-      }
-      // General fallback for active order
-      if (status === 'assigned' || status === 'preparing' || status === 'ready' || status === 'ready_for_pickup') setShowreachedPickupPopup(true);
-      else setShowReachedDropPopup(true);
-      return;
-    }
-
     if (!showHomeSections) {
       setShowHomeSections(true)
       setSwipeBarPosition(1)
@@ -8623,7 +8599,6 @@ selectedRestaurant?.lng || null,
         className={`${showHomeSections ? 'invisible h-0 opacity-0 overflow-hidden' : 'visible flex-1 flex flex-col relative'}`}
         style={{ transition: 'opacity 0.2s ease-in-out' }}
       >
-          <>
             {/* Map View - Shows map with Hotspot or Select drop mode */}
             <div className="relative flex-1 overflow-hidden pb-16 md:pb-0" style={{ minHeight: 0, pointerEvents: 'auto' }}>
             {/* Google Maps Container */}
@@ -8752,9 +8727,11 @@ selectedRestaurant?.lng || null,
               onClick={() => {
                 const phase = newOrder?.deliveryState?.currentPhase;
                 if (phase === 'at_pickup' || phase === 'assigned') {
-                  setShowreachedPickupPopup(true);
+                  // setShowreachedPickupPopup(true);
+                  toast.info("Navigating to Pickup directions...")
                 } else if (phase === 'at_drop' || phase === 'en_route_to_delivery') {
-                  setShowReachedDropPopup(true);
+                  // setShowReachedDropPopup(true);
+                  toast.info("Navigating to Drop directions...")
                 }
               }}
               className="pointer-events-auto w-12 h-12 bg-white rounded-full shadow-lg flex items-center justify-center text-blue-600 border border-gray-100"
@@ -8846,12 +8823,10 @@ selectedRestaurant?.lng || null,
               ) : null}
             </motion.div>
           )}
-            </div>
-          </>
         </div>
-
-      {/* Bottom Swipeable Bar - Can be dragged up to show home sections */}
-      {!showHomeSections && (
+      </div>
+    {/* Bottom Swipeable Bar - Can be dragged up to show home sections */}
+    {!showHomeSections && (
             <motion.div
               ref={swipeBarRef}
               initial={{ y: "100%" }}
