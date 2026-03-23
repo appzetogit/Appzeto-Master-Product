@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useMemo } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import { useNavigate } from "react-router-dom"
 import Lenis from "lenis"
@@ -31,7 +31,7 @@ import {
 } from "lucide-react"
 import { Card, CardContent } from "@food/components/ui/card"
 import { DateRangeCalendar } from "@food/components/ui/date-range-calendar"
-import { clearModuleAuth, clearAuthData } from "@food/utils/auth"
+import { clearModuleAuth, clearAuthData, getCurrentUser } from "@food/utils/auth"
 import { restaurantAPI } from "@food/api"
 import { firebaseAuth, ensureFirebaseInitialized } from "@food/firebase"
 const debugLog = (...args) => {}
@@ -435,19 +435,40 @@ export default function ExploreMore() {
     return parts.join(", ") || ""
   }
 
-  // Get user data from restaurant data
-  const userData = restaurantData ? {
-    name: restaurantData.ownerName || restaurantData.name || "Restaurant Owner",
-    phone: restaurantData.ownerPhone || restaurantData.phone || "N/A",
-    email: restaurantData.ownerEmail || restaurantData.email || "N/A",
-    role: "OWNER",
-    profileImage: restaurantData.profileImage
-  } : {
-    name: "Loading...",
-    phone: "",
-    email: "",
-    role: "OWNER"
-  }
+  // Get user data from logged in session and restaurant data
+  const userData = useMemo(() => {
+    const sessionUser = getCurrentUser("restaurant")
+    
+    // Priority 1: Data from the currently logged in session user
+    if (sessionUser && sessionUser.name && sessionUser.role) {
+      return {
+        name: sessionUser.name,
+        phone: sessionUser.phone || restaurantData?.ownerPhone || restaurantData?.phone || "N/A",
+        email: sessionUser.email || restaurantData?.ownerEmail || restaurantData?.email || "N/A",
+        role: sessionUser.role.toUpperCase(),
+        profileImage: sessionUser.profileImage || restaurantData?.profileImage
+      }
+    }
+    
+    // Priority 2: Data from the restaurant document owner fields
+    if (restaurantData) {
+      return {
+        name: restaurantData.ownerName || restaurantData.name || "Restaurant Owner",
+        phone: restaurantData.ownerPhone || restaurantData.phone || "N/A",
+        email: restaurantData.ownerEmail || restaurantData.email || "N/A",
+        role: "OWNER",
+        profileImage: restaurantData.profileImage
+      }
+    }
+    
+    // Priority 3: Loading / Initial state
+    return {
+      name: loadingRestaurant ? "Loading..." : "Restaurant Owner",
+      phone: "",
+      email: "",
+      role: "OWNER"
+    }
+  }, [restaurantData, loadingRestaurant])
 
   // Get restaurant display data
   const restaurantDisplayName = restaurantData?.name || "Loading..."
@@ -864,7 +885,7 @@ export default function ExploreMore() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3 flex-1">
             <button
-              onClick={() => navigate(-1)}
+              onClick={() => navigate("/food/restaurant")}
               className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
               aria-label="Go back"
             >
@@ -881,7 +902,7 @@ export default function ExploreMore() {
               <Search className="w-5 h-5 text-gray-900" />
             </button>
             <button
-              onClick={() => setProfileOpen(true)}
+              onClick={() => navigate("/food/restaurant/onboarding?step=1")}
               className="p-2 hover:bg-gray-100 bg-gray-200 rounded-full transition-colors"
               aria-label="Profile"
             >
@@ -1129,9 +1150,15 @@ export default function ExploreMore() {
 
               {/* User Information Section */}
               <div className="px-6 py-6">
-                <div className="flex items-start gap-4">
+                <button 
+                  onClick={() => {
+                    setProfileOpen(false)
+                    navigate("/food/restaurant/onboarding?step=1")
+                  }}
+                  className="w-full flex items-start gap-4 text-left p-2 -m-2 hover:bg-gray-50 rounded-xl transition-colors group"
+                >
                   {/* Avatar */}
-                  <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center shrink-0 overflow-hidden">
+                  <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center shrink-0 overflow-hidden ring-2 ring-white">
                     {userData.profileImage?.url ? (
                       <img
                         src={userData.profileImage.url}
@@ -1145,24 +1172,27 @@ export default function ExploreMore() {
 
                   {/* User Details */}
                   <div className="flex-1 min-w-0">
-                    <h3 className="text-base font-bold text-gray-900 mb-1">
-                      {loadingRestaurant ? "Loading..." : userData.name}
-                    </h3>
+                    <div className="flex items-center justify-between mb-1">
+                      <h3 className="text-base font-bold text-gray-900 truncate">
+                        {loadingRestaurant ? "Loading..." : userData.name}
+                      </h3>
+                      <Edit className="w-4 h-4 text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+                    </div>
                     {userData.phone && (
-                      <p className="text-sm text-gray-900 mb-1">
+                      <p className="text-sm text-gray-600 mb-1">
                         {userData.phone}
                       </p>
                     )}
                     {userData.email && (
-                      <p className="text-sm text-gray-900 mb-1">
+                      <p className="text-sm text-gray-600 mb-1">
                         {userData.email}
                       </p>
                     )}
-                    <p className="text-sm font-bold text-gray-900 mt-2">
+                    <p className="text-xs font-bold text-blue-600 uppercase tracking-wider mt-2 bg-blue-50 w-fit px-2 py-0.5 rounded">
                       {userData.role}
                     </p>
                   </div>
-                </div>
+                </button>
               </div>
 
               {/* Logout Buttons */}

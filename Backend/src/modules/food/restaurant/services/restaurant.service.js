@@ -515,7 +515,27 @@ export const updateRestaurantProfile = async (restaurantId, body = {}) => {
                     'openDays',
                     'status',
                     'createdAt',
-                    'updatedAt'
+                    'updatedAt',
+                    'panNumber',
+                    'nameOnPan',
+                    'panImage',
+                    'gstRegistered',
+                    'gstNumber',
+                    'gstLegalName',
+                    'gstAddress',
+                    'gstImage',
+                    'fssaiNumber',
+                    'fssaiExpiry',
+                    'fssaiImage',
+                    'accountNumber',
+                    'ifscCode',
+                    'accountHolderName',
+                    'accountType',
+                    'estimatedDeliveryTime',
+                    'featuredDish',
+                    'featuredPrice',
+                    'offer',
+                    'zoneId'
                 ].join(' ')
             }
         ).lean();
