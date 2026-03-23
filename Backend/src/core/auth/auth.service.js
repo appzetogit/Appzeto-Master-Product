@@ -42,6 +42,7 @@ export const verifyUserOtpAndLogin = async (
   ref,
   fcmToken,
   platform,
+  name,
 ) => {
   const result = await verifyOtp(phone, otp);
 
@@ -52,11 +53,25 @@ export const verifyUserOtpAndLogin = async (
   // Ensure user exists and mark as verified on successful OTP.
   let userDoc = await FoodUser.findOne({ phone });
   const isNewUser = !userDoc;
+  const trimmedName = typeof name === "string" ? name.trim() : "";
+
   if (!userDoc) {
-    userDoc = await FoodUser.create({ phone, isVerified: true });
-  } else if (!userDoc.isVerified) {
-    userDoc.isVerified = true;
-    await userDoc.save();
+    userDoc = await FoodUser.create({
+      phone,
+      isVerified: true,
+      ...(trimmedName ? { name: trimmedName } : {}),
+    });
+  } else {
+    let needsSave = false;
+    if (!userDoc.isVerified) {
+      userDoc.isVerified = true;
+      needsSave = true;
+    }
+    if (trimmedName && !userDoc.name) {
+      userDoc.name = trimmedName;
+      needsSave = true;
+    }
+    if (needsSave) await userDoc.save();
   }
 
   // Block login for deactivated users

@@ -21,6 +21,8 @@ export default function OTP() {
   const [verifiedOtp, setVerifiedOtp] = useState("")
   const [contactInfo, setContactInfo] = useState("")
   const [contactType, setContactType] = useState("phone")
+  const [deviceToken, setDeviceToken] = useState(null)
+  const [activePlatform, setActivePlatform] = useState("web")
   const inputRefs = useRef([])
   const submittingRef = useRef(false)
 
@@ -202,6 +204,9 @@ export default function OTP() {
         console.warn("Failed to get FCM token during login", e);
       }
 
+      setDeviceToken(fcmToken);
+      setActivePlatform(platform);
+
       const response = await authAPI.verifyOTP(
         phone,
         code4,
@@ -225,6 +230,15 @@ export default function OTP() {
       }
       if (!refreshToken) {
         throw new Error("Invalid response from server: missing refresh token")
+      }
+
+      // Check if user is new (missing name)
+      if (!user.name) {
+        setVerifiedOtp(code4)
+        setShowNameInput(true)
+        setIsLoading(false)
+        submittingRef.current = false
+        return
       }
 
       // Clear auth data from sessionStorage
@@ -300,6 +314,8 @@ export default function OTP() {
         "user",
         null,
         referralCode,
+        deviceToken,
+        activePlatform
       )
       const data = response?.data?.data || response?.data || {}
 
@@ -396,26 +412,41 @@ export default function OTP() {
         >
           <ArrowLeft className="h-5 w-5 md:h-6 md:w-6 text-black dark:text-white" />
         </button>
-        <h1 className="text-lg md:text-xl lg:text-2xl font-bold text-black dark:text-white">OTP Verification</h1>
+        <h1 className="text-lg md:text-xl lg:text-2xl font-bold text-black dark:text-white">
+          {showNameInput ? "Welcome!" : "OTP Verification"}
+        </h1>
       </div>
 
       {/* Main Content */}
       <div className="flex flex-col justify-center px-6 sm:px-8 md:px-12 lg:px-16 xl:px-20 pt-8 sm:pt-12 md:pt-16 lg:pt-20 pb-12 sm:pb-16 md:pb-20">
         <div className="max-w-md md:max-w-lg lg:max-w-xl xl:max-w-2xl mx-auto w-full space-y-8 md:space-y-10 lg:space-y-12">
           {/* Message */}
-          <div className="text-center space-y-2 md:space-y-3">
-            <p className="text-base md:text-lg lg:text-xl text-black dark:text-white">
-              {showNameInput
-                ? "You're almost done! Please tell us your name to complete registration."
-                : contactType === "email"
-                  ? "We have sent a verification code to"
-                  : "We have sent a verification code to"}
-            </p>
-            {!showNameInput && (
-              <p className="text-base md:text-lg lg:text-xl text-black dark:text-white font-medium">
-                {contactInfo}
-              </p>
+          <div className="text-center space-y-4 md:space-y-6">
+            {showNameInput && (
+              <div className="flex justify-center mb-2">
+                <div className="w-20 h-20 bg-[#EB590E]/10 rounded-full flex items-center justify-center">
+                  <div className="w-12 h-12 bg-[#EB590E] rounded-full flex items-center justify-center shadow-lg shadow-[#EB590E]/30">
+                    <span className="text-white text-2xl font-bold">?</span>
+                  </div>
+                </div>
+              </div>
             )}
+            <div className="space-y-2 md:space-y-3">
+              <p className="text-xl md:text-2xl lg:text-3xl font-bold text-black dark:text-white leading-tight">
+                {showNameInput 
+                  ? "Help us know you better" 
+                  : contactType === "email"
+                    ? "Verify your email"
+                    : "Verify your phone"}
+              </p>
+              <p className="text-sm md:text-base text-gray-500 dark:text-gray-400 max-w-sm mx-auto">
+                {showNameInput
+                  ? "We're excited to have you join us! Please tell us your full name to get started."
+                  : contactType === "email"
+                    ? `We've sent a 4-digit code to ${contactInfo}`
+                    : `We've sent a 4-digit code to ${contactInfo}`}
+              </p>
+            </div>
           </div>
 
           {/* Error message */}
