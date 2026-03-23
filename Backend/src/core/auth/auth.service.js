@@ -51,8 +51,9 @@ export const verifyUserOtpAndLogin = async (
   }
 
   // Ensure user exists and mark as verified on successful OTP.
-  let userDoc = await FoodUser.findOne({ phone });
-  const isNewUser = !userDoc;
+  // Check if user is new or hasn't provided a name yet
+  const needsNamePrompt = !userDoc || !userDoc.name || String(userDoc.name).trim() === "";
+  const isNewUser = needsNamePrompt;
   const trimmedName = typeof name === "string" ? name.trim() : "";
 
   if (!userDoc) {
@@ -199,7 +200,7 @@ export const verifyUserOtpAndLogin = async (
     expiresAt,
   });
 
-  return { accessToken, refreshToken, user };
+  return { accessToken, refreshToken, user, isNewUser };
 };
 
 export const adminLogin = async (email, password) => {
