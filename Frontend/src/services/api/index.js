@@ -97,6 +97,7 @@ export const authAPI = {
       phone,
       otp,
       _referralCode,
+      _name,
       fcmToken,
       platform,
     );
