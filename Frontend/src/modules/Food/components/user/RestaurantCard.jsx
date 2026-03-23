@@ -163,7 +163,8 @@ const RestaurantImageCarousel = React.memo(({ restaurant, priority = false, back
       
       {/* Discount Badge if any */}
       {restaurant.discount && (
-        <div className="absolute top-2 left-2 px-2 py-0.5 bg-blue-600 text-white text-[10px] font-bold rounded-sm shadow-sm uppercase tracking-tight">
+        <div className="absolute top-2 left-0 px-2.5 py-1 bg-gradient-to-r from-orange-500 to-red-500 text-white text-[10px] sm:text-xs font-black rounded-r-lg shadow-lg uppercase tracking-wider flex items-center gap-1">
+          <svg className="w-3 h-3 fill-current" viewBox="0 0 24 24"><path d="M12.864 2.227l8.909 8.91a2.182 2.182 0 010 3.085l-7.364 7.364a2.182 2.182 0 01-3.085 0l-8.91-8.91A2.182 2.182 0 012 11.137V4.41A2.182 2.182 0 014.182 2.23h6.727a2.182 2.182 0 011.955-.003z" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
           {restaurant.discount}
         </div>
       )}
@@ -180,10 +181,8 @@ const RestaurantCard = ({
 }) => {
   return (
     <motion.div
-      whileHover={{ y: -5 }}
-      whileTap={{ scale: 0.98 }}
       onClick={onClick}
-      className="bg-white dark:bg-[#111111] rounded-2xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300 border border-gray-100 dark:border-gray-800 group relative cursor-pointer"
+      className="bg-white rounded-2xl overflow-hidden border border-gray-100 shadow-[0_4px_12px_rgba(0,0,0,0.03)] hover:shadow-[0_8px_24px_rgba(0,0,0,0.08)] transition-all duration-300 group relative cursor-pointer transform hover:-translate-y-1 active:scale-95"
     >
       <div className="relative">
         <RestaurantImageCarousel restaurant={restaurant} backendOrigin={backendOrigin} />
@@ -192,39 +191,39 @@ const RestaurantCard = ({
             e.stopPropagation();
             onFavoriteClick(restaurant.id);
           }}
-          className="absolute top-3 right-3 p-2 bg-white/80 dark:bg-black/40 backdrop-blur-md rounded-full shadow-md hover:bg-white transition-colors duration-200"
+          className="absolute top-3 right-3 p-2 bg-white/90 backdrop-blur-md rounded-full shadow-sm hover:bg-red-50 hover:shadow-md hover:scale-110 transition-all duration-300 z-10"
         >
           <Heart
             className={`w-4 h-4 transition-colors duration-300 ${
-              isFavorite ? "fill-red-500 text-red-500" : "text-gray-600 dark:text-gray-300"
+              isFavorite ? "fill-red-500 text-red-500 border-none" : "text-gray-400 stroke-[2.5]"
             }`}
           />
         </button>
       </div>
 
       <div className="p-3 sm:p-4">
-        <div className="flex justify-between items-start gap-2 mb-1">
-          <h3 className="text-base sm:text-lg font-medium text-gray-900 dark:text-gray-100 line-clamp-1 group-hover:text-primary-orange transition-colors duration-300 flex-1">
+        <div className="flex justify-between items-start gap-2 mb-1.5">
+          <h3 className="text-[15px] sm:text-[17px] font-bold text-gray-900 line-clamp-1 group-hover:text-primary-orange transition-colors duration-200 flex-1 tracking-tight">
             {restaurant.name}
           </h3>
-          <div className="flex items-center gap-1 bg-green-600 text-white px-1.5 py-0.5 rounded text-[10px] sm:text-xs font-medium shadow-sm flex-shrink-0">
-            <span>{restaurant.rating}</span>
+          <div className="flex items-center gap-1 bg-green-600 text-white px-1.5 py-0.5 rounded-md text-[10px] sm:text-[11px] font-bold shadow-sm flex-shrink-0">
+            <span>{restaurant.rating || "4.2"}</span>
             <Star className="w-2.5 h-2.5 fill-current" />
           </div>
         </div>
 
-        <p className="text-[10px] sm:text-xs text-muted-foreground dark:text-gray-400 mb-2 line-clamp-1 italic">
-          {restaurant.cuisine}
+        <p className="text-[11px] sm:text-[13px] text-gray-500 mb-2.5 line-clamp-1 font-medium">
+          {restaurant.cuisine || "North Indian, Chinese"}
         </p>
 
-        <div className="flex items-center justify-between pt-2 border-t border-gray-100 dark:border-gray-800">
-          <div className="flex items-center gap-1.5 text-gray-500 dark:text-gray-400">
-            <Clock className="w-3.5 h-3.5 text-primary-orange" />
-            <span className="text-[10px] sm:text-[11px] font-normal">{restaurant.deliveryTime || "25-35 min"}</span>
+        <div className="flex items-center justify-between pt-2.5 border-t border-gray-100/80">
+          <div className="flex items-center gap-1.5 text-gray-600 bg-gray-50 px-2 py-1 rounded-md">
+            <Clock className="w-3.5 h-3.5 text-orange-500" />
+            <span className="text-[10px] sm:text-xs font-semibold">{restaurant.deliveryTime || "25-30 min"}</span>
           </div>
-          <div className="flex items-center gap-1 text-gray-700 dark:text-gray-200">
-            <IndianRupee className="w-3 h-3 text-primary-orange" />
-            <span className="text-[10px] sm:text-[11px] font-medium">{restaurant.avgPrice || "200 for two"}</span>
+          <div className="flex items-center gap-1 text-gray-600 bg-gray-50 px-2 py-1 rounded-md">
+            <IndianRupee className="w-3 h-3 text-orange-500" />
+            <span className="text-[10px] sm:text-xs font-semibold">{restaurant.avgPrice || "₹200 for one"}</span>
           </div>
         </div>
       </div>
