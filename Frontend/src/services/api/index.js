@@ -833,12 +833,6 @@ export const restaurantAPI = {
   getMe: () => authService.getMe("restaurant"),
   /** Restaurant dashboard: fetch current restaurant profile (deduped + short-cached). */
   getCurrentRestaurant: () => getRestaurantCurrentOnce(),
-  /** Restaurant hub dashboard bootstrap. */
-  getToHubData: (config = {}) =>
-    apiClient.get("/food/restaurant/to-hub", {
-      contextModule: "restaurant",
-      ...config,
-    }),
   /** Finance dashboard for `hub-finance`. */
   getFinance: (params = {}) =>
     apiClient.get("/food/restaurant/finance", {
