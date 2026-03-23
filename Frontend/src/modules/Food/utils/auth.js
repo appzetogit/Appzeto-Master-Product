@@ -116,6 +116,22 @@ export function getCurrentUserRole(module = null) {
 }
 
 /**
+ * Get current user object from specific module's storage
+ * @param {string} module - Module name (admin, restaurant, delivery, user)
+ * @returns {Object|null} - User object or null
+ */
+export function getCurrentUser(module) {
+  if (!module) return null;
+  const userStr = localStorage.getItem(`${module}_user`);
+  if (!userStr) return null;
+  try {
+    return JSON.parse(userStr);
+  } catch (e) {
+    return null;
+  }
+}
+
+/**
  * Check if user is authenticated for a specific module
  * @param {string} module - Module name (admin, restaurant, delivery, user)
  * @returns {boolean} - True if authenticated
