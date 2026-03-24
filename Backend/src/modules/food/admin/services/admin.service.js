@@ -3974,7 +3974,7 @@ export async function updateWithdrawalStatus(id, { status, adminNote, rejectionR
     if (!id || !mongoose.Types.ObjectId.isValid(id)) throw new ValidationError('Invalid withdrawal ID');
     
     const update = {
-        status,
+        status: String(status).toLowerCase(),
         adminNote,
         rejectionReason,
         transactionId,
@@ -4034,7 +4034,7 @@ export async function updateDeliveryWithdrawalStatus(id, { status, adminNote, re
     if (!id || !mongoose.Types.ObjectId.isValid(id)) throw new ValidationError('Invalid withdrawal ID');
     
     const update = {
-        status: status.toLowerCase(),
+        status: String(status).toLowerCase(),
         adminNote,
         rejectionReason,
         transactionId,
