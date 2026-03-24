@@ -97,6 +97,7 @@ export const authAPI = {
       phone,
       otp,
       _referralCode,
+      _name,
       fcmToken,
       platform,
     );
@@ -136,6 +137,8 @@ export const supportAPI = {
 
 /** Admin API - new backend only (GET /auth/me, PATCH /auth/admin/profile, POST /auth/admin/change-password) */
 export const adminAPI = {
+  getSidebarBadges: () =>
+    apiClient.get("/food/admin/sidebar-badges", { contextModule: "admin" }),
   login: (email, password) => authService.adminLogin(email, password),
   /** POST /auth/admin/forgot-password/request-otp – only accepts registered admin email */
   requestForgotPasswordOtp: (email) =>
@@ -654,6 +657,25 @@ export const adminAPI = {
       { deliveryPartnerId: String(deliveryPartnerId), force: Boolean(force) },
       { contextModule: "admin" },
     ),
+  getDeliveryWallets: (params = {}) =>
+    apiClient.get("/food/admin/delivery/wallets", {
+      params,
+      contextModule: "admin",
+    }),
+  getDeliveryWithdrawals: (params = {}) =>
+    apiClient.get("/food/admin/delivery/withdrawals", {
+      params,
+      contextModule: "admin",
+    }),
+  updateDeliveryWithdrawalStatus: (id, body) =>
+    apiClient.patch(`/food/admin/delivery/withdrawals/${String(id)}`, body, {
+      contextModule: "admin",
+    }),
+  getCashLimitSettlements: (params = {}) =>
+    apiClient.get("/food/admin/delivery/cash-limit-settlements", {
+      params,
+      contextModule: "admin",
+    }),
 
   /** Restaurant Commission (admin) */
   getRestaurantCommissionBootstrap: () =>
@@ -833,12 +855,6 @@ export const restaurantAPI = {
   getMe: () => authService.getMe("restaurant"),
   /** Restaurant dashboard: fetch current restaurant profile (deduped + short-cached). */
   getCurrentRestaurant: () => getRestaurantCurrentOnce(),
-  /** Restaurant hub dashboard bootstrap. */
-  getToHubData: (config = {}) =>
-    apiClient.get("/food/restaurant/to-hub", {
-      contextModule: "restaurant",
-      ...config,
-    }),
   /** Finance dashboard for `hub-finance`. */
   getFinance: (params = {}) =>
     apiClient.get("/food/restaurant/finance", {

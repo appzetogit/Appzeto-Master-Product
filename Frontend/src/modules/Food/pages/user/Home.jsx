@@ -399,7 +399,7 @@ export default function Home() {
   const [vegModeOption, setVegModeOption] = useState("all"); // "all" or "pure-veg"
   const [isApplyingVegMode, setIsApplyingVegMode] = useState(false);
   const [isSwitchingOffVegMode, setIsSwitchingOffVegMode] = useState(false);
-  const [popupPosition, setPopupPosition] = useState({ top: 0, right: 0 });
+  const [popupPosition, setPopupPosition] = useState({ top: 0, left: 0, triangleLeft: 0 });
   const vegModeToggleRef = useRef(null);
   const [currentBannerIndex, setCurrentBannerIndex] = useState(0);
   const [heroBannerImages, setHeroBannerImages] = useState([]);
@@ -663,12 +663,6 @@ export default function Home() {
         href: "/food/user/gourmet",
       },
       {
-        id: "top10",
-        label: "Top 10",
-        image: exploreTop10,
-        href: "/food/user/top-10",
-      },
-      {
         id: "collection",
         label: "Collections",
         image: exploreCollection,
@@ -756,9 +750,18 @@ export default function Home() {
       // Calculate popup position relative to toggle
       if (vegModeToggleRef.current) {
         const rect = vegModeToggleRef.current.getBoundingClientRect();
+        const screenWidth = window.innerWidth;
+        const popupWidth = Math.min(screenWidth - 32, 320); // 320 is max-w-xs
+        
+        let left = rect.left + rect.width / 2 - popupWidth / 2;
+        left = Math.max(16, Math.min(left, screenWidth - popupWidth - 16));
+        
+        const triangleLeft = rect.left + rect.width / 2 - left;
+        
         setPopupPosition({
           top: rect.bottom + 10,
-          right: window.innerWidth - rect.right,
+          left: left,
+          triangleLeft: triangleLeft
         });
       }
       setShowVegModePopup(true);
@@ -782,9 +785,18 @@ export default function Home() {
     const updatePosition = () => {
       if (vegModeToggleRef.current) {
         const rect = vegModeToggleRef.current.getBoundingClientRect();
+        const screenWidth = window.innerWidth;
+        const popupWidth = Math.min(screenWidth - 32, 320);
+        
+        let left = rect.left + rect.width / 2 - popupWidth / 2;
+        left = Math.max(16, Math.min(left, screenWidth - popupWidth - 16));
+        
+        const triangleLeft = rect.left + rect.width / 2 - left;
+        
         setPopupPosition({
           top: rect.bottom + 10,
-          right: window.innerWidth - rect.right,
+          left: left,
+          triangleLeft: triangleLeft
         });
       }
     };
@@ -2529,6 +2541,8 @@ export default function Home() {
                   <PromoRow 
                     handleVegModeChange={handleVegModeChange}
                     navigate={navigate}
+                    isVegMode={vegMode}
+                    toggleRef={vegModeToggleRef}
                   />
                 </div>
 
@@ -3536,13 +3550,14 @@ export default function Home() {
                 className="fixed z-[9999] bg-white dark:bg-[#1a1a1a] rounded-2xl shadow-2xl p-4 w-[calc(100%-2rem)] max-w-xs"
                 style={{
                   top: `${popupPosition.top}px`,
-                  right: `${popupPosition.right}px`,
+                  left: `${popupPosition.left}px`,
                 }}
                 onClick={(e) => e.stopPropagation()}>
                 {/* Pointer Triangle */}
                 <div
-                  className="absolute -top-2 right-5 w-3 h-3 bg-white dark:bg-[#1a1a1a] transform rotate-45"
+                  className="absolute -top-2 w-3 h-3 bg-white dark:bg-[#1a1a1a] transform rotate-45"
                   style={{
+                    left: `${popupPosition.triangleLeft - 6}px`,
                     boxShadow: "-2px -2px 4px rgba(0,0,0,0.1)",
                   }}
                 />

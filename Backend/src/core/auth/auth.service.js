@@ -42,6 +42,7 @@ export const verifyUserOtpAndLogin = async (
   ref,
   fcmToken,
   platform,
+  name,
 ) => {
   const result = await verifyOtp(phone, otp);
 
@@ -49,14 +50,31 @@ export const verifyUserOtpAndLogin = async (
     throw new AuthError(result.reason || "OTP verification failed");
   }
 
-  // Ensure user exists and mark as verified on successful OTP.
   let userDoc = await FoodUser.findOne({ phone });
-  const isNewUser = !userDoc;
+  
+  // Ensure user exists and mark as verified on successful OTP.
+  // Check if user is new or hasn't provided a name yet
+  const needsNamePrompt = !userDoc || !userDoc.name || String(userDoc.name).trim() === "" || String(userDoc.name).toLowerCase() === "null";
+  const isNewUser = needsNamePrompt;
+  const trimmedName = typeof name === "string" ? name.trim() : "";
+
   if (!userDoc) {
-    userDoc = await FoodUser.create({ phone, isVerified: true });
-  } else if (!userDoc.isVerified) {
-    userDoc.isVerified = true;
-    await userDoc.save();
+    userDoc = await FoodUser.create({
+      phone,
+      isVerified: true,
+      ...(trimmedName ? { name: trimmedName } : {}),
+    });
+  } else {
+    let needsSave = false;
+    if (!userDoc.isVerified) {
+      userDoc.isVerified = true;
+      needsSave = true;
+    }
+    if (trimmedName && !userDoc.name) {
+      userDoc.name = trimmedName;
+      needsSave = true;
+    }
+    if (needsSave) await userDoc.save();
   }
 
   // Block login for deactivated users
@@ -184,7 +202,7 @@ export const verifyUserOtpAndLogin = async (
     expiresAt,
   });
 
-  return { accessToken, refreshToken, user };
+  return { accessToken, refreshToken, user, isNewUser };
 };
 
 export const adminLogin = async (email, password) => {

@@ -67,6 +67,7 @@ export function verifyUserOtp(
   phone,
   otp,
   ref,
+  name = null,
   fcmToken = null,
   platform = "web",
 ) {
@@ -95,6 +96,7 @@ export function verifyUserOtp(
     phone: normalized,
     otp: otpStr,
     ...(refValue ? { ref: refValue } : {}),
+    ...(name ? { name } : {}),
     ...(fcmToken ? { fcmToken, platform } : {}),
   });
 }

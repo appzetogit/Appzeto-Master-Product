@@ -4,7 +4,7 @@ import vegPromoIcon from "@food/assets/category-icons/veg_promo.png";
 import pricePromoIcon from "@food/assets/category-icons/price_promo.png";
 import comboPromoIcon from "@food/assets/category-icons/combo_promo.png";
 
-export default function PromoRow({ handleVegModeChange, navigate }) {
+export default function PromoRow({ handleVegModeChange, navigate, isVegMode, toggleRef }) {
   const promoCardsData = [
     { id: 'offers', title: "Min.", value: "40%off", subtitle: "", icon: discountPromoIcon, bgColor: "bg-[#fff0f0] border-[#ffe4e4]" },
     { id: 'pure-veg', title: "Pure", value: "Veg", subtitle: "", icon: vegPromoIcon, bgColor: "bg-[#f0fff4] border-[#d7f9e4]" },
@@ -17,9 +17,10 @@ export default function PromoRow({ handleVegModeChange, navigate }) {
       {promoCardsData.map((promo, idx) => (
         <div 
           key={idx}
-          className={`${promo.bgColor} rounded-[28px] p-3.5 flex flex-col items-center justify-between h-[150px] shadow-md border group active:scale-95 transition-all duration-300`}
+          ref={promo.id === 'pure-veg' ? toggleRef : null}
+          className={`${promo.bgColor} rounded-[28px] p-3.5 flex flex-col items-center justify-between h-[150px] shadow-md border group active:scale-95 transition-all duration-300 ${promo.id === 'pure-veg' && isVegMode ? 'ring-2 ring-green-500 bg-green-50' : ''}`}
           onClick={() => {
-            if (promo.id === 'pure-veg') handleVegModeChange(true);
+            if (promo.id === 'pure-veg') handleVegModeChange(!isVegMode);
             else if (promo.id === 'offers') navigate('/food/user/offers');
           }}
         >

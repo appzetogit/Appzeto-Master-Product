@@ -13,7 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@food/components/ui/select"
-import { restaurantAPI, zoneAPI } from "@food/api"
+import { restaurantAPI, zoneAPI, api } from "@food/api"
 import { MobileTimePicker } from "@mui/x-date-pickers/MobileTimePicker"
 import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider"
 import { AdapterDateFns } from "@mui/x-date-pickers/AdapterDateFns"
@@ -342,6 +342,7 @@ export default function RestaurantOnboarding() {
   const [error, setError] = useState("")
   const [verifiedPhoneNumber, setVerifiedPhoneNumber] = useState("")
   const [keyboardInset, setKeyboardInset] = useState(0)
+  const [isEditing, setIsEditing] = useState(false)
   const [isFssaiCalendarOpen, setIsFssaiCalendarOpen] = useState(false)
   const [zones, setZones] = useState([])
   const [zonesLoading, setZonesLoading] = useState(false)
@@ -714,94 +715,91 @@ export default function RestaurantOnboarding() {
     const fetchData = async () => {
       try {
         setLoading(true)
-        const res = await api.get("/restaurant/onboarding")
-        const data = res?.data?.data?.onboarding
+        // Use restaurantAPI.getCurrentRestaurant() to fetch real data
+        const res = await restaurantAPI.getCurrentRestaurant()
+        const data = res?.data?.data?.restaurant || res?.data?.restaurant
+        
         if (data) {
-          if (data.step1) {
-            setStep1((prev) => ({
-              restaurantName: data.step1.restaurantName || "",
-              pureVegRestaurant:
-                typeof data.step1.pureVegRestaurant === "boolean"
-                  ? data.step1.pureVegRestaurant
-                  : null,
-              ownerName: data.step1.ownerName || "",
-              ownerEmail: data.step1.ownerEmail || "",
-              ownerPhone: data.step1.ownerPhone || "",
-              zoneId: data.step1.zoneId || prev.zoneId || "",
-              primaryContactNumber: data.step1.primaryContactNumber || "",
-              location: {
-                formattedAddress: data.step1.location?.formattedAddress || "",
-                addressLine1: data.step1.location?.addressLine1 || "",
-                addressLine2: data.step1.location?.addressLine2 || "",
-                area: data.step1.location?.area || "",
-                city: data.step1.location?.city || "",
-                state: data.step1.location?.state || "",
-                pincode: data.step1.location?.pincode || "",
-                landmark: data.step1.location?.landmark || "",
-                latitude: data.step1.location?.latitude ?? "",
-                longitude: data.step1.location?.longitude ?? "",
-              },
-            }))
-          }
-          if (data.step2) {
-            setStep2((prev) => {
-              const localMenuFiles = (prev.menuImages || []).filter((img) => isUploadableFile(img))
-              const localProfileFile = isUploadableFile(prev.profileImage) ? prev.profileImage : null
-              const apiMenuImages = data.step2.menuImageUrls || []
+          setIsEditing(false)
+          // Map Step 1
+          setStep1((prev) => ({
+            restaurantName: data.name || data.restaurantName || "",
+            pureVegRestaurant: typeof data.pureVegRestaurant === "boolean" ? data.pureVegRestaurant : null,
+            ownerName: data.ownerName || "",
+            ownerEmail: data.ownerEmail || "",
+            ownerPhone: data.ownerPhone || "",
+            zoneId: data.zoneId || prev.zoneId || "",
+            primaryContactNumber: data.primaryContactNumber || "",
+            location: {
+              formattedAddress: data.location?.formattedAddress || data.location?.address || "",
+              addressLine1: data.location?.addressLine1 || "",
+              addressLine2: data.location?.addressLine2 || "",
+              area: data.location?.area || "",
+              city: data.location?.city || "",
+              state: data.location?.state || "",
+              pincode: data.location?.pincode || "",
+              landmark: data.location?.landmark || "",
+              latitude: data.location?.latitude ?? "",
+              longitude: data.location?.longitude ?? "",
+            },
+          }))
 
-              return {
-                menuImages: localMenuFiles.length > 0 ? [...apiMenuImages, ...localMenuFiles] : apiMenuImages,
-                profileImage: localProfileFile || data.step2.profileImageUrl || null,
-                cuisines: data.step2.cuisines || [],
-                openingTime: normalizeTimeValue(data.step2.deliveryTimings?.openingTime),
-                closingTime: normalizeTimeValue(data.step2.deliveryTimings?.closingTime),
-                openDays: data.step2.openDays || [],
-              }
-            })
-          }
-          if (data.step3) {
-            setStep3({
-              panNumber: data.step3.pan?.panNumber || "",
-              nameOnPan: data.step3.pan?.nameOnPan || "",
-              panImage: onboardingFileCache.step3.panImage || null,
-              gstRegistered: data.step3.gst?.isRegistered || false,
-              gstNumber: data.step3.gst?.gstNumber || "",
-              gstLegalName: data.step3.gst?.legalName || "",
-              gstAddress: data.step3.gst?.address || "",
-              gstImage: onboardingFileCache.step3.gstImage || null,
-              fssaiNumber: data.step3.fssai?.registrationNumber || "",
-              fssaiExpiry: data.step3.fssai?.expiryDate
-                ? data.step3.fssai.expiryDate.slice(0, 10)
-                : "",
-              fssaiImage: onboardingFileCache.step3.fssaiImage || null,
-              accountNumber: data.step3.bank?.accountNumber || "",
-              confirmAccountNumber: data.step3.bank?.accountNumber || "",
-              ifscCode: (data.step3.bank?.ifscCode || "").toUpperCase(),
-              accountHolderName: data.step3.bank?.accountHolderName || "",
-              accountType: normalizeAccountTypeValue(data.step3.bank?.accountType || ""),
-            })
-          }
+          // Map Step 2
+          setStep2({
+            menuImages: data.menuImages || [],
+            profileImage: data.profileImage || null,
+            cuisines: data.cuisines || [],
+            openingTime: normalizeTimeValue(data.openingTime),
+            closingTime: normalizeTimeValue(data.closingTime),
+            openDays: data.openDays || [],
+          })
 
-          if (data.step4) {
-            setStep4({
-              estimatedDeliveryTime: data.step4.estimatedDeliveryTime || "",
-              featuredDish: data.step4.featuredDish || "",
-              featuredPrice: data.step4.featuredPrice || "",
-              offer: data.step4.offer || "",
-            })
-          }
+          // Map Step 3
+          setStep3({
+            panNumber: data.panNumber || "",
+            nameOnPan: data.nameOnPan || "",
+            panImage: data.panImage || null,
+            gstRegistered: !!data.gstRegistered,
+            gstNumber: data.gstNumber || "",
+            gstLegalName: data.gstLegalName || "",
+            gstAddress: data.gstAddress || "",
+            gstImage: data.gstImage || null,
+            fssaiNumber: data.fssaiNumber || "",
+            fssaiExpiry: data.fssaiExpiry ? String(data.fssaiExpiry).split('T')[0] : "",
+            fssaiImage: data.fssaiImage || null,
+            accountNumber: data.accountNumber || "",
+            confirmAccountNumber: data.accountNumber || "",
+            ifscCode: (data.ifscCode || "").toUpperCase(),
+            accountHolderName: data.accountHolderName || "",
+            accountType: normalizeAccountTypeValue(data.accountType || ""),
+          })
 
-          // Determine which step to show based on completeness
-          const stepToShow = determineStepToShow(data)
-          setStep(stepToShow)
+          // Map Step 4
+          setStep4({
+            estimatedDeliveryTime: data.estimatedDeliveryTime || "",
+            featuredDish: data.featuredDish || "",
+            featuredPrice: data.featuredPrice || "",
+            offer: data.offer || "",
+          })
+
+          // Only determine step automatically if not specified in URL
+          const stepParam = searchParams.get("step")
+          if (!stepParam) {
+            // If already registered/pending, stay on step 1 for editing
+            if (data.status === "approved" || data.status === "pending") {
+               setStep(1)
+            } else {
+               const stepToShow = determineStepToShow({ step1: data, step2: data, step3: data, step4: data })
+               setStep(stepToShow)
+            }
+          }
+        } else {
+          setIsEditing(true)
         }
       } catch (err) {
-        // Handle error gracefully - if it's a 401 (unauthorized), the user might need to login again
-        // Otherwise, just continue with empty onboarding data
+        setIsEditing(true)
         if (err?.response?.status === 401) {
           debugError("Authentication error fetching onboarding:", err)
-          // Don't show error to user, they can still fill the form
-          // The error might be because restaurant is not yet active (pending verification)
         } else {
           debugError("Error fetching onboarding data:", err)
         }
@@ -809,8 +807,9 @@ export default function RestaurantOnboarding() {
         setLoading(false)
       }
     }
+
     fetchData()
-  }, [])
+  }, [searchParams])
 
   const handleUpload = async (file, folder) => {
     try {
@@ -1040,69 +1039,9 @@ export default function RestaurantOnboarding() {
   }
 
   // Fill dummy data for testing (development mode only)
-  const fillDummyData = () => {
-    if (step === 1) {
-      setStep1({
-        restaurantName: "Test Restaurant",
-        pureVegRestaurant: true,
-        ownerName: "John Doe",
-        ownerEmail: "john.doe@example.com",
-        ownerPhone: "+91 9876543210",
-        primaryContactNumber: "+91 9876543210",
-        location: {
-          addressLine1: "123 Main Street",
-          addressLine2: "Building A, Floor 2",
-          area: "Downtown",
-          city: "Mumbai",
-          landmark: "Near Central Park",
-        },
-      })
-      toast.success("Step 1 filled with dummy data", { duration: 2000 })
-    } else if (step === 2) {
-      setStep2({
-        menuImages: [],
-        profileImage: null,
-        cuisines: ["North Indian", "Chinese"],
-        openingTime: "09:00",
-        closingTime: "22:00",
-        openDays: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
-      })
-      toast.success("Step 2 filled with dummy data", { duration: 2000 })
-    } else if (step === 3) {
-      // Calculate expiry date 1 year from now
-      const expiryDate = new Date()
-      expiryDate.setFullYear(expiryDate.getFullYear() + 1)
-      const expiryDateString = formatDateToLocalYMD(expiryDate)
 
-      setStep3({
-        panNumber: "ABCDE1234F",
-        nameOnPan: "John Doe",
-        panImage: null,
-        gstRegistered: true,
-        gstNumber: "27ABCDE1234F1Z5",
-        gstLegalName: "Test Restaurant Private Limited",
-        gstAddress: "123 Main Street, Mumbai, Maharashtra 400001",
-        gstImage: null,
-        fssaiNumber: "12345678901234",
-        fssaiExpiry: expiryDateString,
-        fssaiImage: null,
-        accountNumber: "1234567890123",
-        confirmAccountNumber: "1234567890123",
-        ifscCode: "HDFC0001234",
-        accountHolderName: "John Doe",
-        accountType: "Saving",
-      })
-      toast.success("Step 3 filled with dummy data", { duration: 2000 })
-    } else if (step === 4) {
-      setStep4({
-        estimatedDeliveryTime: "25-30 mins",
-        featuredDish: "Butter Chicken Special",
-        featuredPrice: "249",
-        offer: "Flat 50 Rs. OFF on Order Above Rs.199",
-      })
-      toast.success("Step 4 filled with dummy data", { duration: 2000 })
-    }
-  }
+
+
 
   const handleNext = async () => {
     setError("")
@@ -1285,6 +1224,7 @@ export default function RestaurantOnboarding() {
               onChange={(e) => setStep1({ ...step1, restaurantName: e.target.value })}
               className="mt-1 bg-white text-sm text-black placeholder-black"
               placeholder="Customers will see this name"
+              disabled={!isEditing}
             />
           </div>
           <div>
@@ -1292,23 +1232,23 @@ export default function RestaurantOnboarding() {
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                onClick={() => setStep1({ ...step1, pureVegRestaurant: true })}
+                onClick={() => isEditing && setStep1({ ...step1, pureVegRestaurant: true })}
                 className={`px-3 py-1.5 text-xs rounded-full border ${
                   step1.pureVegRestaurant === true
                     ? "bg-green-600 text-white border-green-600"
                     : "bg-white text-gray-700 border-gray-200"
-                }`}
+                } ${!isEditing ? "opacity-70 cursor-not-allowed" : ""}`}
               >
                 Yes, Pure Veg
               </button>
               <button
                 type="button"
-                onClick={() => setStep1({ ...step1, pureVegRestaurant: false })}
+                onClick={() => isEditing && setStep1({ ...step1, pureVegRestaurant: false })}
                 className={`px-3 py-1.5 text-xs rounded-full border ${
                   step1.pureVegRestaurant === false
                     ? "bg-gray-900 text-white border-gray-900"
                     : "bg-white text-gray-700 border-gray-200"
-                }`}
+                } ${!isEditing ? "opacity-70 cursor-not-allowed" : ""}`}
               >
                 No, Mixed Menu
               </button>
@@ -1333,6 +1273,7 @@ export default function RestaurantOnboarding() {
               onChange={(e) => setStep1({ ...step1, ownerName: e.target.value })}
               className="mt-1 bg-white text-sm text-black placeholder-black"
               placeholder="Owner full name"
+              disabled={!isEditing}
             />
           </div>
           <div>
@@ -1343,6 +1284,7 @@ export default function RestaurantOnboarding() {
               onChange={(e) => setStep1({ ...step1, ownerEmail: e.target.value })}
               className="mt-1 bg-white text-sm text-black placeholder-black"
               placeholder="owner@example.com"
+              disabled={!isEditing}
             />
           </div>
           <div>
@@ -1353,6 +1295,7 @@ export default function RestaurantOnboarding() {
               readOnly={Boolean(verifiedPhoneNumber)}
               className="mt-1 bg-white text-sm text-black placeholder-black"
               placeholder="+91 98XXXXXX"
+              disabled={!isEditing}
             />
           </div>
         </div>
@@ -1370,6 +1313,7 @@ export default function RestaurantOnboarding() {
             readOnly={Boolean(verifiedPhoneNumber)}
             className="mt-1 bg-white text-sm text-black placeholder-black"
             placeholder="Restaurant's primary contact number"
+            disabled={!isEditing}
           />
           <p className="text-[11px] text-gray-500 mt-1">
             Customers, delivery partners and {companyName} may call on this number for order
@@ -1386,7 +1330,7 @@ export default function RestaurantOnboarding() {
               value={step1.zoneId || ""}
               onChange={(e) => setStep1({ ...step1, zoneId: e.target.value })}
               className="mt-1 w-full h-9 rounded-md border border-input bg-white px-3 text-sm"
-              disabled={zonesLoading}
+              disabled={zonesLoading || !isEditing}
             >
               <option value="">{zonesLoading ? "Loading zones..." : "Select a zone"}</option>
               {zones.map((z) => {
@@ -1410,6 +1354,7 @@ export default function RestaurantOnboarding() {
               className="mt-1 bg-white text-sm text-black! dark:text-white! placeholder:text-gray-500 dark:placeholder:text-gray-400 caret-black dark:caret-white"
               style={{ color: "#000", WebkitTextFillColor: "#000" }}
               placeholder="Start typing your restaurant address..."
+              disabled={!isEditing}
             />
             <p className="text-[11px] text-gray-500 mt-1">
               Select a suggestion to auto-fill area/city/state/pincode and coordinates.
@@ -2384,7 +2329,7 @@ export default function RestaurantOnboarding() {
         <header className="px-4 py-4 sm:px-6 sm:py-5 bg-white flex items-center justify-between border-b">
           <div className="flex items-center gap-3">
             <button
-              onClick={() => navigate("/restaurant/login")}
+              onClick={() => navigate("/food/restaurant/explore")}
               className="p-1 hover:bg-gray-100 rounded-full transition-colors"
               aria-label="Close onboarding"
             >
@@ -2393,22 +2338,23 @@ export default function RestaurantOnboarding() {
             <div className="text-sm font-semibold text-black">Restaurant onboarding</div>
           </div>
           <div className="flex items-center gap-3">
-            {import.meta.env.DEV && (
+            {!loading && !isEditing && (
               <Button
-                onClick={fillDummyData}
+                onClick={() => setIsEditing(true)}
                 variant="outline"
                 size="sm"
-                className="text-xs bg-yellow-50 border-yellow-300 text-yellow-700 hover:bg-yellow-100 flex items-center gap-1.5"
-                title="Fill with dummy data (Dev only)"
+                className="text-xs bg-blue-50 border-blue-300 text-blue-700 hover:bg-blue-100 flex items-center gap-1.5"
+                title="Edit Details"
               >
                 <Sparkles className="w-3 h-3" />
-                Fill Dummy
+                Edit Details
               </Button>
             )}
             <div className="text-xs text-gray-600">
               Step {step} of 4
             </div>
           </div>
+
         </header>
 
         <main
@@ -2426,7 +2372,9 @@ export default function RestaurantOnboarding() {
           {loading ? (
             <p className="text-sm text-gray-600">Loading...</p>
           ) : (
-            renderStep()
+            <div className={!isEditing ? "pointer-events-none select-none" : ""}>
+              {renderStep()}
+            </div>
           )}
         </main>
 
@@ -2465,8 +2413,8 @@ export default function RestaurantOnboarding() {
             </Button>
             <Button
               onClick={handleNext}
-              disabled={saving}
-              className="text-sm bg-black text-white px-6"
+              disabled={saving || (step === 4 && !isEditing)}
+              className={`text-sm bg-black text-white px-6 ${(step === 4 && !isEditing) ? "opacity-50 cursor-not-allowed" : ""}`}
             >
               {step === 4 ? (saving ? "Saving..." : "Finish") : saving ? "Saving..." : "Continue"}
             </Button>
