@@ -48,9 +48,7 @@ const Gourmet = lazy(() => import("@food/pages/user/Gourmet"))
 const Collections = lazy(() => import("@food/pages/user/Collections"))
 const CollectionDetail = lazy(() => import("@food/pages/user/CollectionDetail"))
 
-// Gift Cards
-const GiftCards = lazy(() => import("@food/pages/user/GiftCards"))
-const GiftCardCheckout = lazy(() => import("@food/pages/user/GiftCardCheckout"))
+
 
 // Profile
 const Profile = lazy(() => import("@food/pages/user/profile/Profile"))
@@ -171,9 +169,7 @@ export default function UserRouter() {
           <Route path="collections" element={<Collections />} />
           <Route path="collections/:id" element={<CollectionDetail />} />
 
-          {/* Gift Cards */}
-          <Route path="gift-card" element={<GiftCards />} />
-          <Route path="gift-card/checkout" element={<GiftCardCheckout />} />
+
 
           {/* Profile - Protected (require user auth) */}
           <Route
