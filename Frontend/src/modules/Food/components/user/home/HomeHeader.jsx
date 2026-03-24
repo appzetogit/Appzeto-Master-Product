@@ -8,6 +8,7 @@ import {
   PopoverTrigger 
 } from "@food/components/ui/popover";
 import { Badge } from "@food/components/ui/badge";
+import { Avatar, AvatarFallback } from "@food/components/ui/avatar";
 import foodIcon from "@food/assets/category-icons/food.png";
 import quickIcon from "@food/assets/category-icons/quick.png";
 import taxiIcon from "@food/assets/category-icons/taxi.png";
@@ -105,7 +106,6 @@ export default function HomeHeader({
             </span>
           </div>
         </div>
-        
         <Popover>
           <PopoverTrigger asChild>
             <div className="h-11 w-11 relative flex items-center justify-center rounded-full bg-white/10 backdrop-blur-md border border-white/20 shadow-lg cursor-pointer active:scale-95 transition-all">
@@ -224,7 +224,6 @@ export default function HomeHeader({
             </motion.span>
           </AnimatePresence>
         </div>
-        <Mic className="h-4 w-4 text-gray-500 ml-2" strokeWidth={2.5} />
       </div>
     </div>
   );
