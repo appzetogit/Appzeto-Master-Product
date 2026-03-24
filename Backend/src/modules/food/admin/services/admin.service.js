@@ -4013,7 +4013,7 @@ export async function getDeliveryWithdrawals(query = {}) {
             .sort({ createdAt: -1 })
             .skip(skip)
             .limit(limit)
-            .populate('deliveryPartnerId', 'name phone profilePartnerId')
+            .populate('deliveryPartnerId', 'name phone profilePartnerId upiId upiQrCode')
             .lean(),
         FoodDeliveryWithdrawal.countDocuments(filter)
     ]);
