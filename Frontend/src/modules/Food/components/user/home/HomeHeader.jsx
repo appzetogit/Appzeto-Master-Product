@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { MapPin, ChevronDown, Search, Mic, User } from 'lucide-react';
+import { MapPin, ChevronDown, Search } from 'lucide-react';
 import { Avatar, AvatarFallback } from "@food/components/ui/avatar";
 import foodIcon from "@food/assets/category-icons/food.png";
 import quickIcon from "@food/assets/category-icons/quick.png";
@@ -59,13 +59,6 @@ export default function HomeHeader({
               {location?.area || location?.city || savedAddressText || "Select Location"}
             </span>
           </div>
-        </div>
-        <div className="h-11 w-11 rounded-full bg-white/10 p-1 backdrop-blur-md border border-white/20 shadow-lg cursor-pointer active:scale-90 transition-all">
-          <Avatar className="h-full w-full rounded-full border border-white/40">
-            <AvatarFallback className="bg-white text-gray-400">
-              <User className="h-6 w-6" />
-            </AvatarFallback>
-          </Avatar>
         </div>
       </div>
 
@@ -132,7 +125,6 @@ export default function HomeHeader({
             </motion.span>
           </AnimatePresence>
         </div>
-        <Mic className="h-4 w-4 text-gray-500 ml-2" strokeWidth={2.5} />
       </div>
     </div>
   );
