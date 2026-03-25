@@ -25,7 +25,8 @@ import {
     verifyPaymentSignature,
     getRazorpayKeyId,
     isRazorpayConfigured,
-    fetchRazorpayPaymentLink
+    fetchRazorpayPaymentLink,
+    initiateRazorpayRefund
 } from '../helpers/razorpay.helper.js';
 import { getIO, rooms } from '../../../../config/socket.js';
 import { addOrderJob } from '../../../../queues/producers/order.producer.js';
@@ -1145,6 +1146,41 @@ export async function cancelOrder(orderId, userId, reason) {
     to: "cancelled_by_user",
     note: reason || "",
   });
+
+  // ✅ NEW: Automated Razorpay Refund on User Cancel
+  if (
+    order.payment.status === "paid" &&
+    order.payment.method === "razorpay" &&
+    order.payment.razorpay?.paymentId &&
+    (!order.payment.refund || order.payment.refund.status !== "processed")
+  ) {
+    try {
+      const refundResult = await initiateRazorpayRefund(
+        order.payment.razorpay.paymentId,
+        order.pricing.total
+      );
+
+      if (refundResult.success) {
+        order.payment.status = "refunded";
+        order.payment.refund = {
+          status: "processed",
+          amount: order.pricing.total,
+          refundId: refundResult.refundId,
+          processedAt: new Date()
+        };
+      } else {
+        // Log failure but let order cancellation proceed
+        order.payment.refund = {
+          status: "failed",
+          amount: order.pricing.total
+        };
+      }
+    } catch (err) {
+      console.error(`Refund processing error for Order ${orderId}:`, err);
+      order.payment.refund = { status: "failed", amount: order.pricing.total };
+    }
+  }
+
   await order.save();
 
   enqueueOrderEvent("order_cancelled_by_user", {
@@ -1483,6 +1519,7 @@ export async function updateOrderStatusRestaurant(
     } catch (err) {
         console.error('[DEBUG] Error in delivery notification logic:', err);
     }
+
     enqueueOrderEvent('restaurant_order_status_updated', {
         orderMongoId: order._id?.toString?.(),
         orderId: order.orderId,
@@ -1490,6 +1527,45 @@ export async function updateOrderStatusRestaurant(
         from,
         to: orderStatus
     });
+
+    // ✅ NEW: Automated Razorpay Refund on Restaurant Cancel
+    // Triggers if the restaurant sets status to a cancelled state (e.g., cancelled_by_restaurant)
+    if (
+      String(orderStatus).includes("cancel") &&
+      order.payment.status === "paid" &&
+      order.payment.method === "razorpay" &&
+      order.payment.razorpay?.paymentId &&
+      (!order.payment.refund || order.payment.refund.status !== "processed")
+    ) {
+      try {
+        const refundResult = await initiateRazorpayRefund(
+          order.payment.razorpay.paymentId,
+          order.pricing.total
+        );
+
+        if (refundResult.success) {
+          order.payment.status = "refunded";
+          order.payment.refund = {
+            status: "processed",
+            amount: order.pricing.total,
+            refundId: refundResult.refundId,
+            processedAt: new Date()
+          };
+        } else {
+          // Record failure so admin knows a manual refund might be needed
+          order.payment.refund = {
+            status: "failed",
+            amount: order.pricing.total
+          };
+        }
+      } catch (err) {
+        console.error(`Automated refund failed for Order ${orderId} (Restaurant Cancel):`, err);
+        order.payment.refund = { status: "failed", amount: order.pricing.total };
+      }
+      // Re-save order with updated payment status
+      await order.save();
+    }
+
     return order.toObject();
 }
 
