@@ -1004,7 +1004,7 @@ export default function OrderTracking() {
     try {
       const cancelLookupId =
         lookupIdsRef.current[0] || normalizeLookupId(orderId)
-      const response = await orderAPI.cancelOrder(cancelLookupId, cancellationReason.trim());
+      const response = await orderAPI.cancelOrder(cancelLookupId, { reason: cancellationReason.trim() });
       if (response.data?.success) {
         const paymentMethod = order?.payment?.method || order?.paymentMethod;
         const successMessage = response.data?.message ||
