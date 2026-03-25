@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom"
 import { Input } from "@food/components/ui/input"
 import { Button } from "@food/components/ui/button"
 import { Label } from "@food/components/ui/label"
-import { Image as ImageIcon, Upload, Clock, Calendar as CalendarIcon, Sparkles, X } from "lucide-react"
+import { Image as ImageIcon, Upload, Clock, Calendar as CalendarIcon, Sparkles, X, LogOut } from "lucide-react"
 import { Popover, PopoverContent, PopoverTrigger } from "@food/components/ui/popover"
 import { Calendar } from "@food/components/ui/calendar"
 import {
@@ -21,6 +21,7 @@ import { determineStepToShow } from "@food/utils/onboardingUtils"
 import { toast } from "sonner"
 import { useCompanyName } from "@food/hooks/useCompanyName"
 import { getGoogleMapsApiKey } from "@food/utils/googleMapsApiKey"
+import { clearModuleAuth, clearAuthData } from "@food/utils/auth"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -340,6 +341,27 @@ export default function RestaurantOnboarding() {
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
+  const [isLoggingOut, setIsLoggingOut] = useState(false)
+
+  const handleLogout = async () => {
+    if (isLoggingOut) return
+    setIsLoggingOut(true)
+    try {
+      await restaurantAPI.logout()
+      clearModuleAuth("restaurant")
+      clearAuthData()
+      localStorage.removeItem("restaurant_onboarding")
+      window.dispatchEvent(new Event("restaurantAuthChanged"))
+      navigate("/food/restaurant/login", { replace: true })
+    } catch (error) {
+      debugError("Logout failed:", error)
+      clearModuleAuth("restaurant")
+      navigate("/food/restaurant/login", { replace: true })
+    } finally {
+      setIsLoggingOut(false)
+    }
+  }
+
   const [verifiedPhoneNumber, setVerifiedPhoneNumber] = useState("")
   const [keyboardInset, setKeyboardInset] = useState(0)
   const [isEditing, setIsEditing] = useState(false)
@@ -2350,8 +2372,20 @@ export default function RestaurantOnboarding() {
                 Edit Details
               </Button>
             )}
-            <div className="text-xs text-gray-600">
-              Step {step} of 4
+            <div className="flex items-center gap-3">
+              <div className="text-[10px] text-gray-500 font-bold uppercase tracking-wider text-right">
+                Step {step} of 4
+              </div>
+              <Button
+                onClick={handleLogout}
+                disabled={isLoggingOut}
+                variant="ghost"
+                size="icon"
+                className="h-9 w-9 text-red-600 hover:text-red-700 hover:bg-red-50"
+                title="Logout"
+              >
+                <LogOut className="w-4 h-4" />
+              </Button>
             </div>
           </div>
 

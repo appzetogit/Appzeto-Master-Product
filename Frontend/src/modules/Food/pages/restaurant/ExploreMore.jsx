@@ -937,7 +937,7 @@ export default function ExploreMore() {
                       {restaurantDisplayName}
                     </h2>
                     {restaurantDisplayAddress && (
-                      <p className="text-sm text-gray-500 truncate">
+                      <p className="text-sm text-gray-500 break-words text-wrap">
                         {restaurantDisplayAddress}
                       </p>
                     )}
