@@ -424,6 +424,11 @@ export default function Home() {
   const [, setRestaurantDietMeta] = useState({});
   const [showAllCategoriesModal, setShowAllCategoriesModal] = useState(false);
   const [availabilityTick, setAvailabilityTick] = useState(Date.now());
+  const RESTAURANTS_BATCH_SIZE = 9;
+  const [visibleRestaurantCount, setVisibleRestaurantCount] = useState(
+    RESTAURANTS_BATCH_SIZE,
+  );
+  const restaurantLoadMoreRef = useRef(null);
   const publicCategoriesCacheRef = useRef(new Map());
   const publicCategoriesInFlightRef = useRef(new Map());
   const isHandlingSwitchOff = useRef(false);
@@ -2106,6 +2111,67 @@ export default function Home() {
     availabilityTick,
   ]);
 
+  const restaurantLazyLoadResetKey = useMemo(() => {
+    const activeFilterKey = Array.from(activeFilters).sort().join("|");
+    return `${restaurantsData.length}:${activeFilterKey}:${selectedCuisine || ""}:${sortBy || ""}:${vegMode ? "1" : "0"}`;
+  }, [activeFilters, restaurantsData.length, selectedCuisine, sortBy, vegMode]);
+
+  const visibleRestaurants = useMemo(
+    () => filteredRestaurants.slice(0, visibleRestaurantCount),
+    [filteredRestaurants, visibleRestaurantCount],
+  );
+
+  const hasMoreRestaurants =
+    visibleRestaurantCount < filteredRestaurants.length;
+
+  const loadMoreRestaurants = useCallback(() => {
+    setVisibleRestaurantCount((previous) =>
+      Math.min(previous + RESTAURANTS_BATCH_SIZE, filteredRestaurants.length),
+    );
+  }, [filteredRestaurants.length, RESTAURANTS_BATCH_SIZE]);
+
+  useEffect(() => {
+    setVisibleRestaurantCount(
+      Math.min(RESTAURANTS_BATCH_SIZE, filteredRestaurants.length),
+    );
+  }, [restaurantLazyLoadResetKey, filteredRestaurants.length, RESTAURANTS_BATCH_SIZE]);
+
+  useEffect(() => {
+    if (visibleRestaurantCount <= filteredRestaurants.length) return;
+    setVisibleRestaurantCount(filteredRestaurants.length);
+  }, [filteredRestaurants.length, visibleRestaurantCount]);
+
+  useEffect(() => {
+    if (!hasMoreRestaurants) return;
+    if (showRestaurantSkeleton || loadingRestaurants || isLoadingFilterResults) return;
+    const target = restaurantLoadMoreRef.current;
+    if (!target || typeof window === "undefined") return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const [entry] = entries;
+        if (!entry?.isIntersecting) return;
+        startTransition(() => {
+          loadMoreRestaurants();
+        });
+      },
+      {
+        root: null,
+        rootMargin: "240px 0px",
+        threshold: 0.01,
+      },
+    );
+
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [
+    hasMoreRestaurants,
+    showRestaurantSkeleton,
+    loadingRestaurants,
+    isLoadingFilterResults,
+    loadMoreRestaurants,
+  ]);
+
   const recommendedForYouRestaurants = useMemo(() => {
     const idsInOrder = (recommendedRestaurantIds || []).map((id) => String(id));
     const hasIds = idsInOrder.length > 0;
@@ -2381,12 +2447,12 @@ export default function Home() {
 
   return (
 
-    <div className="relative min-h-screen bg-white dark:bg-[#0a0a0a] pb-16 md:pb-6">
+    <div className="relative min-h-screen bg-white dark:bg-[#0a0a0a] pb-16 md:pb-6 overflow-x-clip">
       {shouldShowOutOfZoneHome && (
         <div className="fixed inset-0 z-[90] pointer-events-none">
           <div className="absolute inset-0 bg-slate-300/35 backdrop-blur-[1px]" />
           <div className="absolute top-20 left-1/2 -translate-x-1/2 px-4">
-            <div className="rounded-xl border border-red-200 bg-red-50/95 text-red-700 px-4 py-2 shadow-sm text-sm sm:text-base font-semibold whitespace-nowrap">
+            <div className="rounded-xl border border-red-200 bg-red-50/95 text-red-700 px-4 py-2 shadow-sm text-sm sm:text-base font-semibold max-w-[calc(100vw-2rem)] text-center">
               You are out of zone
             </div>
           </div>
@@ -2512,7 +2578,7 @@ export default function Home() {
         `}</style>
         </div>
 
-        <div className="md:hidden relative">
+        <div className="md:hidden relative overflow-x-clip">
           <HomeHeader 
             activeTab={activeTab}
             setActiveTab={setActiveTab}
@@ -2548,10 +2614,10 @@ export default function Home() {
 
                 {/* "What's on your mind today?" Section */}
                 <div className="px-4 py-6 space-y-6 bg-white">
-                  <div className="flex items-center gap-4">
-                    <h2 className="text-xl font-bold text-gray-900 whitespace-nowrap">What's on your mind today?</h2>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <h2 className="text-lg sm:text-xl font-bold text-gray-900 min-w-0 flex-shrink leading-tight">What's on your mind today?</h2>
                     <div className="h-[1px] bg-gray-100 flex-1"></div>
-                    <Link to="/user/categories" className="text-sm font-bold text-gray-400 flex items-center gap-0.5 whitespace-nowrap">
+                    <Link to="/user/categories" className="text-sm font-bold text-gray-400 flex items-center gap-0.5 whitespace-nowrap shrink-0">
                       View All <ArrowDownUp className="h-3 w-3 rotate-90" />
                     </Link>
                   </div>
@@ -2851,7 +2917,7 @@ export default function Home() {
               </AnimatePresence>
               <div
                 className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 sm:gap-4 lg:gap-5 xl:gap-6 px-4 pt-1 sm:pt-1.5 lg:pt-2 items-stretch ${isLoadingFilterResults || loadingRestaurants ? "opacity-50" : "opacity-100"} transition-opacity duration-300`}>
-                {filteredRestaurants.map((restaurant, index) => {
+                {visibleRestaurants.map((restaurant, index) => {
                   const nameStr =
                     typeof restaurant?.name === "string"
                       ? restaurant.name.trim()
@@ -3052,12 +3118,20 @@ export default function Home() {
                 })}
               </div>
             </div>
-            <div className="flex justify-center pt-2 sm:pt-3">
-              {/* <Link to="/user/restaurants">
-              <Button variant="outline" className="bg-transparent outline-none text-green-600 hover:opacity-80 border-none underline shadow-none  text-xs sm:text-sm md:text-base sm:hidden">
-                See All Restaurants
-              </Button>
-            </Link> */}
+            <div className="flex flex-col items-center pt-2 sm:pt-3 gap-2 px-4">
+              {hasMoreRestaurants && (
+                <Button
+                  variant="outline"
+                  onClick={loadMoreRestaurants}
+                  className="text-sm font-medium border-gray-300 hover:border-gray-400">
+                  Load more restaurants
+                </Button>
+              )}
+              <div
+                ref={restaurantLoadMoreRef}
+                className="h-1 w-full"
+                aria-hidden="true"
+              />
             </div>
           </motion.section>
         </div>
