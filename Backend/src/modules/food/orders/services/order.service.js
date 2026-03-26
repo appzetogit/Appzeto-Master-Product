@@ -385,6 +385,10 @@ async function listNearbyOnlineDeliveryPartners(
     .select("_id lastLat lastLng")
     .lean();
 
+  console.log(
+    `[DEBUG] listNearby: Restaurant [${rLat}, ${rLng}] found ${partners.length} online approved partners with GPS`,
+  );
+
   const scored = [];
   for (const p of partners) {
     const d = haversineKm(rLat, rLng, p.lastLat, p.lastLng);
@@ -1341,7 +1345,7 @@ export async function updateOrderStatusRestaurant(
   restaurantId,
   orderStatus,
 ) {
-  const order = await FoodOrder.findOne({
+  let order = await FoodOrder.findOne({
     _id: new mongoose.Types.ObjectId(orderId),
     restaurantId: new mongoose.Types.ObjectId(restaurantId),
   });
@@ -1453,10 +1457,13 @@ export async function updateOrderStatusRestaurant(
   try {
     const io = getIO();
     if (io) {
-      // On accept -> request delivery partners.
-      if (String(orderStatus) === "preparing" && String(from) !== "preparing") {
+      // On accept (confirmed or preparing) -> request delivery partners.
+      if (
+        (String(orderStatus) === "preparing" || String(orderStatus) === "confirmed") && 
+        (String(from) !== "preparing" && String(from) !== "confirmed")
+      ) {
         console.log(
-          `[DEBUG] Order ${order.orderId} status changed to 'preparing'. Triggering delivery dispatch.`,
+          `[DEBUG] Order ${order.orderId} status changed to '${orderStatus}'. Triggering delivery dispatch.`,
         );
         // If auto dispatch, try assign now.
         if (
@@ -1466,7 +1473,8 @@ export async function updateOrderStatusRestaurant(
           try {
             console.log(`[DEBUG] Auto-assigning order ${order.orderId}`);
             await tryAutoAssign(order._id);
-            await order.reload();
+            // Refresh order state from DB after auto-assignment
+            order = await FoodOrder.findById(order._id); 
           } catch (err) {
             console.error(
               `[DEBUG] Auto-assign failed for order ${order.orderId}:`,
