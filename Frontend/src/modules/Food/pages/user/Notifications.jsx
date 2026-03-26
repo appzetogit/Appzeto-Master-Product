@@ -56,17 +56,19 @@ export default function Notifications() {
   // Real-time: Listen for status updates from useUserNotifications hook
   useEffect(() => {
     const handleOrderUpdate = (event) => {
-      const { orderId, status, message } = event.detail
+      const { orderId, status, message, title } = event.detail
+      const isCancelled = String(status || "").toLowerCase().includes('cancel')
+      
       const newNotification = {
         id: `order-${Date.now()}`,
-        type: "order",
-        title: `Order #${orderId} ${status}`,
+        type: isCancelled ? "alert" : "order",
+        title: title || `Order #${orderId} ${status}`,
         message: message || `Your order status is now ${status}`,
         time: "Just now",
         timestamp: Date.now(),
         read: false,
-        icon: "CheckCircle2",
-        iconColor: "text-[#EB590E]"
+        icon: isCancelled ? "AlertCircle" : "CheckCircle2",
+        iconColor: isCancelled ? "text-red-600" : "text-[#EB590E]"
       }
       setNotificationsList(prev => [newNotification, ...prev])
     }

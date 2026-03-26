@@ -27,16 +27,6 @@ const debugWarn = (...args) => {}
 const debugError = (...args) => {}
 
 
-const cuisinesOptions = [
-  "North Indian",
-  "South Indian",
-  "Chinese",
-  "Pizza",
-  "Burgers",
-  "Bakery",
-  "Cafe",
-]
-
 const daysOfWeek = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
 const ONBOARDING_STORAGE_KEY = "restaurant_onboarding_data"
@@ -917,9 +907,6 @@ export default function RestaurantOnboarding() {
       }
     }
 
-    if (!step2.cuisines || step2.cuisines.length === 0) {
-      errors.push("Please select at least one cuisine")
-    }
     if (!step2.openingTime?.trim()) {
       errors.push("Opening time is required")
     }
@@ -1212,16 +1199,7 @@ export default function RestaurantOnboarding() {
     }
   }
 
-  const toggleCuisine = (cuisine) => {
-    setStep2((prev) => {
-      const exists = prev.cuisines.includes(cuisine)
-      if (exists) {
-        return { ...prev, cuisines: prev.cuisines.filter((c) => c !== cuisine) }
-      }
-      if (prev.cuisines.length >= 3) return prev
-      return { ...prev, cuisines: [...prev.cuisines, cuisine] }
-    })
-  }
+
 
   const toggleDay = (day) => {
     setStep2((prev) => {
@@ -1824,27 +1802,6 @@ export default function RestaurantOnboarding() {
 
       {/* Operational details */}
       <section className="bg-white p-4 sm:p-6 rounded-md space-y-5">
-        {/* Cuisines */}
-        <div>
-          <Label className="text-xs text-gray-700">Select cuisines (up to 3)</Label>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {cuisinesOptions.map((cuisine) => {
-              const active = step2.cuisines.includes(cuisine)
-              return (
-                <button
-                  key={cuisine}
-                  type="button"
-                  onClick={() => toggleCuisine(cuisine)}
-                  className={`px-3 py-1.5 text-xs rounded-full ${active ? "bg-black text-white" : "bg-gray-100 text-gray-800"
-                    }`}
-                >
-                  {cuisine}
-                </button>
-              )
-            })}
-          </div>
-        </div>
-
         {/* Timings with popover time selectors */}
         <div className="space-y-3">
           <Label className="text-xs text-gray-700">Delivery timings</Label>

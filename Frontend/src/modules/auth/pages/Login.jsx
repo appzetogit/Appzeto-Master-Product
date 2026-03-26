@@ -127,7 +127,7 @@ export default function UnifiedOTPFastLogin() {
   return (
     <div className="min-h-screen bg-white dark:bg-[#0a0a0a] flex flex-col pt-0 sm:pt-0">
       {/* Top Banner section - Zomato Red */}
-      <div className="w-full bg-[#CB202D] dark:bg-[#b01c27] rounded-b-[2.5rem] p-10 md:p-14 text-center text-white relative overflow-hidden shadow-2xl">
+      <div className="w-full bg-[#CB202D] dark:bg-[#b01c27] rounded-b-[2.5rem] p-6 text-center text-white relative overflow-hidden shadow-2xl">
         <div className="absolute inset-0 bg-white/5 opacity-50 blur-3xl rounded-full -top-1/2 -left-1/4 animate-pulse" />
         <div className="absolute right-0 bottom-0 w-32 h-32 md:w-48 md:h-48 opacity-10 pointer-events-none">
            <svg viewBox="0 0 200 200" fill="currentColor">
@@ -139,14 +139,14 @@ export default function UnifiedOTPFastLogin() {
           <motion.div 
             initial={{ scale: 0 }}
             animate={{ scale: 1 }}
-            className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center mb-6 shadow-xl"
+            className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center mb-3 shadow-xl"
           >
              <span className="text-[#CB202D] text-3xl font-black">A</span>
           </motion.div>
           <motion.h1 
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="text-3xl md:text-5xl font-black tracking-tight mb-2"
+            className="text-2xl md:text-5xl font-black tracking-tight mb-1"
           >
             AppZeto <span className="text-white/80 font-normal">Food</span>
           </motion.h1>
@@ -156,15 +156,15 @@ export default function UnifiedOTPFastLogin() {
         </div>
       </div>
 
-      <div className="flex-1 max-w-[480px] mx-auto w-full p-6 sm:p-8 flex flex-col justify-center -mt-8 relative z-20">
+      <div className="flex-1 max-w-[480px] mx-auto w-full px-6 py-4 flex flex-col justify-center -mt-8 relative z-20">
         {/* Main Card */}
-        <div className="bg-white dark:bg-[#1a1a1a] rounded-[2rem] p-8 md:p-12 shadow-[0_25px_60px_-15px_rgba(0,0,0,0.15)] dark:shadow-none border border-gray-50 dark:border-gray-800">
-           <div className="text-center mb-10 space-y-2">
+        <div className="bg-white dark:bg-[#1a1a1a] rounded-[2rem] p-6 sm:p-8 md:p-12 shadow-[0_25px_60px_-15px_rgba(0,0,0,0.15)] dark:shadow-none border border-gray-50 dark:border-gray-800">
+           <div className="text-center mb-6 space-y-2">
               <h2 className="text-2xl font-black text-gray-900 dark:text-white">Login or Signup</h2>
               <div className="h-1 w-12 bg-[#CB202D] mx-auto rounded-full" />
            </div>
 
-          <form onSubmit={step === 1 ? handleSendOTP : handleVerifyOTP} className="space-y-8">
+          <form onSubmit={step === 1 ? handleSendOTP : handleVerifyOTP} className="space-y-5">
             {step === 1 ? (
               <div className="space-y-6">
                 <div className="space-y-4">
@@ -192,7 +192,7 @@ export default function UnifiedOTPFastLogin() {
                 </p>
               </div>
             ) : (
-              <div className="space-y-8">
+              <div className="space-y-6">
                 <div className="space-y-4">
                    <div className="flex items-center gap-3 bg-gray-50 dark:bg-gray-900 p-4 rounded-2xl border border-dashed border-gray-200 dark:border-gray-800">
                       <div className="w-10 h-10 bg-[#CB202D]/10 rounded-full flex items-center justify-center">
@@ -205,20 +205,52 @@ export default function UnifiedOTPFastLogin() {
                       <button type="button" onClick={() => setStep(1)} className="text-xs text-[#CB202D] font-black underline cursor-pointer">Edit</button>
                    </div>
 
-                  <div className="relative group">
-                    <div className="absolute inset-y-0 left-0 pl-1 flex items-center pointer-events-none">
-                      <Lock className="w-5 h-5 text-gray-400 group-focus-within:text-[#CB202D] transition-colors" />
-                    </div>
-                    <input
-                      type="password"
-                      required
-                      autoFocus
-                      value={otp}
-                      onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 4))}
-                      maxLength={4}
-                      className="block w-full pl-10 pr-4 py-3 bg-transparent text-gray-900 dark:text-white border-b-2 border-gray-100 dark:border-gray-800 focus:border-[#CB202D] outline-none transition-all placeholder:text-gray-300 font-bold tracking-[1.5em] text-2xl"
-                      placeholder="••••"
-                    />
+                  <div className="flex justify-center gap-3 mt-4">
+                    {[0, 1, 2, 3].map((index) => (
+                      <input
+                        key={index}
+                        id={`otp-${index}`}
+                        type="tel"
+                        inputMode="numeric"
+                        required
+                        autoFocus={index === 0}
+                        value={otp[index] || ""}
+                        onChange={(e) => {
+                          const val = e.target.value.replace(/\D/g, "").slice(-1);
+                          if (!val) return;
+                          const newOtp = otp.split("");
+                          newOtp[index] = val;
+                          const combined = newOtp.join("").slice(0, 4);
+                          setOtp(combined);
+                          
+                          // Focus next
+                          if (index < 3 && val) {
+                            document.getElementById(`otp-${index + 1}`)?.focus();
+                          }
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Backspace") {
+                            if (!otp[index] && index > 0) {
+                              document.getElementById(`otp-${index - 1}`)?.focus();
+                            } else {
+                              const newOtp = otp.split("");
+                              newOtp[index] = "";
+                              setOtp(newOtp.join(""));
+                            }
+                          }
+                        }}
+                        onPaste={(e) => {
+                          e.preventDefault();
+                          const pasteData = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, 4);
+                          if (pasteData) {
+                            setOtp(pasteData);
+                            document.getElementById(`otp-${Math.min(pasteData.length, 3)}`)?.focus();
+                          }
+                        }}
+                        className="w-14 h-14 sm:w-16 sm:h-16 text-center text-xl sm:text-3xl font-black bg-gray-50 dark:bg-gray-900 border-2 border-gray-100 dark:border-gray-800 focus:border-[#CB202D] rounded-xl sm:rounded-2xl outline-none transition-all text-gray-900 dark:text-white"
+                        placeholder="-"
+                      />
+                    ))}
                   </div>
                 </div>
               </div>
@@ -242,7 +274,7 @@ export default function UnifiedOTPFastLogin() {
           </form>
         </div>
 
-        <div className="mt-12 text-center space-y-4">
+        <div className="mt-6 text-center space-y-2">
            <p className="text-[10px] text-gray-400 font-bold uppercase tracking-[0.2em] leading-relaxed">
              By continuing, you agree to our <br />
              <Link to="/food/user/profile/terms" className="text-gray-900 dark:text-white underline cursor-pointer hover:text-[#CB202D] transition-colors">Terms of Service</Link> & <Link to="/food/user/profile/privacy" className="text-gray-900 dark:text-white underline cursor-pointer hover:text-[#CB202D] transition-colors">Privacy Policy</Link>

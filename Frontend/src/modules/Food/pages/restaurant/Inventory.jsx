@@ -623,6 +623,7 @@ export default function Inventory() {
   const [togglePopupOpen, setTogglePopupOpen] = useState(false)
   const [toggleTarget, setToggleTarget] = useState(null)
   const [isMenuOpen, setIsMenuOpen] = useState(false)
+  const [isAddPopupOpen, setIsAddPopupOpen] = useState(false)
 
   // Toggle popup state
   const [selectedOption, setSelectedOption] = useState("specific-time")
@@ -1327,19 +1328,6 @@ export default function Inventory() {
           isSwiping.current = false
         }}
       >
-        {/* Edit Menu Banner */}
-        <motion.div
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          onClick={() => navigate("/restaurant/hub-menu")}
-          className="bg-blue-200/20 rounded-lg p-4 mt-4 mb-4 flex items-center justify-between"
-        >
-          <span className="text-sm font-light text-gray-900">Want to edit your menu?</span>
-          <button className="bg-blue-200/30 hover:bg-blue-300 text-black  px-4 py-2 rounded-full text-sm font-light transition-colors">
-            Edit now
-          </button>
-        </motion.div>
-
         {/* Search and Filter */}
         <div className="flex sticky top-[50px] gap-2 mb-4">
           {/* Search Bar */}
@@ -1859,9 +1847,54 @@ export default function Inventory() {
         onConfirm={handleTimePickerConfirm}
       />
 
+      {/* Add Popup */}
+      <AnimatePresence>
+        {isAddPopupOpen && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsAddPopupOpen(false)}
+              className="fixed inset-0 bg-black/50 z-50"
+            />
+            <motion.div
+              initial={{ y: "100%" }}
+              animate={{ y: 0 }}
+              exit={{ y: "100%" }}
+              transition={{ type: "spring", damping: 30, stiffness: 300 }}
+              className="fixed bottom-0 left-0 right-0 bg-white rounded-t-2xl shadow-2xl z-50"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="px-4 py-4 border-b border-gray-200">
+                <h2 className="text-lg font-bold text-gray-900 text-center">Add item</h2>
+              </div>
+              <div className="px-4 py-4 space-y-2">
+                <button
+                  onClick={() => {
+                    setIsAddPopupOpen(false)
+                    navigate(`/food/restaurant/hub-menu/item/new`)
+                  }}
+                  className="w-full py-3 px-4 text-left rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  <span className="text-sm font-medium text-gray-900">Add item</span>
+                </button>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
       {/* Floating Menu Button & Popup (hidden on Add-ons tab) */}
       {activeTab !== "add-ons" && (
-        <div className="fixed right-4 bottom-24 z-30">
+        <div className="fixed right-4 bottom-24 z-30 flex flex-col items-end gap-2">
+          <motion.button
+            whileTap={{ scale: 0.96 }}
+            onClick={() => setIsAddPopupOpen(true)}
+            className="px-4 py-2 border bg-black text-white border-gray-800 rounded-lg text-sm font-bold"
+          >
+            + ADD
+          </motion.button>
           <motion.button
             type="button"
             whileTap={{ scale: 0.96 }}

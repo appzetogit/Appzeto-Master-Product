@@ -257,7 +257,7 @@ export default function EditFoodPage() {
           window.dispatchEvent(new CustomEvent("foodAdded", { detail: { food: created } }))
           navigate(`/restaurant/food/${String(created._id || created.id)}`)
         } else {
-          navigate(`/restaurant/hub-menu`)
+          navigate(`/food/restaurant/inventory`)
         }
       } catch {
         alert("Error saving food. Please try again.")

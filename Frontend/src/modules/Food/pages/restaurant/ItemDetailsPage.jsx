@@ -654,7 +654,7 @@ export default function ItemDetailsPage() {
           : `Item updated successfully with ${imageCount} image(s)`
       )
       await new Promise((resolve) => setTimeout(resolve, 200))
-      navigate("/restaurant/hub-menu", { replace: true })
+      navigate("/food/restaurant/inventory", { replace: true })
       window.dispatchEvent(new CustomEvent('foodsChanged'))
     } catch (error) {
       debugError('Error saving menu:', error)

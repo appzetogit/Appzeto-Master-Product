@@ -54,7 +54,6 @@ const RestaurantSupport = lazy(() => import("@food/pages/restaurant/RestaurantSu
 const FssaiDetails = lazy(() => import("@food/pages/restaurant/FssaiDetails"))
 const FssaiUpdate = lazy(() => import("@food/pages/restaurant/FssaiUpdate"))
 const Hyperpure = lazy(() => import("@food/pages/restaurant/Hyperpure"))
-const HubMenu = lazy(() => import("@food/pages/restaurant/HubMenu"))
 const ItemDetailsPage = lazy(() => import("@food/pages/restaurant/ItemDetailsPage"))
 const HubFinance = lazy(() => import("@food/pages/restaurant/HubFinance"))
 const FinanceDetailsPage = lazy(() => import("@food/pages/restaurant/FinanceDetailsPage"))
@@ -111,8 +110,8 @@ export default function RestaurantRouter() {
         <Route element={<ProtectedRoute requiredRole="restaurant" loginPath="/food/restaurant/login"><SettingsPage /></ProtectedRoute>} path="settings" />
         <Route element={<ProtectedRoute requiredRole="restaurant" loginPath="/food/restaurant/login"><DeliverySettings /></ProtectedRoute>} path="delivery-settings" />
         <Route element={<ProtectedRoute requiredRole="restaurant" loginPath="/food/restaurant/login"><RushHour /></ProtectedRoute>} path="rush-hour" />
-        <Route element={<ProtectedRoute requiredRole="restaurant" loginPath="/food/restaurant/login"><PrivacyPolicyPage /></ProtectedRoute>} path="privacy" />
-        <Route element={<ProtectedRoute requiredRole="restaurant" loginPath="/food/restaurant/login"><TermsAndConditionsPage /></ProtectedRoute>} path="terms" />
+        <Route path="privacy" element={<PrivacyPolicyPage />} />
+        <Route path="terms" element={<TermsAndConditionsPage />} />
         <Route element={<ProtectedRoute requiredRole="restaurant" loginPath="/food/restaurant/login"><RestaurantConfigPage /></ProtectedRoute>} path="config" />
         <Route element={<ProtectedRoute requiredRole="restaurant" loginPath="/food/restaurant/login"><RestaurantCategoriesPage /></ProtectedRoute>} path="categories" />
         <Route element={<ProtectedRoute requiredRole="restaurant" loginPath="/food/restaurant/login"><MenuCategoriesPage /></ProtectedRoute>} path="menu-categories" />
@@ -137,7 +136,6 @@ export default function RestaurantRouter() {
         <Route element={<ProtectedRoute requiredRole="restaurant" loginPath="/food/restaurant/login"><FssaiDetails /></ProtectedRoute>} path="fssai" />
         <Route element={<ProtectedRoute requiredRole="restaurant" loginPath="/food/restaurant/login"><FssaiUpdate /></ProtectedRoute>} path="fssai/update" />
         <Route element={<ProtectedRoute requiredRole="restaurant" loginPath="/food/restaurant/login"><Hyperpure /></ProtectedRoute>} path="hyperpure" />
-        <Route element={<ProtectedRoute requiredRole="restaurant" loginPath="/food/restaurant/login"><HubMenu /></ProtectedRoute>} path="hub-menu" />
         <Route element={<ProtectedRoute requiredRole="restaurant" loginPath="/food/restaurant/login"><ItemDetailsPage /></ProtectedRoute>} path="hub-menu/item/:id" />
         <Route element={<ProtectedRoute requiredRole="restaurant" loginPath="/food/restaurant/login"><HubFinance /></ProtectedRoute>} path="hub-finance" />
         <Route element={<ProtectedRoute requiredRole="restaurant" loginPath="/food/restaurant/login"><WithdrawalHistoryPage /></ProtectedRoute>} path="withdrawal-history" />
