@@ -255,7 +255,12 @@ export async function getDashboardStats(query = {}) {
         ? new mongoose.Types.ObjectId(query.zoneId)
         : null;
 
-    const orderMatch = {};
+    const orderMatch = {
+        $or: [
+            { "payment.method": { $in: ["cash", "wallet"] } },
+            { "payment.status": { $in: ["paid", "authorized", "captured", "settled", "refunded"] } },
+        ],
+    };
     if (periodRange) {
         orderMatch.createdAt = { $gte: periodRange.start, $lte: periodRange.end };
     }
@@ -356,9 +361,21 @@ export async function getDashboardStats(query = {}) {
         FoodUser.countDocuments({}),
         FoodRestaurant.find({ status: 'pending' }).sort({ createdAt: -1 }).limit(5).select('restaurantName createdAt').lean(),
         FoodDeliveryPartner.find({ status: 'pending' }).sort({ createdAt: -1 }).limit(5).select('name createdAt').lean(),
-        FoodOrder.find({ orderStatus: { $in: PENDING_ORDER_STATUSES } }).sort({ createdAt: -1 }).limit(5).select('orderId createdAt').lean(),
+        FoodOrder.find({ 
+            orderStatus: { $in: PENDING_ORDER_STATUSES },
+            $or: [
+                { "payment.method": { $in: ["cash", "wallet"] } },
+                { "payment.status": { $in: ["paid", "authorized", "captured", "settled", "refunded"] } },
+            ],
+        }).sort({ createdAt: -1 }).limit(5).select('orderId createdAt').lean(),
         FoodOrder.find({ orderStatus: 'delivered' }).sort({ updatedAt: -1 }).limit(5).select('orderId updatedAt').lean(),
-        FoodOrder.find({ orderStatus: { $in: CANCELLED_ORDER_STATUSES } }).sort({ updatedAt: -1 }).limit(5).select('orderId updatedAt').lean(),
+        FoodOrder.find({ 
+            orderStatus: { $in: CANCELLED_ORDER_STATUSES },
+            $or: [
+                { "payment.method": { $in: ["cash", "wallet"] } },
+                { "payment.status": { $in: ["paid", "authorized", "captured", "settled", "refunded"] } },
+            ],
+        }).sort({ updatedAt: -1 }).limit(5).select('orderId updatedAt').lean(),
         FoodUser.find({}).sort({ createdAt: -1 }).limit(5).select('name createdAt').lean()
     ]);
 
@@ -716,7 +733,11 @@ export async function getRestaurantReport(query = {}) {
 
     const orderCreatedAtFilter = parseTimeRange(query.time);
     const orderMatch = {
-        restaurantId: { $in: restaurantIds }
+        restaurantId: { $in: restaurantIds },
+        $or: [
+            { "payment.method": { $in: ["cash", "wallet"] } },
+            { "payment.status": { $in: ["paid", "authorized", "captured", "settled", "refunded"] } },
+        ],
     };
     if (orderCreatedAtFilter) {
         orderMatch.createdAt = orderCreatedAtFilter;

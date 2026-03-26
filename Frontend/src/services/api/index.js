@@ -1099,6 +1099,7 @@ export const restaurantAPI = {
             if (v === "ready_for_pickup") return "ready";
             // Backend: picked_up -> out_for_delivery (restaurant handed over)
             if (v === "picked_up") return "out_for_delivery";
+            if (v.includes("cancel")) return "cancelled";
             return v || "confirmed";
           };
 
