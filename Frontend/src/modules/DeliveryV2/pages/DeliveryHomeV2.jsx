@@ -554,7 +554,7 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
                   </div>
                 </div>
               ) : (
-                <div className="bg-white/5 rounded-2xl p-4 flex items-center justify-between border border-white/5 shadow-sm backdrop-blur-md">
+                <div className="bg-white/5 rounded-2xl p-4 flex items-center border border-white/5 shadow-sm backdrop-blur-md">
                   <div className="flex items-center gap-4">
                     <div className="w-10 h-10 bg-green-500/10 rounded-full flex items-center justify-center">
                       <div className={`w-2 h-2 rounded-full ${isOnline ? 'bg-green-500 animate-pulse' : 'bg-gray-500'}`} />
@@ -563,9 +563,6 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
                       <h3 className="text-white font-black text-[11px] uppercase tracking-widest leading-none mb-1">{isOnline ? 'System Online' : 'System Offline'}</h3>
                       <p className="text-gray-400 text-[10px] font-bold uppercase tracking-tight">{isOnline ? 'Waiting for order requests' : 'Go online to receive jobs'}</p>
                     </div>
-                  </div>
-                  <div className="bg-white/5 h-9 w-9 border border-white/10 rounded-xl flex items-center justify-center text-white/50 shadow-sm">
-                    <LayoutGrid className="w-4 h-4" />
                   </div>
                 </div>
               )}
