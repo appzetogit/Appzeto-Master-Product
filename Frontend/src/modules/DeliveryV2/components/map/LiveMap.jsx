@@ -54,6 +54,15 @@ export const LiveMap = ({ onMapClick, onMapLoad, onPathReceived, onPolylineRecei
   const [lastDirectionsAt, setLastDirectionsAt] = useState(0);
 
   const handleMapLoad = (mapInstance) => {
+    mapInstance.setOptions({
+      disableDefaultUI: true,
+      zoomControl: false,
+      mapTypeControl: false,
+      scaleControl: false,
+      streetViewControl: false,
+      rotateControl: false,
+      fullscreenControl: false
+    });
     setMapInternal(mapInstance);
     if (onMapLoad) onMapLoad(mapInstance);
   };

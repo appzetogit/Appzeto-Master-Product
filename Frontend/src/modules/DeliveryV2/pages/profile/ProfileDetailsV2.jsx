@@ -628,16 +628,17 @@ export const ProfileDetailsV2 = () => {
         title="Bank & Payments"
         maxHeight="85vh"
         closeOnHandleClick={true}
+        showCloseButton={false}
       >
         <div className="space-y-5 pb-10">
           <div className="grid gap-4">
              {[
-               { label: "Account Holder", key: "accountHolderName", icon: User },
-               { label: "Account Number", key: "accountNumber", icon: Banknote },
-               { label: "IFSC Code", key: "ifscCode", icon: Shield, format: (v) => v.toUpperCase() },
-               { label: "Bank Name", key: "bankName", icon: MapPin },
-               { label: "PAN Number", key: "panNumber", icon: FileText, format: (v) => v.toUpperCase() },
-               { label: "UPI ID", key: "upiId", icon: Smartphone }
+               { label: "Account Holder", key: "accountHolderName", icon: User, maxLength: 60 },
+               { label: "Account Number", key: "accountNumber", icon: Banknote, maxLength: 20, isNumeric: true },
+               { label: "IFSC Code", key: "ifscCode", icon: Shield, format: (v) => v.toUpperCase(), maxLength: 11 },
+               { label: "Bank Name", key: "bankName", icon: MapPin, maxLength: 60 },
+               { label: "PAN Number", key: "panNumber", icon: FileText, format: (v) => v.toUpperCase(), maxLength: 10 },
+               { label: "UPI ID", key: "upiId", icon: Smartphone, maxLength: 60 }
              ].map((field) => (
                <div key={field.key} className="bg-gray-50/50 p-4 rounded-2xl border border-gray-100 group focus-within:border-orange-500/50 transition-all">
                   <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-2 mb-2">
@@ -648,6 +649,8 @@ export const ProfileDetailsV2 = () => {
                     value={bankDetails[field.key]} 
                     onChange={(e) => {
                         let val = e.target.value;
+                        if (field.isNumeric) val = val.replace(/\D/g, "");
+                        if (field.maxLength && val.length > field.maxLength) return;
                         if (field.format) val = field.format(val);
                         setBankDetails({...bankDetails, [field.key]: val})
                     }} 

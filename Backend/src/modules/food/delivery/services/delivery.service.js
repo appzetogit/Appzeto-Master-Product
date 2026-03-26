@@ -164,6 +164,10 @@ export const updateDeliveryPartnerDetails = async (userId, payload) => {
         if (vehicle.model !== undefined) partner.vehicleName = String(vehicle.model || '').trim();
     }
 
+    if (payload?.profilePhoto !== undefined) {
+        partner.profilePhoto = payload.profilePhoto ? String(payload.profilePhoto).trim() : '';
+    }
+
     await partner.save();
     return partner.toObject();
 };

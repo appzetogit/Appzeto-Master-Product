@@ -618,10 +618,10 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
                </div>
              )}
 
-             <div className="absolute right-4 top-1/2 -translate-y-1/2 flex flex-col gap-4 z-50">
-                <div className="flex flex-col bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden">
-                   <button onClick={() => setZoom(z => Math.min(22, z + 1))} className="p-3 hover:bg-gray-50 border-b border-gray-50 text-gray-400 active:scale-90 transition-all"><Plus className="w-6 h-6" /></button>
-                   <button onClick={() => setZoom(z => Math.max(8, z - 1))} className="p-3 hover:bg-gray-50 text-gray-400 active:scale-90 transition-all"><Minus className="w-6 h-6" /></button>
+             <div className="absolute right-4 bottom-28 md:bottom-32 flex flex-col gap-4 z-[120]">
+                <div className="flex flex-col bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden">
+                   <button onClick={() => setZoom(z => Math.min(22, z + 1))} className="p-3 hover:bg-gray-50 border-b border-gray-100 text-gray-900 active:scale-90 transition-all" aria-label="Zoom in"><Plus className="w-5 h-5 stroke-[2.75]" /></button>
+                   <button onClick={() => setZoom(z => Math.max(8, z - 1))} className="p-3 hover:bg-gray-50 text-gray-900 active:scale-90 transition-all" aria-label="Zoom out"><Minus className="w-5 h-5 stroke-[2.75]" /></button>
                 </div>
                 <button 
                   onClick={() => {
