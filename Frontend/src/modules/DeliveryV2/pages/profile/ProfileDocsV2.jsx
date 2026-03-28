@@ -1,11 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Eye, Edit2, Loader2, Camera, X, Plus, FileText } from 'lucide-react';
+import { ArrowLeft, Eye, Edit2, Loader2, Camera, X, Plus, FileText, Image as ImageIcon } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { deliveryAPI } from '@food/api';
 import { toast } from 'sonner';
-import { ImageSourcePicker } from "@food/components/ImageSourcePicker"
-import { isFlutterBridgeAvailable } from "@food/utils/imageUploadUtils"
+import { openCamera } from "@food/utils/imageUploadUtils";
 
 /**
  * ProfileDocsV2 - Restored Old UI for Registration Documents & Vehicle Info.
@@ -16,7 +15,7 @@ export const ProfileDocsV2 = () => {
   const [loading, setLoading] = useState(true);
   const [isUpdating, setIsUpdating] = useState(false);
   const [showViewer, setShowViewer] = useState(null); // { title: string, url: string }
-  const [activePicker, setActivePicker] = useState(null) // { field: string, ref: any, title: string }
+  const [uploadField, setUploadField] = useState(null)
   const fileInputRef = useRef(null);
 
   useEffect(() => {
@@ -46,12 +45,16 @@ export const ProfileDocsV2 = () => {
      finally { setIsUpdating(false); }
   };
 
-  const openPicker = (field, ref, title) => {
-    if (isFlutterBridgeAvailable()) {
-      setActivePicker({ field, ref, title })
-    } else {
-      ref.current?.click()
-    }
+  const handleTakeCameraPhoto = (field) => {
+    openCamera({
+      onSelectFile: (file) => handleUpdate(field, file),
+      fileNamePrefix: `profile-doc-${field}`
+    })
+  }
+
+  const handlePickFromGallery = (field) => {
+    setUploadField(field)
+    fileInputRef.current?.click()
   }
 
   const getDocStatus = (doc) => {
@@ -97,17 +100,16 @@ export const ProfileDocsV2 = () => {
                             <button onClick={() => setShowViewer({ title: doc.label, url: doc.data.document })} className="p-3 bg-gray-50 rounded-xl text-gray-600 hover:bg-gray-100 active:scale-95 transition-all"><Eye className="w-5 h-5" /></button>
                          )}
                          <button 
-                            onClick={() => openPicker(doc.field, fileInputRef, doc.label)}
-                            className="p-3 bg-orange-50 rounded-xl text-orange-600 hover:bg-orange-100 active:scale-95 transition-all cursor-pointer relative"
+                            onClick={() => handleTakeCameraPhoto(doc.field)}
+                            className="p-3 bg-gray-900 rounded-xl text-white hover:bg-black active:scale-95 transition-all cursor-pointer relative"
                          >
                             <Camera className="w-5 h-5" />
-                            <input 
-                               ref={fileInputRef}
-                               type="file" 
-                               className="hidden" 
-                               onChange={(e) => handleUpdate(doc.field, e.target.files[0])} 
-                               disabled={isUpdating} 
-                            />
+                         </button>
+                         <button 
+                            onClick={() => handlePickFromGallery(doc.field)}
+                            className="p-3 bg-orange-50 rounded-xl text-orange-600 hover:bg-orange-100 active:scale-95 transition-all cursor-pointer relative"
+                         >
+                            <ImageIcon className="w-5 h-5" />
                          </button>
                       </div>
                    </div>
@@ -143,20 +145,21 @@ export const ProfileDocsV2 = () => {
              </div>
           )}
        </AnimatePresence>
-
-      <ImageSourcePicker
-        isOpen={!!activePicker}
-        onClose={() => setActivePicker(null)}
-        onFileSelect={(file) => {
-          if (activePicker) {
-            handleUpdate(activePicker.field, file);
-          }
-        }}
-        title={activePicker?.title}
-        description={`Choose how to upload your ${activePicker?.title}`}
-        fileNamePrefix={`delivery-${activePicker?.field}`}
-        galleryInputRef={activePicker?.ref}
-      />
+       
+       <input 
+          ref={fileInputRef}
+          type="file" 
+          className="hidden" 
+          accept="image/*"
+          onChange={(e) => {
+             if (uploadField && e.target.files[0]) {
+                handleUpdate(uploadField, e.target.files[0]);
+             }
+             e.target.value = "";
+          }} 
+       />
     </div>
   );
 };
+
+export default ProfileDocsV2;
