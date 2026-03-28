@@ -175,7 +175,7 @@ export default function SignupStep2() {
     try {
       const input = document.createElement("input")
       input.type = "file"
-      input.accept = ".jpg,.jpeg,.png,.webp,.heic,.heif"
+      input.accept = ".jpg,.jpeg,.png,.webp,.heic,.heif,image/jpeg,image/png,image/webp,image/heic,image/heif"
       input.multiple = false
       input.onchange = (event) => {
         const file = event?.target?.files?.[0] || null
@@ -262,47 +262,13 @@ export default function SignupStep2() {
     openBrowserFileFallback({ onSelectFile })
   }
 
-  const handlePickFromDevice = async () => {
+  const handlePickFromDevice = () => {
     try {
-      const hasBridge =
-        typeof window !== "undefined" &&
-        window.flutter_inappwebview &&
-        typeof window.flutter_inappwebview.callHandler === "function"
-
-      if (hasBridge) {
-        closeImageSourcePicker()
-        const result = await window.flutter_inappwebview.callHandler("openCamera", {
-          source: "gallery",
-          accept: "image/*",
-          multiple: false,
-          quality: 0.8
-        })
-
-        if (result && result.success) {
-          let selectedFile = null
-          if (result.file instanceof File || result.file instanceof Blob) {
-            selectedFile = result.file
-          } else if (result.base64) {
-            selectedFile = convertBase64ToFile(
-              result.base64,
-              result.mimeType || "image/jpeg",
-              sourcePicker.fileNamePrefix || "delivery-document"
-            )
-          }
-
-          if (selectedFile) {
-            sourcePicker.onSelectFile(selectedFile)
-            return
-          }
-        }
-      }
-
       openBrowserFileFallback({ onSelectFile: sourcePicker.onSelectFile })
       closeImageSourcePicker()
     } catch (error) {
       debugError("Device file picker open failed:", error)
-      openBrowserFileFallback({ onSelectFile: sourcePicker.onSelectFile })
-      closeImageSourcePicker()
+      toast.error("Could not open device files. Please try again.")
     }
   }
 
