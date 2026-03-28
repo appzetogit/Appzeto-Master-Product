@@ -74,40 +74,31 @@ export default function ContactMessages() {
 
   const renderStars = (rating) => {
     const stars = []
-    const fullStars = Math.floor(rating || 0)
-    const hasHalfStar = (rating || 0) % 1 >= 0.5
+    const count = Math.floor(rating || 0)
     
-    for (let i = 0; i < 5; i++) {
-      if (i < fullStars) {
-        stars.push(<Star key={i} className="w-4 h-4 fill-yellow-400 text-yellow-400" />)
-      } else if (i === fullStars && hasHalfStar) {
-        stars.push(<Star key={i} className="w-4 h-4 fill-yellow-400/50 text-yellow-400" />)
-      } else {
-        stars.push(<Star key={i} className="w-4 h-4 fill-gray-200 text-gray-300" />)
-      }
+    for (let i = 0; i < count; i++) {
+      stars.push(<Star key={i} className="w-5 h-5 fill-amber-500 text-amber-500" />)
     }
     return stars
   }
 
-  const filteredFeedbacks = useMemo(() => {
-    return feedbacks
-  }, [feedbacks])
-
   const getRatingBadge = (rating) => {
-    const ratingColors = {
-      5: 'bg-green-100 text-green-700',
-      4: 'bg-blue-100 text-blue-700',
-      3: 'bg-yellow-100 text-yellow-700',
-      2: 'bg-orange-100 text-orange-700',
-      1: 'bg-red-100 text-red-700'
+    const stars = []
+    const count = Math.floor(rating || 0)
+    
+    for (let i = 0; i < count; i++) {
+      stars.push(<Star key={i} className="w-3.5 h-3.5 fill-amber-500 text-amber-500" />)
     }
     
-    const colorClass = ratingColors[rating] || 'bg-gray-100 text-gray-700'
     return (
-      <span className={`px-3 py-1 rounded-full text-xs font-medium ${colorClass} flex items-center gap-1`}>
-        <Star className="w-3 h-3 fill-current" />
-        {rating}
-      </span>
+      <div className="flex items-center gap-2 px-3 py-1.5 bg-amber-50 border border-amber-200 rounded-lg w-fit">
+        <div className="flex items-center gap-0.5">
+          {stars}
+        </div>
+        <span className="text-xs font-bold text-amber-700 leading-none">
+          {rating}
+        </span>
+      </div>
     )
   }
 
@@ -215,7 +206,7 @@ export default function ContactMessages() {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-slate-100">
-              {filteredFeedbacks.length === 0 ? (
+              {feedbacks.length === 0 ? (
                 <tr>
                   <td colSpan={10} className="px-6 py-20">
                     <div className="flex flex-col items-center justify-center">
@@ -235,7 +226,7 @@ export default function ContactMessages() {
                   </td>
                 </tr>
               ) : (
-                filteredFeedbacks.map((feedback, index) => (
+                feedbacks.map((feedback, index) => (
                   <tr
                     key={feedback._id}
                     className="hover:bg-slate-50 transition-colors"

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react"
+import { useSearchParams } from "react-router-dom"
 import io from "socket.io-client"
 import { FileText, Calendar, Package } from "lucide-react"
 import { adminAPI } from "@food/api"
@@ -484,6 +485,18 @@ export default function OrdersPage({ statusKey = "all" }) {
       document.removeEventListener("visibilitychange", onVisibilityChange)
     }
   }, [playDefaultRing, showBrowserNotification])
+
+  const [searchParams] = useSearchParams()
+  const orderIdFromUrl = searchParams.get("orderId")
+
+  useEffect(() => {
+    if (orderIdFromUrl && normalizedOrders.length > 0) {
+      const order = normalizedOrders.find(o => o.id === orderIdFromUrl || o._id === orderIdFromUrl || o.orderId === orderIdFromUrl)
+      if (order) {
+        handleViewOrder(order)
+      }
+    }
+  }, [orderIdFromUrl, normalizedOrders, handleViewOrder])
 
   const handleAcceptOrder = async (order) => {
     const orderIdToUse = order.id || order._id || order.orderId

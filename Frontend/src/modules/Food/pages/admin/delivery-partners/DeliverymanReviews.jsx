@@ -84,6 +84,31 @@ export default function DeliverymanReviews() {
     date: "Date & Time",
   }
 
+  const getRatingBadge = (rating) => {
+    const stars = []
+    const count = Math.floor(rating || 0)
+    for (let i = 0; i < count; i++) {
+      stars.push(<Star key={i} className="w-3.5 h-3.5 fill-amber-500 text-amber-500" />)
+    }
+    return (
+      <div className="flex items-center gap-2 px-3 py-1.5 bg-amber-50 border border-amber-200 rounded-lg w-fit">
+        <div className="flex items-center gap-0.5">
+          {stars}
+        </div>
+        <span className="text-xs font-bold text-amber-700 leading-none">{rating}</span>
+      </div>
+    )
+  }
+
+  const renderStars = (rating) => {
+    const stars = []
+    const count = Math.floor(rating || 0)
+    for (let i = 0; i < count; i++) {
+      stars.push(<Star key={i} className="w-5 h-5 fill-amber-500 text-amber-500" />)
+    }
+    return stars
+  }
+
   // Format date and time
   const formatDateTime = (dateString) => {
     if (!dateString) return 'N/A'
@@ -344,10 +369,7 @@ export default function DeliverymanReviews() {
                       )}
                       {visibleColumns.rating && (
                         <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="flex items-center gap-1">
-                            <Star className="w-4 h-4 fill-orange-500 text-orange-500" />
-                            <span className="text-sm font-medium text-slate-900">{review.rating}</span>
-                          </div>
+                          {getRatingBadge(review.rating)}
                         </td>
                       )}
                       {visibleColumns.date && (
@@ -473,12 +495,15 @@ export default function DeliverymanReviews() {
                 </div>
               </div>
 
-              {/* Rating */}
               <div className="bg-orange-50 rounded-lg p-4">
-                <p className="text-xs text-orange-600 mb-2">Rating</p>
-                <div className="flex items-center gap-2">
-                  <Star className="w-5 h-5 fill-orange-500 text-orange-500" />
-                  <span className="text-lg font-bold text-orange-700">{selectedReview.rating} / 5</span>
+                <p className="text-xs text-orange-600 mb-2 font-semibold">Rating</p>
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-1">
+                    {renderStars(selectedReview.rating)}
+                  </div>
+                  <span className="text-lg font-bold text-orange-700">
+                    {selectedReview.rating} / 5
+                  </span>
                 </div>
               </div>
 

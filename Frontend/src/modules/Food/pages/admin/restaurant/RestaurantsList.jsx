@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from "react"
-import { useNavigate } from "react-router-dom"
+import { useNavigate, useSearchParams } from "react-router-dom"
 import { Search, Download, ChevronDown, Eye, Settings, ArrowUpDown, Loader2, X, MapPin, Phone, Mail, Clock, Star, Building2, User, FileText, CreditCard, Calendar, Image as ImageIcon, ExternalLink, ShieldX, AlertTriangle, Trash2, Plus } from "lucide-react"
 import { adminAPI, restaurantAPI, uploadAPI } from "@food/api"
 import { clearModuleAuth } from "@food/utils/auth"
@@ -224,6 +224,18 @@ export default function RestaurantsList() {
     fetchRestaurants()
     return () => { cancelled = true }
   }, [])
+
+  const [searchParams] = useSearchParams()
+  const restaurantIdFromUrl = searchParams.get("restaurantId")
+
+  useEffect(() => {
+    if (restaurantIdFromUrl && restaurants.length > 0) {
+      const restaurant = restaurants.find(r => r.id === restaurantIdFromUrl || r._id === restaurantIdFromUrl)
+      if (restaurant) {
+        handleViewDetails(restaurant)
+      }
+    }
+  }, [restaurantIdFromUrl, restaurants])
 
   const [filters, setFilters] = useState({
     all: "All",
