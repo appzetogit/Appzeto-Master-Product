@@ -8,6 +8,8 @@ import {
 import { ActionSlider } from '@/modules/DeliveryV2/components/ui/ActionSlider';
 import { uploadAPI } from '@food/api';
 import { toast } from 'sonner';
+import { ImageSourcePicker } from "@food/components/ImageSourcePicker"
+import { isFlutterBridgeAvailable } from "@food/utils/imageUploadUtils"
 
 /**
  * PickupActionModal - Unified White/Green Theme with Slider Actions.
@@ -26,12 +28,12 @@ export const PickupActionModal = ({
   const [isUploadingBill, setIsUploadingBill] = useState(false);
   const [billImageUploaded, setBillImageUploaded] = useState(false);
   const [billImageUrl, setBillImageUrl] = useState(null);
+  const [isPickerOpen, setIsPickerOpen] = useState(false);
   const cameraInputRef = useRef(null);
 
   if (!order) return null;
 
-  const handleBillImageSelect = async (e) => {
-    const file = e.target.files?.[0];
+  const handleBillImageSelect = async (file) => {
     if (!file) return;
 
     if (file.size > 5 * 1024 * 1024) {
@@ -55,7 +57,14 @@ export const PickupActionModal = ({
       setBillImageUrl(null);
     } finally {
       setIsUploadingBill(false);
-      if (cameraInputRef.current) cameraInputRef.current.value = '';
+    }
+  };
+
+  const openPicker = () => {
+    if (isFlutterBridgeAvailable()) {
+      setIsPickerOpen(true);
+    } else {
+      cameraInputRef.current?.click();
     }
   };
 
@@ -143,7 +152,7 @@ export const PickupActionModal = ({
             <div className="space-y-4">
               <div className="flex justify-center flex-col items-center gap-2">
                  <button
-                   onClick={() => cameraInputRef.current?.click()}
+                   onClick={openPicker}
                    disabled={isUploadingBill}
                    className={`w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl transition-all font-bold text-xs uppercase tracking-widest ${
                      isUploadingBill
@@ -165,8 +174,7 @@ export const PickupActionModal = ({
                    ref={cameraInputRef}
                    type="file"
                    accept="image/*"
-                   capture="environment"
-                   onChange={handleBillImageSelect}
+                   onChange={(e) => handleBillImageSelect(e.target.files[0])}
                    className="hidden"
                  />
               </div>
@@ -211,6 +219,15 @@ export const PickupActionModal = ({
           )}
         </div>
       </motion.div>
+      <ImageSourcePicker
+        isOpen={isPickerOpen}
+        onClose={() => setIsPickerOpen(false)}
+        onFileSelect={handleBillImageSelect}
+        title="Capture Bill"
+        description="Choose how to capture the restaurant bill"
+        fileNamePrefix={`bill-${order.orderId || order._id}`}
+        galleryInputRef={cameraInputRef}
+      />
     </div>
   );
 };

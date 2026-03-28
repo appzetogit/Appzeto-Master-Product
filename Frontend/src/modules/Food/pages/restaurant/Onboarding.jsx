@@ -22,6 +22,8 @@ import { toast } from "sonner"
 import { useCompanyName } from "@food/hooks/useCompanyName"
 import { getGoogleMapsApiKey } from "@food/utils/googleMapsApiKey"
 import { clearModuleAuth, clearAuthData } from "@food/utils/auth"
+import { ImageSourcePicker } from "@food/components/ImageSourcePicker"
+import { isFlutterBridgeAvailable, openCamera } from "@food/utils/imageUploadUtils"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -453,39 +455,6 @@ export default function RestaurantOnboarding() {
     return null
   }
 
-  const getExtensionFromMimeType = (mimeType) => {
-    const normalized = String(mimeType || "").toLowerCase()
-    if (normalized.includes("png")) return "png"
-    if (normalized.includes("webp")) return "webp"
-    if (normalized.includes("heic")) return "heic"
-    if (normalized.includes("heif")) return "heif"
-    return "jpg"
-  }
-
-  const convertBase64ToFile = (base64Value, mimeType = "image/jpeg", fileNamePrefix = "camera") => {
-    if (!base64Value || typeof base64Value !== "string") {
-      throw new Error("Invalid base64 image data")
-    }
-
-    let pureBase64 = base64Value
-    if (base64Value.includes(",")) {
-      pureBase64 = base64Value.split(",")[1]
-    }
-
-    const byteCharacters = atob(pureBase64)
-    const byteNumbers = new Array(byteCharacters.length)
-    for (let i = 0; i < byteCharacters.length; i += 1) {
-      byteNumbers[i] = byteCharacters.charCodeAt(i)
-    }
-
-    const byteArray = new Uint8Array(byteNumbers)
-    const normalizedMimeType = mimeType || "image/jpeg"
-    const extension = getExtensionFromMimeType(normalizedMimeType)
-    const fileName = `${fileNamePrefix}-${Date.now()}.${extension}`
-    const blob = new Blob([byteArray], { type: normalizedMimeType })
-    return new File([blob], fileName, { type: normalizedMimeType })
-  }
-
   const openBrowserCameraFallback = ({ onSelectFile }) => {
     try {
       const input = document.createElement("input")
@@ -528,51 +497,7 @@ export default function RestaurantOnboarding() {
       fileNamePrefix: sourcePicker.fileNamePrefix,
     }
     closeImageSourcePicker()
-    await openCameraFromFlutter(pickerConfig)
-  }
-
-  const openCameraFromFlutter = async ({ onSelectFile, fileNamePrefix }) => {
-    try {
-      const hasBridge =
-        typeof window !== "undefined" &&
-        window.flutter_inappwebview &&
-        typeof window.flutter_inappwebview.callHandler === "function"
-
-      if (!hasBridge) {
-        openBrowserCameraFallback({ onSelectFile })
-        return
-      }
-
-      const result = await window.flutter_inappwebview.callHandler("openCamera", {
-        source: "camera",
-        accept: "image/*",
-        multiple: false,
-        quality: 0.8,
-      })
-
-      if (!result || !result.success) return
-
-      let selectedFile = null
-      if (isUploadableFile(result.file)) {
-        selectedFile = result.file
-      } else if (result.base64) {
-        selectedFile = convertBase64ToFile(
-          result.base64,
-          result.mimeType || "image/jpeg",
-          fileNamePrefix || "camera-image"
-        )
-      }
-
-      if (!selectedFile || !String(selectedFile.type || "").startsWith("image/")) {
-        toast.error("Failed to capture image from camera")
-        return
-      }
-
-      onSelectFile(selectedFile)
-    } catch (error) {
-      debugError("openCamera bridge failed:", error)
-      openBrowserCameraFallback({ onSelectFile })
-    }
+    await openCamera(pickerConfig)
   }
 
 
@@ -2331,22 +2256,14 @@ export default function RestaurantOnboarding() {
           )}
         </main>
 
-        {sourcePicker.isOpen && (
-          <div className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center p-4">
-            <div className="w-full max-w-sm bg-white rounded-lg p-4 space-y-3">
-              <h3 className="text-sm font-semibold text-black">{sourcePicker.title || "Select image source"}</h3>
-              <Button type="button" className="w-full" onClick={handlePickFromCamera}>
-                Use Camera
-              </Button>
-              <Button type="button" variant="outline" className="w-full" onClick={handlePickFromDevice}>
-                Upload from Device
-              </Button>
-              <Button type="button" variant="ghost" className="w-full text-gray-700" onClick={closeImageSourcePicker}>
-                Cancel
-              </Button>
-            </div>
-          </div>
-        )}
+        <ImageSourcePicker
+          isOpen={sourcePicker.isOpen}
+          onClose={closeImageSourcePicker}
+          onFileSelect={sourcePicker.onSelectFile}
+          title={sourcePicker.title}
+          fileNamePrefix={sourcePicker.fileNamePrefix}
+          galleryInputRef={sourcePicker.fallbackInputRef}
+        />
 
         {error && (
           <div className="px-4 sm:px-6 pb-2 text-xs text-red-600">

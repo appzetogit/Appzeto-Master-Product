@@ -2,6 +2,9 @@ import { useEffect, useMemo, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { ArrowLeft, AlertCircle, Upload, Loader2 } from "lucide-react"
 import { restaurantAPI, uploadAPI } from "@food/api"
+import { ImageSourcePicker } from "@food/components/ImageSourcePicker"
+import { isFlutterBridgeAvailable } from "@food/utils/imageUploadUtils"
+import { toast } from "sonner"
 
 const IFSC_REGEX = /^[A-Z]{4}0[A-Z0-9]{6}$/
 const UPI_REGEX = /^[a-zA-Z0-9._-]{2,256}@[a-zA-Z]{2,64}$/
@@ -23,8 +26,9 @@ export default function UpdateBankDetails() {
   const [lastUpdated, setLastUpdated] = useState("")
 
   const [form, setForm] = useState(EMPTY_FORM)
-
   const [errors, setErrors] = useState({})
+  const [isQrPickerOpen, setIsQrPickerOpen] = useState(false)
+  const qrInputRef = useRef(null)
 
   const formattedUpdatedAt = useMemo(() => {
     if (!lastUpdated) return ""
@@ -100,6 +104,10 @@ export default function UpdateBankDetails() {
   const handleQrUpload = async (file) => {
     if (!file) return
     try {
+      if (file.size > 5 * 1024 * 1024) {
+        toast.error("Image size too large. Max 5MB allowed.")
+        return
+      }
       setUploadingQr(true)
       const response = await uploadAPI.uploadMedia(file, { folder: "food/restaurants/upi-qr" })
       const url =
@@ -108,10 +116,19 @@ export default function UpdateBankDetails() {
         ""
       if (!url) throw new Error("Upload failed")
       setForm((prev) => ({ ...prev, upiQrImage: url }))
+      toast.success("QR updated successfully")
     } catch (error) {
-      alert(error?.response?.data?.message || error?.message || "Failed to upload QR image")
+      toast.error(error?.response?.data?.message || error?.message || "Failed to upload QR image")
     } finally {
       setUploadingQr(false)
+    }
+  }
+
+  const handleQrClick = () => {
+    if (isFlutterBridgeAvailable()) {
+      setIsQrPickerOpen(true)
+    } else {
+      qrInputRef.current?.click()
     }
   }
 
@@ -269,7 +286,10 @@ export default function UpdateBankDetails() {
                   </div>
                 )}
 
-                <label className="inline-flex mt-3 items-center gap-2 px-4 py-2 rounded-lg border border-gray-300 text-sm font-medium cursor-pointer hover:bg-gray-50">
+                <div 
+                  onClick={handleQrClick}
+                  className="inline-flex mt-3 items-center gap-2 px-4 py-2 rounded-lg border border-gray-300 text-sm font-medium cursor-pointer hover:bg-gray-50"
+                >
                   {uploadingQr ? (
                     <>
                       <Loader2 className="w-4 h-4 animate-spin" />
@@ -282,13 +302,14 @@ export default function UpdateBankDetails() {
                     </>
                   )}
                   <input
+                    ref={qrInputRef}
                     type="file"
                     accept="image/*"
                     className="hidden"
                     disabled={uploadingQr}
                     onChange={(e) => handleQrUpload(e.target.files?.[0])}
                   />
-                </label>
+                </div>
               </div>
             </div>
 
@@ -302,6 +323,16 @@ export default function UpdateBankDetails() {
           </form>
         )}
       </div>
+      
+      <ImageSourcePicker
+        isOpen={isQrPickerOpen}
+        onClose={() => setIsQrPickerOpen(false)}
+        onFileSelect={handleQrUpload}
+        title="Upload UPI QR"
+        description="Choose how to upload your bank UPI QR image"
+        fileNamePrefix="upi-qr"
+        galleryInputRef={qrInputRef}
+      />
     </div>
   )
 }

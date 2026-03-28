@@ -10,6 +10,8 @@ import BottomPopup from "@delivery/components/BottomPopup"
 import { toast } from "sonner"
 import { deliveryAPI } from "@food/api"
 import { motion, AnimatePresence } from "framer-motion"
+import { ImageSourcePicker } from "@food/components/ImageSourcePicker"
+import { isFlutterBridgeAvailable } from "@food/utils/imageUploadUtils"
 
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
@@ -51,6 +53,7 @@ export const ProfileDetailsV2 = () => {
   const [uploadTarget, setUploadTarget] = useState(null) // 'profilePhoto' only for instant picker
   const [showDeletePopup, setShowDeletePopup] = useState(false)
   const [isDeletingImage, setIsDeletingImage] = useState(false)
+  const [activePicker, setActivePicker] = useState(null) // { target: 'profilePhoto' | 'upiQrCode', ref: any, title: string }
   const drivingLicenseInputRef = useRef(null)
 
   // Fetch profile data
@@ -173,53 +176,14 @@ export const ProfileDetailsV2 = () => {
     }
   }
 
-  const openPicker = (target) => {
-    setUploadTarget(target)
-    
-    // Check for Flutter Bridge
-    const hasBridge = typeof window !== "undefined" && window.flutter_inappwebview && typeof window.flutter_inappwebview.callHandler === "function";
-    
-    if (hasBridge && target === "profilePhoto") {
-       handleFlutterCamera(target);
-       return;
-    }
-
-    if (target === "profilePhoto" && fileInputRef.current) {
-      fileInputRef.current.click()
+  const openPicker = (target, ref, title) => {
+    if (isFlutterBridgeAvailable()) {
+      setActivePicker({ target, ref, title })
+    } else {
+      ref.current?.click()
     }
   }
 
-  const handleFlutterCamera = async (target) => {
-    try {
-      const result = await window.flutter_inappwebview.callHandler("openCamera");
-      if (result && result.success && result.base64) {
-        const file = convertBase64ToFile(result.base64, result.mimeType || "image/jpeg", result.fileName || "profile.jpg");
-        if (target === "profilePhoto") {
-           // Direct upload for profile photo
-           uploadProfileFile(file);
-        } else if (target === "upiQrCode") {
-           // Handled via state for bank details
-           setUpiQrFile(file);
-           setUpiQrPreview(URL.createObjectURL(file));
-        }
-      }
-    } catch (err) {
-      console.error("Camera bridge failed:", err);
-      // Fallback to standard picker
-      if (target === "profilePhoto") fileInputRef.current?.click();
-    }
-  }
-
-  const convertBase64ToFile = (base64, mimeType, fileName) => {
-    const byteCharacters = atob(base64.includes(',') ? base64.split(',')[1] : base64);
-    const byteNumbers = new Array(byteCharacters.length);
-    for (let i = 0; i < byteCharacters.length; i++) {
-      byteNumbers[i] = byteCharacters.charCodeAt(i);
-    }
-    const byteArray = new Uint8Array(byteNumbers);
-    const blob = new Blob([byteArray], { type: mimeType });
-    return new File([blob], fileName, { type: mimeType });
-  }
 
   const uploadProfileFile = async (file) => {
     try {
@@ -401,7 +365,7 @@ export const ProfileDetailsV2 = () => {
            
            <div className="flex items-center justify-center absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2 gap-3">
               <button 
-                onClick={() => openPicker("profilePhoto")}
+                onClick={() => openPicker("profilePhoto", fileInputRef, "Profile Photo")}
                 className="bg-black text-white p-3 rounded-2xl shadow-xl hover:bg-gray-900 transition-all active:scale-90 border-4 border-white"
               >
                 <Camera className="w-5 h-5" />
@@ -793,14 +757,7 @@ export const ProfileDetailsV2 = () => {
                   </div>
                 ) : (
                   <div 
-                    onClick={() => {
-                      const hasBridge = typeof window !== "undefined" && window.flutter_inappwebview && typeof window.flutter_inappwebview.callHandler === "function";
-                      if (hasBridge) {
-                        handleFlutterCamera("upiQrCode");
-                      } else {
-                        upiQrInputRef.current?.click();
-                      }
-                    }}
+                    onClick={() => openPicker("upiQrCode", upiQrInputRef, "UPI QR Code")}
                     className="w-full aspect-square rounded-3xl bg-gray-50 border-2 border-dashed border-gray-200 flex flex-col items-center justify-center gap-3 cursor-pointer hover:bg-gray-100 transition-all group overflow-hidden"
                   >
                      <QrCode className="w-8 h-8 text-purple-300" />
@@ -845,6 +802,23 @@ export const ProfileDetailsV2 = () => {
           </motion.div>
         )}
       </AnimatePresence>
+      {/* Photo Picker */}
+      <ImageSourcePicker
+        isOpen={!!activePicker}
+        onClose={() => setActivePicker(null)}
+        onFileSelect={(file) => {
+          if (activePicker?.target === "profilePhoto") {
+            uploadProfileFile(file)
+          } else if (activePicker?.target === "upiQrCode") {
+            setUpiQrFile(file)
+            setUpiQrPreview(URL.createObjectURL(file))
+          }
+        }}
+        title={activePicker?.title}
+        description={`Choose how to upload your ${activePicker?.target === "profilePhoto" ? "profile" : "QR code"} photo`}
+        fileNamePrefix={`delivery-${activePicker?.target}`}
+        galleryInputRef={activePicker?.ref}
+      />
     </div>
   )
 }

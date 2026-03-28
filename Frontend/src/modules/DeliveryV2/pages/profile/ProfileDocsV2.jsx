@@ -4,6 +4,8 @@ import { ArrowLeft, Eye, Edit2, Loader2, Camera, X, Plus, FileText } from 'lucid
 import { motion, AnimatePresence } from 'framer-motion';
 import { deliveryAPI } from '@food/api';
 import { toast } from 'sonner';
+import { ImageSourcePicker } from "@food/components/ImageSourcePicker"
+import { isFlutterBridgeAvailable } from "@food/utils/imageUploadUtils"
 
 /**
  * ProfileDocsV2 - Restored Old UI for Registration Documents & Vehicle Info.
@@ -14,6 +16,7 @@ export const ProfileDocsV2 = () => {
   const [loading, setLoading] = useState(true);
   const [isUpdating, setIsUpdating] = useState(false);
   const [showViewer, setShowViewer] = useState(null); // { title: string, url: string }
+  const [activePicker, setActivePicker] = useState(null) // { field: string, ref: any, title: string }
   const fileInputRef = useRef(null);
 
   useEffect(() => {
@@ -43,32 +46,13 @@ export const ProfileDocsV2 = () => {
      finally { setIsUpdating(false); }
   };
 
-  const triggerFlutterCamera = async (field) => {
-    try {
-      if (window.flutter_inappwebview && typeof window.flutter_inappwebview.callHandler === 'function') {
-        const result = await window.flutter_inappwebview.callHandler('openCamera');
-        if (result && result.success && result.base64) {
-          const file = convertBase64ToFile(result.base64, result.mimeType || 'image/jpeg', result.fileName || `${field}.jpg`);
-          handleUpdate(field, file);
-          return true;
-        }
-      }
-    } catch (err) {
-      console.error("Flutter bridge error:", err);
+  const openPicker = (field, ref, title) => {
+    if (isFlutterBridgeAvailable()) {
+      setActivePicker({ field, ref, title })
+    } else {
+      ref.current?.click()
     }
-    return false;
-  };
-
-  const convertBase64ToFile = (base64, mimeType, fileName) => {
-    const byteCharacters = atob(base64.includes(',') ? base64.split(',')[1] : base64);
-    const byteNumbers = new Array(byteCharacters.length);
-    for (let i = 0; i < byteCharacters.length; i++) {
-      byteNumbers[i] = byteCharacters.charCodeAt(i);
-    }
-    const byteArray = new Uint8Array(byteNumbers);
-    const blob = new Blob([byteArray], { type: mimeType });
-    return new File([blob], fileName, { type: mimeType });
-  };
+  }
 
   const getDocStatus = (doc) => {
     if (!doc?.document) return "Not Uploaded";
@@ -113,18 +97,14 @@ export const ProfileDocsV2 = () => {
                             <button onClick={() => setShowViewer({ title: doc.label, url: doc.data.document })} className="p-3 bg-gray-50 rounded-xl text-gray-600 hover:bg-gray-100 active:scale-95 transition-all"><Eye className="w-5 h-5" /></button>
                          )}
                          <button 
-                            onClick={async () => {
-                               const handled = await triggerFlutterCamera(doc.field);
-                               if (!handled) {
-                                  // Fallback handled by the label wrapping the input or just manual trigger if we had a ref
-                               }
-                            }}
+                            onClick={() => openPicker(doc.field, fileInputRef, doc.label)}
                             className="p-3 bg-orange-50 rounded-xl text-orange-600 hover:bg-orange-100 active:scale-95 transition-all cursor-pointer relative"
                          >
                             <Camera className="w-5 h-5" />
                             <input 
+                               ref={fileInputRef}
                                type="file" 
-                               className="absolute inset-0 opacity-0 cursor-pointer" 
+                               className="hidden" 
                                onChange={(e) => handleUpdate(doc.field, e.target.files[0])} 
                                disabled={isUpdating} 
                             />
@@ -163,6 +143,20 @@ export const ProfileDocsV2 = () => {
              </div>
           )}
        </AnimatePresence>
+
+      <ImageSourcePicker
+        isOpen={!!activePicker}
+        onClose={() => setActivePicker(null)}
+        onFileSelect={(file) => {
+          if (activePicker) {
+            handleUpdate(activePicker.field, file);
+          }
+        }}
+        title={activePicker?.title}
+        description={`Choose how to upload your ${activePicker?.title}`}
+        fileNamePrefix={`delivery-${activePicker?.field}`}
+        galleryInputRef={activePicker?.ref}
+      />
     </div>
   );
 };
