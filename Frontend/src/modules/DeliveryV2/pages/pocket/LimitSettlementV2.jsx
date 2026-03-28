@@ -151,7 +151,7 @@ export const LimitSettlementV2 = () => {
                 </div>
                 <p className="text-gray-900 text-lg font-bold mb-2">No settlement transactions</p>
                 <p className="text-gray-400 text-xs font-semibold leading-relaxed">
-                   Jab bhi aap available limit settle karoge, uski payment transactions yahan dikhenge.
+                   Whenever you settle the available limit, the payment transactions will appear here.
                 </p>
              </div>
           )}

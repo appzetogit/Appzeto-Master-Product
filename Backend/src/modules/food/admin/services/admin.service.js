@@ -1,4 +1,4 @@
-﻿import mongoose from 'mongoose';
+import mongoose from 'mongoose';
 import { ValidationError } from '../../../../core/auth/errors.js';
 import { FoodRestaurant } from '../../restaurant/models/restaurant.model.js';
 import { FoodDeliveryPartner } from '../../delivery/models/deliveryPartner.model.js';
@@ -100,7 +100,7 @@ export async function globalSearch(query = '') {
     const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const regex = { $regex: escaped, $options: 'i' };
 
-    const [orders, users, restaurants, items] = await Promise.all([
+    const [orders, users, restaurants, items, categories, addons] = await Promise.all([
         FoodOrder.find({
             $or: [{ orderId: regex }, { orderStatus: regex }]
         })
@@ -125,6 +125,14 @@ export async function globalSearch(query = '') {
         })
             .limit(5)
             .select('name description price')
+            .lean(),
+        FoodCategory.find({ name: regex })
+            .limit(3)
+            .select('name image')
+            .lean(),
+        FoodAddon.find({ name: regex })
+            .limit(3)
+            .select('name price')
             .lean()
     ]);
 
@@ -135,7 +143,7 @@ export async function globalSearch(query = '') {
         type: 'Order',
         title: `#${o.orderId}`,
         description: `Status: ${o.orderStatus}`,
-        path: `/admin/food/orders/${o._id}`
+        path: `/admin/food/orders/all?orderId=${o._id}`
     }));
 
     users.forEach(u => results.push({
@@ -143,7 +151,7 @@ export async function globalSearch(query = '') {
         type: 'User',
         title: u.name || 'Unnamed',
         description: `${u.email || u.phone || ''}`,
-        path: `/admin/food/customers/${u._id}`
+        path: `/admin/food/customers?userId=${u._id}`
     }));
 
     restaurants.forEach(r => results.push({
@@ -151,15 +159,31 @@ export async function globalSearch(query = '') {
         type: 'Restaurant',
         title: r.restaurantName,
         description: `${r.area || ''}, ${r.city || ''} (${r.status})`,
-        path: `/admin/food/restaurants/${r._id}`
+        path: `/admin/food/restaurants?restaurantId=${r._id}`
     }));
 
     items.forEach(i => results.push({
         id: i._id,
         type: 'Product',
         title: i.name,
-        description: `Price: â‚¹${i.price}`,
-        path: `/admin/food/foods`
+        description: `Price: ₹${i.price}`,
+        path: `/admin/food/foods?productId=${i._id}`
+    }));
+
+    categories.forEach(c => results.push({
+        id: c._id,
+        type: 'Category',
+        title: c.name,
+        description: 'Menu Category',
+        path: `/admin/food/categories`
+    }));
+
+    addons.forEach(a => results.push({
+        id: a._id,
+        type: 'Addon',
+        title: a.name,
+        description: `Price: ₹${a.price}`,
+        path: `/admin/food/addons`
     }));
 
     return results;
@@ -308,17 +332,11 @@ export async function getDashboardStats(query = {}) {
                         }
                     },
                     revenueTotal: { $sum: { $ifNull: ['$pricing.total', 0] } },
-                    commissionTotal: {
-                        $sum: {
-                            $ifNull: [
-                                '$platformProfit',
-                                { $ifNull: ['$pricing.platformFee', 0] }
-                            ]
-                        }
-                    },
+                    commissionTotal: { $sum: { $ifNull: ['$pricing.restaurantCommission', 0] } },
                     platformFeeTotal: { $sum: { $ifNull: ['$pricing.platformFee', 0] } },
                     deliveryFeeTotal: { $sum: { $ifNull: ['$pricing.deliveryFee', 0] } },
-                    gstTotal: { $sum: { $ifNull: ['$pricing.tax', 0] } }
+                    gstTotal: { $sum: { $ifNull: ['$pricing.tax', 0] } },
+                    adminNetProfit: { $sum: { $ifNull: ['$platformProfit', 0] } }
                 }
             }
         ]),
@@ -484,11 +502,8 @@ export async function getDashboardStats(query = {}) {
         platformFee: { total: Number(totals.platformFeeTotal || 0) },
         deliveryFee: { total: Number(totals.deliveryFeeTotal || 0) },
         gst: { total: Number(totals.gstTotal || 0) },
-        totalAdminEarnings:
-            Number(totals.commissionTotal || 0) +
-            Number(totals.platformFeeTotal || 0) +
-            Number(totals.deliveryFeeTotal || 0) +
-            Number(totals.gstTotal || 0),
+        totalAdminEarnings: Number(totals.adminNetProfit || 0) + Number(totals.gstTotal || 0),
+        deliveryProfit: Number(totals.adminNetProfit || 0) - Number(totals.commissionTotal || 0) - Number(totals.platformFeeTotal || 0),
         restaurants: {
             total: Number(restaurantsTotal || 0),
             pendingRequests: Number(restaurantsPending || 0)

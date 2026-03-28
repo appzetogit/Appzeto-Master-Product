@@ -711,14 +711,20 @@ export async function createOrder(userId, dto) {
   }
 
   const riderEarning = await getRiderEarning(distanceKm);
+  
+  // Calculate restaurant commission from subtotal
+  const { commissionAmount: restaurantCommission } = await foodTransactionService.getRestaurantCommissionSnapshot({
+    pricing: normalizedPricing,
+    restaurantId: dto.restaurantId
+  });
+
+  normalizedPricing.restaurantCommission = restaurantCommission || 0;
+
   const platformProfit = Math.max(
     0,
-    (Number.isFinite(normalizedPricing.deliveryFee)
-      ? normalizedPricing.deliveryFee
-      : 0) +
-      (Number.isFinite(normalizedPricing.platformFee)
-        ? normalizedPricing.platformFee
-        : 0) -
+    (Number.isFinite(normalizedPricing.deliveryFee) ? normalizedPricing.deliveryFee : 0) +
+      (Number.isFinite(normalizedPricing.platformFee) ? normalizedPricing.platformFee : 0) +
+      restaurantCommission -
       riderEarning,
   );
 
