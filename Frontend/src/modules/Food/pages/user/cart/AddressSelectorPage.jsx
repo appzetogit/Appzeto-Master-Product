@@ -79,6 +79,7 @@ export default function AddressSelectorPage() {
   const formBodyRef = useRef(null)
   const manualFieldRefs = useRef({})
   const mapTouchStartYRef = useRef(null)
+  const pageTouchStartYRef = useRef(null)
   
   const ENABLE_LOCATION_REVERSE_GEOCODE = import.meta.env.VITE_ENABLE_LOCATION_REVERSE_GEOCODE !== "false"
   const ENABLE_NOMINATIM_SEARCH = import.meta.env.VITE_ENABLE_NOMINATIM_SEARCH !== "false"
@@ -245,14 +246,43 @@ export default function AddressSelectorPage() {
   const scrollFieldIntoView = useCallback((fieldName) => {
     const el = manualFieldRefs.current?.[fieldName]
     if (!el) return
+    setMapCollapseProgress(1)
     setTimeout(() => {
       try {
+        const scrollHost = formBodyRef.current
+        if (!scrollHost) {
+          el.scrollIntoView({ behavior: "smooth", block: "center" })
+          return
+        }
+        const hostRect = scrollHost.getBoundingClientRect()
+        const elRect = el.getBoundingClientRect()
+        const viewportHeight =
+          typeof window !== "undefined" && window.visualViewport
+            ? window.visualViewport.height
+            : window.innerHeight
+        const safeBottom = viewportHeight - keyboardInset - 90
+        const overBy = elRect.bottom - safeBottom
+        if (overBy > 0) {
+          scrollHost.scrollTo({
+            top: scrollHost.scrollTop + overBy + 24,
+            behavior: "smooth",
+          })
+          return
+        }
+        if (elRect.top < hostRect.top + 70) {
+          const upBy = hostRect.top + 70 - elRect.top
+          scrollHost.scrollTo({
+            top: Math.max(0, scrollHost.scrollTop - upBy - 12),
+            behavior: "smooth",
+          })
+          return
+        }
         el.scrollIntoView({ behavior: "smooth", block: "center" })
       } catch {
         // Ignore scrolling errors.
       }
     }, 120)
-  }, [])
+  }, [keyboardInset])
 
   const clamp = (value, min, max) => Math.min(max, Math.max(min, value))
 
@@ -340,13 +370,42 @@ export default function AddressSelectorPage() {
     }
   }, [showAddressForm])
 
+  useEffect(() => {
+    if (!showAddressForm) return
+    if (keyboardInset > 0) {
+      setMapCollapseProgress(1)
+    }
+  }, [keyboardInset, showAddressForm])
+
   if (showAddressForm) {
     const minMapHeight = 120
     const scrollDrivenProgress = clamp(formScrollTop / 170, 0, 1)
     const effectiveProgress = Math.max(mapCollapseProgress, scrollDrivenProgress)
     const mapHeight = Math.round(baseMapHeight - (baseMapHeight - minMapHeight) * effectiveProgress)
+    const applyGlobalDelta = (deltaY) => {
+      if (!Number.isFinite(deltaY) || deltaY === 0) return
+      setMapCollapseProgress((prev) => clamp(prev + (deltaY > 0 ? 0.08 : -0.08), 0, 1))
+      if (formBodyRef.current) {
+        formBodyRef.current.scrollTop = Math.max(0, formBodyRef.current.scrollTop + deltaY)
+      }
+    }
     return (
-      <AnimatedPage className="fixed inset-0 z-50 bg-white dark:bg-[#0a0a0a] flex flex-col h-screen overflow-hidden">
+      <AnimatedPage
+        className="fixed inset-0 z-50 bg-white dark:bg-[#0a0a0a] flex flex-col h-screen overflow-hidden"
+        onWheelCapture={(e) => applyGlobalDelta(e.deltaY)}
+        onTouchStartCapture={(e) => {
+          pageTouchStartYRef.current = e.touches?.[0]?.clientY ?? null
+        }}
+        onTouchMoveCapture={(e) => {
+          const curr = e.touches?.[0]?.clientY
+          const start = pageTouchStartYRef.current
+          if (!Number.isFinite(curr) || !Number.isFinite(start)) return
+          const delta = start - curr
+          if (Math.abs(delta) < 3) return
+          applyGlobalDelta(delta)
+          pageTouchStartYRef.current = curr
+        }}
+      >
         <div className="flex-shrink-0 bg-white dark:bg-[#1a1a1a] border-b border-gray-100 dark:border-gray-800 px-4 py-3 flex items-center gap-4">
           <Button variant="ghost" size="icon" onClick={handleCancelAddressForm} className="rounded-full">
             <ChevronLeft className="h-6 w-6" />
