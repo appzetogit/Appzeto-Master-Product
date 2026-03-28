@@ -2635,7 +2635,7 @@ export default function Home() {
               </motion.div>
             )}
           </AnimatePresence>
-        </div>   )}
+        </div>
 
           {recommendedForYouRestaurants.length > 0 && (
             <motion.section
