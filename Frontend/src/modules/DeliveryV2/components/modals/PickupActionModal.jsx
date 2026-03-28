@@ -60,14 +60,6 @@ export const PickupActionModal = ({
     }
   };
 
-  const openPicker = () => {
-    if (isFlutterBridgeAvailable()) {
-      setIsPickerOpen(true);
-    } else {
-      cameraInputRef.current?.click();
-    }
-  };
-
   const isAtPickup = status === 'REACHED_PICKUP';
   const restaurantName = order.restaurantName || order.restaurant_name || 'Restaurant';
   const restaurantAddress = order.restaurantAddress || order.restaurant_address || order.restaurantLocation?.address || 'Address not available';
@@ -152,7 +144,7 @@ export const PickupActionModal = ({
             <div className="space-y-4">
               <div className="flex justify-center flex-col items-center gap-2">
                  <button
-                   onClick={openPicker}
+                   onClick={() => cameraInputRef.current?.click()}
                    disabled={isUploadingBill}
                    className={`w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl transition-all font-bold text-xs uppercase tracking-widest ${
                      isUploadingBill
@@ -219,15 +211,6 @@ export const PickupActionModal = ({
           )}
         </div>
       </motion.div>
-      <ImageSourcePicker
-        isOpen={isPickerOpen}
-        onClose={() => setIsPickerOpen(false)}
-        onFileSelect={handleBillImageSelect}
-        title="Capture Bill"
-        description="Choose how to capture the restaurant bill"
-        fileNamePrefix={`bill-${order.orderId || order._id}`}
-        galleryInputRef={cameraInputRef}
-      />
     </div>
   );
 };

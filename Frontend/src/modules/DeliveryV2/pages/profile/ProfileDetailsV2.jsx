@@ -176,12 +176,9 @@ export const ProfileDetailsV2 = () => {
     }
   }
 
-  const openPicker = (target, ref, title) => {
-    if (isFlutterBridgeAvailable()) {
-      setActivePicker({ target, ref, title })
-    } else {
-      ref.current?.click()
-    }
+  const openPicker = (target, ref) => {
+    setUploadTarget(target)
+    ref.current?.click()
   }
 
 
@@ -802,23 +799,6 @@ export const ProfileDetailsV2 = () => {
           </motion.div>
         )}
       </AnimatePresence>
-      {/* Photo Picker */}
-      <ImageSourcePicker
-        isOpen={!!activePicker}
-        onClose={() => setActivePicker(null)}
-        onFileSelect={(file) => {
-          if (activePicker?.target === "profilePhoto") {
-            uploadProfileFile(file)
-          } else if (activePicker?.target === "upiQrCode") {
-            setUpiQrFile(file)
-            setUpiQrPreview(URL.createObjectURL(file))
-          }
-        }}
-        title={activePicker?.title}
-        description={`Choose how to upload your ${activePicker?.target === "profilePhoto" ? "profile" : "QR code"} photo`}
-        fileNamePrefix={`delivery-${activePicker?.target}`}
-        galleryInputRef={activePicker?.ref}
-      />
     </div>
   )
 }

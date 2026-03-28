@@ -113,13 +113,8 @@ export default function SignupStep2() {
     return null
   }
 
-  const handleOpenUploadOptions = (docType, label) => {
-    const ref = { current: fileInputRefs.current[docType] }
-    if (isFlutterBridgeAvailable()) {
-      setActivePicker({ docType, title: label, ref })
-    } else {
-      ref.current?.click()
-    }
+  const handleOpenUploadOptions = (docType) => {
+    fileInputRefs.current[docType]?.click()
   }
 
   const handleFileSelect = async (docType, file) => {
@@ -381,17 +376,6 @@ export default function SignupStep2() {
         </form>
       </div>
 
-      {activePicker && (
-        <ImageSourcePicker
-          isOpen={!!activePicker}
-          onClose={() => setActivePicker(null)}
-          onFileSelect={(file) => handleFileSelect(activePicker.docType, file)}
-          title={activePicker.title}
-          description={`Choose how to upload your ${activePicker.title}`}
-          fileNamePrefix={`signup-${activePicker.docType}`}
-          galleryInputRef={activePicker.ref}
-        />
-      )}
     </div>
   )
 }
