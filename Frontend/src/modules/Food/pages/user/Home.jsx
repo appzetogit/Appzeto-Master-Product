@@ -1548,7 +1548,12 @@ export default function Home() {
                   ? restaurant.cuisines
                   : [],
                 rating: Number(restaurant.rating) || 0,
-                deliveryTime: deliveryTime,
+                deliveryTime:
+                  restaurant.deliveryTime ||
+                  restaurant.estimatedDeliveryTime ||
+                  (restaurant.estimatedDeliveryTimeMinutes
+                    ? `${restaurant.estimatedDeliveryTimeMinutes} mins`
+                    : deliveryTime),
                 distance: distance,
                 distanceInKm: distanceInKm, // Store numeric distance for sorting
                 image: image,
@@ -1572,8 +1577,8 @@ export default function Home() {
                   : [],
                 deliveryTimings: restaurant.deliveryTimings || null,
                 outletTimings: restaurant.outletTimings || null,
-                openingTime: restaurant.openingTime || null,
-                closingTime: restaurant.closingTime || null,
+                openingTime: restaurant.openingTime || restaurant?.deliveryTimings?.openingTime || null,
+                closingTime: restaurant.closingTime || restaurant?.deliveryTimings?.closingTime || null,
               };
             },
           );
@@ -1641,6 +1646,7 @@ export default function Home() {
                   const outletResponse =
                     await restaurantAPI.getOutletTimingsByRestaurantId(
                       restaurant.mongoId,
+                      { noCache: true },
                     );
                   const outletTimings =
                     outletResponse?.data?.data?.outletTimings ||
@@ -2936,7 +2942,9 @@ export default function Home() {
                                           : "Offline"}
                                       </span>
                                       {availability.isOpen &&
-                                        availability.closingCountdownLabel && (
+                                        availability.closingCountdownLabel &&
+                                        availability.openingTime &&
+                                        availability.closingTime && (
                                           <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-100 text-[10px] font-medium uppercase tracking-wide">
                                             <Timer
                                               className="h-3 w-3 flex-shrink-0"

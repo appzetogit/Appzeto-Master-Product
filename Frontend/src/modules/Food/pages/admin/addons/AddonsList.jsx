@@ -162,11 +162,11 @@ export default function AddonsList() {
     }
   }
 
-  const handleDelete = async (addon) => {
-    const id = addon?.id || addon?._id
-    if (!id) return
-    const confirmed = window.confirm("Delete this add-on?")
-    if (!confirmed) return
+  const [pendingDelete, setPendingDelete] = useState(null)
+
+  const confirmDelete = async () => {
+    if (!pendingDelete) return
+    const id = pendingDelete?.id || pendingDelete?._id
     try {
       setSubmittingAction(true)
       await adminAPI.rejectRestaurantAddon(String(id), "Deleted by admin")
@@ -177,7 +177,12 @@ export default function AddonsList() {
       toast.error(error?.response?.data?.message || "Failed to delete add-on")
     } finally {
       setSubmittingAction(false)
+      setPendingDelete(null)
     }
+  }
+
+  const handleDelete = (addon) => {
+    setPendingDelete(addon)
   }
 
   return (
@@ -460,6 +465,42 @@ export default function AddonsList() {
               className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {submittingAction ? "Saving..." : "Save"}
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(pendingDelete)} onOpenChange={(open) => !open && setPendingDelete(null)}>
+        <DialogContent className="max-w-md w-full rounded-xl p-0 overflow-hidden shadow-xl">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200">
+            <DialogTitle className="text-lg font-semibold text-slate-900">Delete add-on?</DialogTitle>
+            <button
+              type="button"
+              onClick={() => setPendingDelete(null)}
+              className="p-1.5 rounded-full hover:bg-slate-100 transition-colors"
+              aria-label="Close"
+            >
+              ✕
+            </button>
+          </div>
+          <div className="px-5 pt-4 pb-2">
+            <p className="text-sm text-slate-700">This action cannot be undone.</p>
+          </div>
+          <div className="px-5 py-4 border-t border-slate-200 flex justify-end gap-2 bg-slate-50">
+            <button
+              type="button"
+              onClick={() => setPendingDelete(null)}
+              className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-md hover:bg-slate-100 transition-colors"
+            >
+              No
+            </button>
+            <button
+              type="button"
+              onClick={confirmDelete}
+              disabled={submittingAction}
+              className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {submittingAction ? "Deleting..." : "Yes, delete"}
             </button>
           </div>
         </DialogContent>
