@@ -1124,7 +1124,10 @@ export default function RestaurantsList() {
                         </td>
                         <td className="px-6 py-4">
                           <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-full overflow-hidden bg-slate-100 flex items-center justify-center shrink-0">
+                            <div 
+                              className="w-10 h-10 rounded-full overflow-hidden bg-slate-100 flex items-center justify-center shrink-0 cursor-pointer hover:opacity-80 transition-all border border-slate-100"
+                              onClick={() => handleViewDetails(restaurant)}
+                            >
                               <img
                                 src={restaurant.logo}
                                 alt={restaurant.name}
@@ -1135,7 +1138,12 @@ export default function RestaurantsList() {
                               />
                             </div>
                             <div className="flex flex-col">
-                              <span className="text-sm font-medium text-slate-900">{restaurant.name}</span>
+                              <span 
+                                className="text-sm font-medium text-slate-900 cursor-pointer hover:text-blue-600 transition-colors"
+                                onClick={() => handleViewDetails(restaurant)}
+                              >
+                                {restaurant.name}
+                              </span>
                               <span className="text-xs text-slate-500">ID #{formatRestaurantId(restaurant.originalData?.restaurantId || restaurant.originalData?._id || restaurant._id || restaurant.id)}</span>
                               <span className="text-xs text-slate-500">{renderStars(restaurant.rating)}</span>
                             </div>
