@@ -490,7 +490,7 @@ function RestaurantDetailsContent() {
           try {
             const outletRestaurantId = transformedRestaurant.mongoId || actualRestaurant?._id || apiRestaurant?._id
             if (outletRestaurantId) {
-              const outletResponse = await restaurantAPI.getOutletTimingsByRestaurantId(outletRestaurantId)
+              const outletResponse = await restaurantAPI.getOutletTimingsByRestaurantId(outletRestaurantId, { noCache: true })
               const outletTimingsData = outletResponse?.data?.data?.outletTimings || outletResponse?.data?.outletTimings
               if (outletTimingsData) {
                 setRestaurant((prev) => ({ ...prev, outletTimings: outletTimingsData }))

@@ -304,8 +304,17 @@ export default function Feedback() {
   const handleFilterReset = () => { setFilterValues({ duration: null, sortBy: "newest", reviewType: [] }); setIsFilterApply() }
   const handleFilterApply = () => { setIsFilterLoading(true); setIsFilterOpen(false); setTimeout(() => setIsFilterLoading(false), 200) }
 
-  const formatDate = (date) => `${date.getDate()} ${date.toLocaleString('en-US', { month: 'short' })} ${date.getFullYear()}`
-  const formatDateShort = (date) => `${date.getDate()} ${date.toLocaleString('en-US', { month: 'short' })}`
+  const formatDate = (date) => {
+    const day = date.getDate()
+    const month = date.toLocaleString('en-US', { month: 'short' })
+    const year = date.getFullYear()
+    return `${day} ${month} ${year}`
+  }
+  const formatDateShort = (date) => {
+    const day = date.getDate()
+    const month = date.toLocaleString('en-US', { month: 'short' })
+    return `${day} ${month}`
+  }
 
   const getDateRanges = () => {
     const today = new Date()
