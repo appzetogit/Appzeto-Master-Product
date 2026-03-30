@@ -34,8 +34,7 @@ import { fetchPolyline } from '../utils/googleMaps.js';
 import { getFirebaseDB } from '../../../../config/firebase.js';
 import * as foodTransactionService from './foodTransaction.service.js';
 
-const ORDER_ID_PREFIX = "FOD-";
-const ORDER_ID_LENGTH = 6;
+
 
 /**
  * Fire-and-forget BullMQ enqueue for order lifecycle events.
@@ -49,6 +48,19 @@ function enqueueOrderEvent(action, payload = {}) {
     } catch (err) {
         logger.warn(`BullMQ enqueue order event failed (sync): ${action} - ${err?.message || err}`);
     }
+}
+
+// ----- Helper for distance-based eligibility (simple haversine) -----
+function haversineKm(lat1, lon1, lat2, lon2) {
+    const R = 6371; // Radius of the earth in km
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a =
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+        Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
 }
 
 function generateFourDigitDeliveryOtp() {
@@ -70,6 +82,8 @@ function sanitizeOrderForExternal(orderDoc) {
       },
     };
   }
+  o.orderMongoId = (o._id || orderDoc?._id || "").toString();
+  o.orderId = o.orderMongoId;
   return o;
 }
 
@@ -79,7 +93,7 @@ function emitDeliveryDropOtpToUser(order, plainOtp) {
     if (!io || !plainOtp || !order?.userId) return;
     io.to(rooms.user(order.userId)).emit("delivery_drop_otp", {
       orderMongoId: order._id?.toString?.(),
-      orderId: order.orderId,
+      orderId: order._id?.toString?.(),
       otp: plainOtp,
       message:
         "Share this OTP with your delivery partner to hand over the order.",
@@ -110,31 +124,10 @@ function buildOrderIdentityFilter(orderIdOrMongoId) {
   if (!raw) return null;
   if (mongoose.isValidObjectId(raw))
     return { _id: new mongoose.Types.ObjectId(raw) };
-  return { orderId: raw };
+  return null;
 }
 
-function generateOrderId() {
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  let s = "";
-  for (let i = 0; i < ORDER_ID_LENGTH; i++) {
-    s += chars[Math.floor(Math.random() * chars.length)];
-  }
-  return ORDER_ID_PREFIX + s;
-}
 
-async function ensureUniqueOrderId() {
-  let orderId;
-  let exists = true;
-  let attempts = 0;
-  while (exists && attempts < 10) {
-    orderId = generateOrderId();
-    const found = await FoodOrder.exists({ orderId });
-    exists = !!found;
-    attempts++;
-  }
-  if (exists) throw new ValidationError("Could not generate unique order id");
-  return orderId;
-}
 
 function toGeoPoint(lat, lng) {
   if (lat == null || lng == null) return undefined;
@@ -157,8 +150,11 @@ function pushStatusHistory(order, { byRole, byId, from, to, note = "" }) {
 
 function normalizeOrderForClient(orderDoc) {
   const order = orderDoc?.toObject ? orderDoc.toObject() : orderDoc || {};
+  const orderId = (order._id || orderDoc?._id || "").toString();
   return {
     ...order,
+    orderMongoId: orderId,
+    orderId,
     status: order?.orderStatus || order?.status || "",
     deliveredAt:
       order?.deliveryState?.deliveredAt || order?.deliveredAt || null,
@@ -259,7 +255,7 @@ function buildDeliverySocketPayload(orderDoc, restaurantDoc = null) {
   return {
     orderMongoId:
       orderDoc?._id?.toString?.() || order?._id?.toString?.() || order?._id,
-    orderId: order?.orderId,
+    orderId: order?._id?.toString?.(),
     status: orderDoc?.orderStatus || order?.orderStatus,
     items: order?.items || [],
     pricing: order?.pricing,
@@ -339,10 +335,10 @@ async function notifyRestaurantNewOrder(orderDoc) {
       [{ ownerType: "RESTAURANT", ownerId: orderDoc.restaurantId }],
       {
         title: "New order received",
-        body: `Order ${orderDoc.orderId} is waiting for review.`,
+        body: `Order #${orderDoc._id} is waiting for review.`,
         data: {
           type: "new_order",
-          orderId: orderDoc.orderId,
+          orderId: orderDoc._id.toString(),
           orderMongoId: orderDoc._id?.toString?.() || "",
           link: `/restaurant/orders/${orderDoc._id?.toString?.() || ""}`,
         },
@@ -357,18 +353,27 @@ async function listNearbyOnlineDeliveryPartners(
   restaurantId,
   { maxKm = 15, limit = 25 } = {},
 ) {
-  const restaurant = await FoodRestaurant.findById(restaurantId)
+  // Robust restaurantId handling (supports both ID string and populated document)
+  const rId = (restaurantId?._id || restaurantId).toString();
+  const restaurant = await FoodRestaurant.findById(rId)
     .select("location")
     .lean();
+    
   if (!restaurant?.location?.coordinates?.length) {
     // Fallback: if restaurant location is missing, notify any online approved partners.
     const partners = await FoodDeliveryPartner.find({
       status: "approved",
       availabilityStatus: "online",
     })
-      .select("_id")
+      .select("_id status name")
       .limit(Math.max(1, limit))
       .lean();
+      
+    console.log(
+      `[DEBUG] listNearby: Restaurant ${rId} location missing. Found ${partners.length} fallback online partners.`,
+      JSON.stringify(partners)
+    );
+    
     return {
       restaurant: null,
       partners: partners.map((p) => ({ partnerId: p._id, distanceKm: null })),
@@ -376,47 +381,65 @@ async function listNearbyOnlineDeliveryPartners(
   }
 
   const [rLng, rLat] = restaurant.location.coordinates;
-  const partners = await FoodDeliveryPartner.find({
-    status: "approved",
+  console.log(`[DEBUG] listNearby: Searching near Restaurant [${rLat}, ${rLng}] within ${maxKm}km`);
+
+  // Find all online partners first to see why they might be excluded
+  const allOnline = await FoodDeliveryPartner.find({
     availabilityStatus: "online",
-    lastLat: { $exists: true, $ne: null },
-    lastLng: { $exists: true, $ne: null },
   })
-    .select("_id lastLat lastLng")
+    .select("_id status lastLat lastLng name")
     .lean();
 
-  console.log(
-    `[DEBUG] listNearby: Restaurant [${rLat}, ${rLng}] found ${partners.length} online approved partners with GPS`,
-  );
+  console.log(`[DEBUG] listNearby: Found ${allOnline.length} total online partners globally.`);
+  if (allOnline.length > 0) {
+    console.log(`[DEBUG] listNearby: Sample partner: ${allOnline[0]._id} status=${allOnline[0].status}`);
+  }
 
   const scored = [];
-  for (const p of partners) {
+  const allowedStatuses = process.env.NODE_ENV === 'production' ? ['approved'] : ['approved', 'pending'];
+
+  for (const p of allOnline) {
+    if (!allowedStatuses.includes(p.status)) {
+        continue;
+    }
+    
+    // Allow fallback if GPS is missing but they are online
+    if (p.lastLat == null || p.lastLng == null) {
+        scored.push({ partnerId: p._id, distanceKm: 999 }); // Token "far" distance for sorting but keeps them in list
+        continue;
+    }
+
     const d = haversineKm(rLat, rLng, p.lastLat, p.lastLng);
-    if (Number.isFinite(d) && d <= maxKm)
-      scored.push({ partnerId: p._id, distanceKm: d });
+    if (Number.isFinite(d) && d <= maxKm) {
+        scored.push({ partnerId: p._id, distanceKm: d });
+    }
   }
 
   scored.sort((a, b) => a.distanceKm - b.distanceKm);
   const picked = scored.slice(0, Math.max(1, limit));
 
-  // Fallback: if no one has GPS yet, still notify online partners (common right after login).
+  console.log(`[DEBUG] listNearby: Scored ${scored.length} partners. Picked ${picked.length}.`);
+
+  // Fallback: if no one was found (unlikely now with GPS missing allowed), try strict status check
   if (picked.length === 0) {
     const anyOnline = await FoodDeliveryPartner.find({
-      status: "approved",
+      status: { $in: allowedStatuses },
       availabilityStatus: "online",
     })
-      .select("_id")
+      .select("_id status name")
       .limit(Math.max(1, limit))
       .lean();
+    
+    console.log(`[DEBUG] listNearby: Fallback found ${anyOnline.length} online partners.`);
     return {
       restaurant,
       partners: anyOnline.map((p) => ({ partnerId: p._id, distanceKm: null })),
     };
   }
 
+  console.log(`[DEBUG] listNearby: Final partners list size: ${picked.length}`);
   return { restaurant, partners: picked };
 }
-
 // ----- Settings -----
 export async function getDispatchSettings() {
   let doc = await FoodSettings.findOne({ key: "dispatch" }).lean();
@@ -622,7 +645,7 @@ export async function createOrder(userId, dto) {
   if (restaurant.status !== "approved")
     throw new ValidationError("Restaurant not accepting orders");
 
-  const orderId = await ensureUniqueOrderId();
+
   const settings = await getDispatchSettings();
   const dispatchMode = settings.dispatchMode;
 
@@ -706,7 +729,7 @@ export async function createOrder(userId, dto) {
     distanceKm = Number.isFinite(d) ? d : null;
   } else {
     console.warn(
-      `Food order ${orderId}: distance not available, rider earning set to 0`,
+      `Food order: distance not available, rider earning set to 0`,
     );
   }
 
@@ -729,7 +752,6 @@ export async function createOrder(userId, dto) {
   );
 
   const order = new FoodOrder({
-    orderId,
     userId: new mongoose.Types.ObjectId(userId),
     restaurantId: new mongoose.Types.ObjectId(dto.restaurantId),
     zoneId: dto.zoneId
@@ -765,7 +787,7 @@ export async function createOrder(userId, dto) {
     if (amountPaise < 100)
       throw new ValidationError("Amount too low for online payment");
     try {
-      const rzOrder = await createRazorpayOrder(amountPaise, "INR", orderId);
+      const rzOrder = await createRazorpayOrder(amountPaise, "INR", order._id.toString());
       order.payment.razorpay = {
         orderId: rzOrder.id,
         paymentId: "",
@@ -802,14 +824,14 @@ export async function createOrder(userId, dto) {
         ? "Complete Payment to Confirm Order"
         : "Order Confirmed! 🍔",
       body: isAwaitingOnlinePayment
-        ? `Order #${orderId} is created. Please complete payment to send it to ${restaurant.restaurantName || "the restaurant"}.`
-        : `Your order #${orderId} from ${restaurant.restaurantName || "the restaurant"} has been placed successfully.`,
+        ? `Order #${order._id} is created. Please complete payment to send it to ${restaurant.restaurantName || "the restaurant"}.`
+        : `Your order #${order._id} from ${restaurant.restaurantName || "the restaurant"} has been placed successfully.`,
       image: "https://i.ibb.co/3m2Yh7r/Appzeto-Brand-Image.png",
       data: {
         type: isAwaitingOnlinePayment
           ? "order_created_pending_payment"
           : "order_created",
-        orderId: String(orderId),
+        orderId: String(order._id),
         orderMongoId: order._id?.toString?.() || "",
         link: `/food/user/orders/${order._id?.toString?.() || ""}`,
       },
@@ -900,11 +922,11 @@ export async function verifyPayment(userId, dto) {
   // Notify Customer about payment success
   await notifyOwnersSafely([{ ownerType: "USER", ownerId: userId }], {
     title: "Payment Successful! ✅",
-    body: `We have received your payment of ₹${order.payment.amountDue} for Order #${order.orderId}.`,
+    body: `We have received your payment of ₹${order.payment.amountDue} for Order #${order._id.toString()}.`,
     image: "https://i.ibb.co/3m2Yh7r/Appzeto-Brand-Image.png",
     data: {
       type: "payment_success",
-      orderId: String(order.orderId),
+      orderId: String(order._id.toString()),
       orderMongoId: String(order._id),
     },
   });
@@ -920,19 +942,6 @@ export async function verifyPayment(userId, dto) {
 }
 
 // ----- Auto-assign -----
-function haversineKm(lat1, lon1, lat2, lon2) {
-  const R = 6371;
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLon = ((lon2 - lon1) * Math.PI) / 180;
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos((lat1 * Math.PI) / 180) *
-      Math.cos((lat2 * Math.PI) / 180) *
-      Math.sin(dLon / 2) *
-      Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
-}
 
 /**
  * Start or continue a smart cascading dispatch.
@@ -955,23 +964,33 @@ export async function tryAutoAssign(orderId, options = {}) {
     const offeredIds = (order.dispatch?.offeredTo || []).map(o => o.partnerId.toString());
     
     // Find nearby online partners
-    const { partners } = await listNearbyOnlineDeliveryPartners(order.restaurantId, { maxKm: 15, limit: 10 });
+    const searchOptions = { maxKm: 30, limit: 10 }; // Increased radius from 15 to 30 for production robustness
+    const { partners } = await listNearbyOnlineDeliveryPartners(order.restaurantId, searchOptions);
+    
+    console.log(`[DEBUG] tryAutoAssign: partners found: ${partners.length}`);
     
     // Filter out already offered/rejected partners
     const eligible = partners.filter(p => !offeredIds.includes(p.partnerId.toString()));
+    
+    console.log(
+        `[DEBUG] tryAutoAssign: Found ${partners.length} total online partners. ${eligible.length} are eligible (not already offered).`,
+        JSON.stringify(eligible)
+    );
 
     if (eligible.length === 0) {
         // No more specific partners to offer to? 
         // If it's still unassigned, we leave it in the marketplace pool (sending broadcast now)
-        logger.info(`SmartDispatch: No more eligible partners for order ${order.orderId}. Broadcasting to marketplace.`);
+        logger.info(`SmartDispatch: No more eligible partners for order ${order._id.toString()}. Broadcasting to marketplace.`);
         
         try {
             const io = getIO();
             if (io) {
                 const restaurant = order.restaurantId;
                 const payload = buildDeliverySocketPayload(order, restaurant);
+                console.log(`[DEBUG] tryAutoAssign Broadcast: Emitting to ${partners.length} total partners.`);
                 for (const p of partners) {
-                    io.to(rooms.delivery(p.partnerId)).emit('new_order_available', {
+                    const rName = rooms.delivery(p.partnerId);
+                    io.to(rName).emit('new_order_available', {
                         ...payload,
                         pickupDistanceKm: p.distanceKm
                     });
@@ -986,30 +1005,55 @@ export async function tryAutoAssign(orderId, options = {}) {
                 partners.slice(0, 10).map(p => ({ ownerType: 'DELIVERY_PARTNER', ownerId: p.partnerId })),
                 {
                     title: 'New delivery order available',
-                    body: `Order #${order.orderId} is available near you.`,
+                    body: `Order #${order._id.toString()} is available near you.`,
                     data: {
                         type: 'new_order_available',
-                        orderId: order.orderId,
+                        orderId: order._id.toString(),
                         orderMongoId: order._id.toString(),
                         link: '/delivery'
                     }
                 }
             );
         } catch (err) {
-            logger.warn(`SmartDispatch: Broadcast failed for order ${order.orderId}: ${err.message}`);
+            logger.warn(`SmartDispatch: Broadcast failed for order ${order._id.toString()}: ${err.message}`);
         }
         return order;
     }
 
     // Pick the best (first in sorted list)
-    const best = eligible[0];
+    // Notify ALL eligible partners (Broadcast Mode for reliability in dev/testing)
+    const payload = buildDeliverySocketPayload(order, order.restaurantId);
+    const io = getIO();
     
-    // Assign to this partner
+    console.log(`[DEBUG] tryAutoAssign: Notifying ${eligible.length} eligible partners via 'new_order'.`, JSON.stringify(eligible.map(e => e.partnerId)));
+
+    for (const p of eligible) {
+        const roomName = rooms.delivery(p.partnerId);
+        try {
+            if (io) {
+                // Add distance to payload per partner
+                const pPayload = { ...payload, distanceKm: p.distanceKm === 999 ? null : p.distanceKm };
+                
+                io.to(roomName).emit('new_order', pPayload);
+                io.to(roomName).emit('play_notification_sound', {
+                    orderId: payload.orderId,
+                    orderMongoId: payload.orderMongoId
+                });
+                console.log(`[DEBUG] tryAutoAssign: Emitted 'new_order' to "${roomName}"`);
+            }
+        } catch (err) {
+            console.error(`[ERROR] tryAutoAssign: Failed to notify partner ${p.partnerId}:`, err.message);
+        }
+    }
+
+    // Assign to the first one but keep it in a state that others can still see/accept if first one doesn't.
+    const best = eligible[0];
     order.dispatch.status = 'assigned';
+
     order.dispatch.deliveryPartnerId = best.partnerId;
     order.dispatch.assignedAt = new Date();
     
-    // Record in history
+    // Record first one in history (standard behavior)
     order.dispatch.offeredTo.push({
         partnerId: best.partnerId,
         at: new Date(),
@@ -1018,26 +1062,15 @@ export async function tryAutoAssign(orderId, options = {}) {
 
     await order.save();
 
-    // 🚀 Notify the specific partner instantly
     try {
-        const io = getIO();
-        if (io) {
-            const restaurant = order.restaurantId;
-            const payload = buildDeliverySocketPayload(order, restaurant);
-            io.to(rooms.delivery(best.partnerId)).emit('new_order', payload);
-            io.to(rooms.delivery(best.partnerId)).emit('play_notification_sound', {
-                orderId: payload.orderId,
-                orderMongoId: payload.orderMongoId
-            });
-        }
         await notifyOwnerSafely(
             { ownerType: 'DELIVERY_PARTNER', ownerId: best.partnerId },
             {
                 title: 'New order assigned! 🛵',
-                body: `You have 60 seconds to accept Order #${order.orderId}.`,
+                body: `You have 60 seconds to accept Order #${order._id.toString()}.`,
                 data: {
                     type: 'new_order',
-                    orderId: order.orderId,
+                    orderId: order._id.toString(),
                     orderMongoId: order._id.toString(),
                     link: '/delivery'
                 }
@@ -1051,7 +1084,7 @@ export async function tryAutoAssign(orderId, options = {}) {
     await addOrderJob({
         action: 'DISPATCH_TIMEOUT_CHECK',
         orderMongoId: order._id.toString(),
-        orderId: order.orderId,
+        orderId: order._id.toString(),
         partnerId: best.partnerId.toString()
     }, { delay: 60000 }); // 60 seconds
 
@@ -1071,7 +1104,7 @@ export async function processDispatchTimeout(orderId, partnerId) {
                           !order.dispatch?.acceptedAt;
 
     if (stillAssigned) {
-        logger.info(`SmartDispatch: Timeout for order ${order.orderId} (Partner: ${partnerId}). Moving to next.`);
+        logger.info(`SmartDispatch: Timeout for order ${order._id.toString()} (Partner: ${partnerId}). Moving to next.`);
         
         // Mark as timeout in history
         const offer = order.dispatch.offeredTo.find(o => String(o.partnerId) === String(partnerId) && o.action === 'offered');
@@ -1229,7 +1262,7 @@ export async function cancelOrder(orderId, userId, reason) {
 
   enqueueOrderEvent("order_cancelled_by_user", {
     orderMongoId: order._id?.toString?.(),
-    orderId: order.orderId,
+    orderId: order._id.toString(),
     userId,
     reason: reason || "",
   });
@@ -1258,11 +1291,11 @@ export async function cancelOrder(orderId, userId, reason) {
     ],
     {
       title: "Order Cancelled ❌",
-      body: `Order #${order.orderId} has been cancelled successfully.${refundDetail}`,
+      body: `Order #${order._id.toString()} has been cancelled successfully.${refundDetail}`,
       image: "https://i.ibb.co/3m2Yh7r/Appzeto-Brand-Image.png",
       data: {
         type: "order_cancelled",
-        orderId: String(order.orderId),
+        orderId: String(order._id.toString()),
         orderMongoId: String(order._id),
       },
     },
@@ -1274,9 +1307,9 @@ export async function cancelOrder(orderId, userId, reason) {
     if (io) {
       const payload = {
         orderMongoId: order._id?.toString?.(),
-        orderId: order.orderId,
+        orderId: order._id.toString(),
         orderStatus: order.orderStatus,
-        message: `Order #${order.orderId} has been cancelled successfully.${refundDetail}`
+        message: `Order #${order._id.toString()} has been cancelled successfully.${refundDetail}`
       };
       io.to(rooms.user(userId)).emit("order_status_update", payload);
       io.to(rooms.restaurant(order.restaurantId)).emit("order_status_update", payload);
@@ -1350,7 +1383,7 @@ export async function submitOrderRatings(orderId, userId, dto) {
     await order.save();
     enqueueOrderEvent('order_ratings_submitted', {
         orderMongoId: order._id?.toString?.(),
-        orderId: order.orderId,
+        orderId: order._id.toString(),
         userId,
         restaurantRating: dto.restaurantRating,
         deliveryPartnerRating: hasDeliveryPartner ? dto.deliveryPartnerRating : null
@@ -1408,9 +1441,9 @@ export async function updateOrderStatusRestaurant(
       );
       const payload = {
         orderMongoId: order._id?.toString?.(),
-        orderId: order.orderId,
+        orderId: order._id.toString(),
         orderStatus: order.orderStatus,
-        title: title || `Order ${order.orderId} updated`,
+        title: title || `Order ${order._id.toString()} updated`,
         message: body || "",
       };
       io.to(rooms.restaurant(restaurantId)).emit(
@@ -1420,7 +1453,7 @@ export async function updateOrderStatusRestaurant(
       io.to(rooms.user(order.userId)).emit("order_status_update", payload);
     }
 
-    let title = `Order ${order.orderId} updated`;
+    let title = `Order ${order._id.toString()} updated`;
     let body = `Status changed to ${String(orderStatus).replace(/_/g, " ")}`;
 
     // Custom messages for customer based on status
@@ -1452,12 +1485,12 @@ export async function updateOrderStatusRestaurant(
       notifyList.push({ ownerType: "DELIVERY_PARTNER", ownerId: assignedRiderId });
     }
 
-    let riderTitle = `Order #${order.orderId} updated`;
+    let riderTitle = `Order #${order._id.toString()} updated`;
     let riderBody = `The order status is now ${String(orderStatus).replace(/_/g, " ")}.`;
 
     if (String(orderStatus).includes("cancel")) {
       riderTitle = "Order Cancelled ❌";
-      riderBody = `Order #${order.orderId} has been cancelled. Please stop your current task.`;
+      riderBody = `Order #${order._id.toString()} has been cancelled. Please stop your current task.`;
       
       // Sync transaction status
       try {
@@ -1481,7 +1514,7 @@ export async function updateOrderStatusRestaurant(
         image: "https://i.ibb.co/3m2Yh7r/Appzeto-Brand-Image.png",
         data: {
           type: "order_status_update",
-          orderId: order.orderId,
+          orderId: order._id.toString(),
           orderMongoId: order._id?.toString?.() || "",
           orderStatus: String(orderStatus || ""),
           link: `/food/user/orders/${order._id?.toString?.() || ""}`,
@@ -1502,7 +1535,7 @@ export async function updateOrderStatusRestaurant(
         (String(from) !== "preparing" && String(from) !== "confirmed")
       ) {
         console.log(
-          `[DEBUG] Order ${order.orderId} status changed to '${orderStatus}'. Triggering central delivery dispatch.`,
+          `[DEBUG] Order ${order._id.toString()} status changed to '${orderStatus}'. Triggering central delivery dispatch.`,
         );
 
         if (order.dispatch?.modeAtCreation === "auto") {
@@ -1524,7 +1557,7 @@ export async function updateOrderStatusRestaurant(
 
             // When ready for pickup -> ping assigned delivery partner.
             if (String(orderStatus) === 'ready_for_pickup' && String(from) !== 'ready_for_pickup') {
-                console.log(`[DEBUG] Order ${order.orderId} changed to 'ready_for_pickup'.`);
+                console.log(`[DEBUG] Order ${order._id.toString()} changed to 'ready_for_pickup'.`);
                 const assignedId = order.dispatch?.deliveryPartnerId?.toString?.() || order.dispatch?.deliveryPartnerId;
                 if (assignedId) {
                     console.log(`[DEBUG] Notifying assigned partner ${assignedId} that order is ready.`);
@@ -1532,7 +1565,7 @@ export async function updateOrderStatusRestaurant(
                     const payload = buildDeliverySocketPayload(order, restaurant);
                     io.to(rooms.delivery(assignedId)).emit('order_ready', payload);
                 } else {
-                    console.log(`[DEBUG] Order ${order.orderId} is ready but no partner assigned.`);
+                    console.log(`[DEBUG] Order ${order._id.toString()} is ready but no partner assigned.`);
                 }
             }
         }
@@ -1542,7 +1575,7 @@ export async function updateOrderStatusRestaurant(
 
     enqueueOrderEvent('restaurant_order_status_updated', {
         orderMongoId: order._id?.toString?.(),
-        orderId: order.orderId,
+        orderId: order._id.toString(),
         restaurantId,
         from,
         to: orderStatus
@@ -1579,7 +1612,7 @@ export async function updateOrderStatusRestaurant(
           };
         }
       } catch (err) {
-        console.error(`Automated refund failed for Order ${orderId} (Restaurant Cancel):`, err);
+        console.error(`Automated refund failed for Order ${order._id.toString()} (Restaurant Cancel):`, err);
         order.payment.refund = { status: "failed", amount: order.pricing.total };
       }
       // Re-save order with updated payment status
@@ -1691,23 +1724,24 @@ export async function acceptOrderDelivery(orderId, deliveryPartnerId) {
   if (!identity) throw new ValidationError("Order id required");
 
   // Atomically claim if unassigned, or accept if already assigned to me.
-  const order = await FoodOrder.findOne({
-    ...identity,
-    orderStatus: {
-      $nin: [
-        "delivered",
-        "cancelled_by_user",
-        "cancelled_by_restaurant",
-        "cancelled_by_admin",
-      ],
-    },
-    $or: [
-      { "dispatch.status": "unassigned" },
-      { "dispatch.deliveryPartnerId": partnerId },
-    ],
-  });
-
+  const order = await FoodOrder.findOne(identity);
   if (!order) throw new NotFoundError("Order not found");
+
+  // State checks
+  const isCancelled = ["cancelled_by_user", "cancelled_by_restaurant", "cancelled_by_admin"].includes(order.orderStatus);
+  if (isCancelled) throw new ValidationError("Order was cancelled");
+
+  if (order.orderStatus === "delivered") throw new ValidationError("Order already delivered");
+
+  // Claim logic
+  const isMine = order.dispatch?.deliveryPartnerId?.toString() === deliveryPartnerId.toString();
+  const isAlreadyAccepted = order.dispatch?.status === "accepted";
+
+  // In broadcast/marketplace mode, any notified rider can accept if it hasn't been claimed yet.
+  // If it was assigned to "Best Rider" but they didn't accept it, another rider can take it.
+  if (isAlreadyAccepted && !isMine) {
+    throw new ForbiddenError("Order already accepted by another partner");
+  }
 
   // Guard: only dispatchable after restaurant accepted.
   if (
@@ -1716,19 +1750,9 @@ export async function acceptOrderDelivery(orderId, deliveryPartnerId) {
     throw new ValidationError("Order not ready for delivery assignment");
   }
 
-  const wasUnassigned =
-    order.dispatch?.status === "unassigned" ||
-    !order.dispatch?.deliveryPartnerId;
-  if (
-    !wasUnassigned &&
-    order.dispatch.deliveryPartnerId?.toString() !==
-      deliveryPartnerId.toString()
-  ) {
-    throw new ForbiddenError("Not your order");
-  }
-
+  // State transitions
   const from = order.dispatch?.status || "unassigned";
-  order.dispatch.deliveryPartnerId = partnerId;
+  order.dispatch.deliveryPartnerId = new mongoose.Types.ObjectId(deliveryPartnerId);
   order.dispatch.status = "accepted";
   if (!order.dispatch.assignedAt) order.dispatch.assignedAt = new Date();
   order.dispatch.acceptedAt = new Date();
@@ -1756,7 +1780,7 @@ export async function acceptOrderDelivery(orderId, deliveryPartnerId) {
 
           const db = getFirebaseDB();
           if (db) {
-              const orderRef = db.ref(`active_orders/${order.orderId}`);
+              const orderRef = db.ref(`active_orders/${order._id.toString()}`);
               await orderRef.set({
                   polyline,
                   lat: restLoc[1], // Initial boy position at restaurant
@@ -1784,18 +1808,18 @@ export async function acceptOrderDelivery(orderId, deliveryPartnerId) {
     if (io) {
       io.to(rooms.delivery(deliveryPartnerId)).emit("order_status_update", {
         orderMongoId: order._id?.toString?.(),
-        orderId: order.orderId,
+        orderId: order._id.toString(),
         dispatchStatus: order.dispatch?.status,
       });
       io.to(rooms.restaurant(order.restaurantId)).emit("order_status_update", {
         orderMongoId: order._id?.toString?.(),
-        orderId: order.orderId,
+        orderId: order._id.toString(),
         orderStatus: order.orderStatus,
         dispatchStatus: order.dispatch?.status,
       });
       io.to(rooms.user(order.userId)).emit("order_status_update", {
         orderMongoId: order._id?.toString?.(),
-        orderId: order.orderId,
+        orderId: order._id.toString(),
         orderStatus: order.orderStatus,
         dispatchStatus: order.dispatch?.status,
       });
@@ -1807,11 +1831,11 @@ export async function acceptOrderDelivery(orderId, deliveryPartnerId) {
         { ownerType: "DELIVERY_PARTNER", ownerId: deliveryPartnerId },
       ],
       {
-        title: `Order ${order.orderId} accepted`,
+        title: `Order ${order._id.toString()} accepted`,
         body: "A delivery partner has accepted your order.",
         data: {
           type: "delivery_accepted",
-          orderId: order.orderId,
+          orderId: order._id.toString(),
           orderMongoId: order._id?.toString?.() || "",
           dispatchStatus: order.dispatch?.status,
           link: "/food/user/orders",
@@ -1822,7 +1846,7 @@ export async function acceptOrderDelivery(orderId, deliveryPartnerId) {
 
   enqueueOrderEvent("delivery_accepted", {
     orderMongoId: order._id?.toString?.(),
-    orderId: order.orderId,
+    orderId: order._id.toString(),
     deliveryPartnerId,
     dispatchStatus: order.dispatch?.status,
     orderStatus: order.orderStatus,
@@ -1852,7 +1876,7 @@ export async function rejectOrderDelivery(orderId, deliveryPartnerId) {
     
     enqueueOrderEvent('delivery_rejected', {
         orderMongoId: order._id?.toString?.(),
-        orderId: order.orderId,
+        orderId: order._id.toString(),
         deliveryPartnerId
     });
 
@@ -1912,11 +1936,11 @@ export async function confirmReachedPickupDelivery(orderId, deliveryPartnerId) {
       [{ ownerType: "RESTAURANT", ownerId: order.restaurantId }],
       {
         title: "Rider Arrived! 🛵",
-        body: `${partner?.name || "The delivery partner"} has arrived at your restaurant to pick up Order #${order.orderId}.`,
+        body: `${partner?.name || "The delivery partner"} has arrived at your restaurant to pick up Order #${order._id.toString()}.`,
         image: "https://i.ibb.co/3m2Yh7r/Appzeto-Brand-Image.png",
         data: {
           type: "rider_arrived",
-          orderId: String(order.orderId),
+          orderId: String(order._id.toString()),
           orderMongoId: String(order._id),
           partnerName: partner?.name || ""
         }
@@ -1928,7 +1952,7 @@ export async function confirmReachedPickupDelivery(orderId, deliveryPartnerId) {
 
     enqueueOrderEvent('reached_pickup', {
         orderMongoId: order._id?.toString?.(),
-        orderId: order.orderId,
+        orderId: order._id.toString(),
         deliveryPartnerId,
         orderStatus: order.orderStatus,
         deliveryPhase: order.deliveryState?.currentPhase,
@@ -1975,7 +1999,7 @@ export async function confirmPickupDelivery(
     emitOrderUpdate(order, deliveryPartnerId);
     enqueueOrderEvent('picked_up', {
         orderMongoId: order._id?.toString?.(),
-        orderId: order.orderId,
+        orderId: order._id.toString(),
         deliveryPartnerId,
         billImageUrl: billImageUrl || null
     });
@@ -2043,7 +2067,7 @@ export async function confirmReachedDropDelivery(orderId, deliveryPartnerId) {
     emitOrderUpdate(order, deliveryPartnerId);
     enqueueOrderEvent('reached_drop', {
         orderMongoId: order._id?.toString?.(),
-        orderId: order.orderId,
+        orderId: order._id.toString(),
         deliveryPartnerId,
         dropOtpRequired: order.deliveryVerification?.dropOtp?.required ?? true,
         dropOtpVerified: order.deliveryVerification?.dropOtp?.verified ?? false
@@ -2091,7 +2115,7 @@ export async function verifyDropOtpDelivery(orderId, deliveryPartnerId, otp) {
     emitOrderUpdate(order, deliveryPartnerId);
     enqueueOrderEvent('drop_otp_verified', {
         orderMongoId: order._id?.toString?.(),
-        orderId: order.orderId,
+        orderId: order._id.toString(),
         deliveryPartnerId
     });
     return { order: sanitizeOrderForExternal(order) };
@@ -2187,7 +2211,7 @@ export async function completeDelivery(orderId, deliveryPartnerId, body = {}) {
   emitOrderUpdate(order, deliveryPartnerId);
   enqueueOrderEvent('delivery_completed', {
       orderMongoId: order._id?.toString?.(),
-      orderId: order.orderId,
+      orderId: order._id.toString(),
       deliveryPartnerId,
       payMethod,
       prevPayStatus,
@@ -2204,7 +2228,7 @@ function emitOrderUpdate(order, deliveryPartnerId) {
         order.deliveryVerification?.toObject?.() || order.deliveryVerification;
       const payload = {
         orderMongoId: order._id?.toString?.(),
-        orderId: order.orderId,
+        orderId: order._id.toString(),
         orderStatus: order.orderStatus,
         deliveryState: order.deliveryState,
         deliveryVerification: dv,
@@ -2220,12 +2244,12 @@ function emitOrderUpdate(order, deliveryPartnerId) {
       io.to(rooms.user(order.userId)).emit("order_status_update", payload);
     }
     let riderTitle = `Order deliverd! 🏁`;
-    let riderBody = `Order #${order.orderId} has been marked as delivered.`;
+    let riderBody = `Order #${order._id.toString()} has been marked as delivered.`;
 
     // Special message for COD payment collection
     if (order.payment?.method === "cash") {
       riderTitle = "Payment Collected! 💵";
-      riderBody = `You have collected ₹${order.pricing?.total || 0} cash for Order #${order.orderId}.`;
+      riderBody = `You have collected ₹${order.pricing?.total || 0} cash for Order #${order._id.toString()}.`;
     }
 
     void notifyOwnersSafely(
@@ -2234,11 +2258,11 @@ function emitOrderUpdate(order, deliveryPartnerId) {
         { ownerType: "USER", ownerId: order.userId },
       ],
       {
-        title: `Order #${order.orderId} delivered! ✅`,
+        title: `Order #${order._id.toString()} delivered! ✅`,
         body: `Hope you enjoyed your meal!`,
         data: {
           type: "order_status_update",
-          orderId: order.orderId,
+          orderId: order._id.toString(),
           orderMongoId: order._id?.toString?.() || "",
           orderStatus: "delivered",
         },
@@ -2252,7 +2276,7 @@ function emitOrderUpdate(order, deliveryPartnerId) {
         body: riderBody,
         data: {
           type: "order_completed",
-          orderId: order.orderId,
+          orderId: order._id.toString(),
           orderMongoId: order._id?.toString?.() || "",
           paymentMethod: order.payment?.method,
           amountCollected: String(order.pricing?.total || 0),
@@ -2276,7 +2300,7 @@ export async function updateOrderStatusDelivery(orderId, deliveryPartnerId, orde
     await order.save();
     enqueueOrderEvent('delivery_status_updated', {
         orderMongoId: order._id?.toString?.(),
-        orderId: order.orderId,
+        orderId: order._id.toString(),
         deliveryPartnerId,
         from,
         to: orderStatus
@@ -2313,8 +2337,8 @@ export async function createCollectQr(
   const link = await createPaymentLink({
     amountPaise,
     currency: "INR",
-    description: `Order ${order.orderId} - COD collect`,
-    orderId: order.orderId,
+    description: `Order ${order._id.toString()} - COD collect`,
+    orderId: order._id.toString(),
     customerName: customerInfo.name || user.name || "Customer",
     customerEmail: customerInfo.email || user.email || "customer@example.com",
     customerPhone: customerInfo.phone || user.phone,
@@ -2599,7 +2623,7 @@ export async function assignDeliveryPartnerAdmin(
     await order.save();
     enqueueOrderEvent('delivery_partner_assigned', {
         orderMongoId: order._id?.toString?.(),
-        orderId: order.orderId,
+        orderId: order._id.toString(),
         deliveryPartnerId,
         adminId
     });
@@ -2620,7 +2644,7 @@ export async function deleteOrderAdmin(orderId, adminId) {
       { $set: { orderId: null } },
     ),
     FoodTransaction.deleteOne({
-      $or: [{ orderId: order._id }, { orderReadableId: String(order.orderId) }],
+      $or: [{ orderId: order._id }, { orderReadableId: String(order._id.toString()) }],
     }),
     FoodOrder.deleteOne({ _id: order._id }),
   ]);
@@ -2629,7 +2653,7 @@ export async function deleteOrderAdmin(orderId, adminId) {
   try {
     const db = getFirebaseDB();
     if (db && order?.orderId) {
-      await db.ref(`active_orders/${order.orderId}`).remove();
+      await db.ref(`active_orders/${order._id.toString()}`).remove();
     }
   } catch (err) {
     logger.warn(`Delete order firebase cleanup failed: ${err?.message || err}`);
@@ -2641,7 +2665,7 @@ export async function deleteOrderAdmin(orderId, adminId) {
     if (io) {
       const payload = {
         orderMongoId: String(order._id),
-        orderId: String(order.orderId || ""),
+        orderId: String(order._id.toString() || ""),
         deletedBy: "ADMIN",
         adminId: adminId ? String(adminId) : null,
       };
@@ -2658,13 +2682,13 @@ export async function deleteOrderAdmin(orderId, adminId) {
 
   enqueueOrderEvent("order_deleted_by_admin", {
     orderMongoId: String(order._id),
-    orderId: String(order.orderId || ""),
+    orderId: String(order._id.toString() || ""),
     adminId: adminId ? String(adminId) : null,
   });
 
   return {
     deleted: true,
-    orderId: String(order.orderId || ""),
+    orderId: String(order._id.toString() || ""),
     orderMongoId: String(order._id),
   };
 }

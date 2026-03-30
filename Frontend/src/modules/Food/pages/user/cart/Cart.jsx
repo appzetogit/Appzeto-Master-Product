@@ -1448,7 +1448,7 @@ export default function Cart() {
       // Cash flow: order placed without online payment
       if (selectedPaymentMethod === "cash") {
         toast.success("Order placed with Cash on Delivery")
-        setPlacedOrderId(order?.orderId || order?.id || null)
+        setPlacedOrderId(order?._id || order?.orderId || order?.id || null)
         setShowOrderSuccess(true)
         window.dispatchEvent(new CustomEvent('order-placed', { detail: { order } }))
         clearCart()
@@ -1459,7 +1459,7 @@ export default function Cart() {
       // Wallet flow: order placed with wallet payment (already processed in backend)
       if (selectedPaymentMethod === "wallet") {
         toast.success("Order placed with Wallet payment")
-        setPlacedOrderId(order?.orderId || order?.id || null)
+        setPlacedOrderId(order?._id || order?.orderId || order?.id || null)
         setShowOrderSuccess(true)
         window.dispatchEvent(new CustomEvent('order-placed', { detail: { order } }))
         clearCart()
@@ -1513,14 +1513,14 @@ export default function Cart() {
         currency: razorpay.currency || 'INR',
         order_id: razorpay.orderId,
         name: companyName,
-        description: `Order ${order.orderId} - ${RUPEE_SYMBOL}${(razorpay.amount / 100).toFixed(2)}`,
+        description: `Order ${order._id || order.orderId} - ${RUPEE_SYMBOL}${(razorpay.amount / 100).toFixed(2)}`,
         prefill: {
           name: userName,
           email: userEmail,
           contact: formattedPhone
         },
         notes: {
-          orderId: order.orderId,
+          orderId: order._id || order.orderId,
           userId: userInfo.id || "",
           restaurantId: restaurantId || "unknown"
         },
@@ -1548,10 +1548,10 @@ export default function Cart() {
             if (verifyResponse.data.success) {
               // Payment successful
               debugLog("?? Order placed successfully:", {
-                orderId: order.orderId,
+                orderId: order._id || order.orderId,
                 paymentId: verifyResponse.data.data?.payment?.paymentId
               })
-              setPlacedOrderId(order.orderId)
+              setPlacedOrderId(order._id || order.orderId)
               setShowOrderSuccess(true)
               window.dispatchEvent(new CustomEvent('order-placed', { detail: { order } }))
               clearCart()

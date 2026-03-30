@@ -4,6 +4,11 @@ import { API_BASE_URL } from '@food/api/config';
 import { deliveryAPI } from '@food/api';
 import alertSound from '@food/assets/audio/alert.mp3';
 import originalSound from '@food/assets/audio/original.mp3';
+
+if (typeof window !== 'undefined') {
+  console.log('?? [DeliverySocket] alertSound URL:', alertSound);
+  console.log('?? [DeliverySocket] originalSound URL:', originalSound);
+}
 const debugLog = (...args) => {
   if (import.meta.env.DEV) {
     console.log('?? [DeliverySocket]', ...args);
@@ -20,7 +25,12 @@ const debugError = (...args) => {
   }
 }
 
-const resolveAudioSource = (source) => source;
+const resolveAudioSource = (source) => {
+  if (!source) return '';
+  // Handle ES6 module imports where the URL might be in a 'default' property
+  const url = typeof source === 'object' ? (source.default || source) : source;
+  return url;
+};
 
 const supportsBrowserNotifications = () =>
   typeof window !== 'undefined' && typeof Notification !== 'undefined';
@@ -198,9 +208,12 @@ export const useDeliveryNotifications = () => {
         }
       } else {
         // Initialize audio if not exists
-        audioRef.current = new Audio(soundFile);
+        audioRef.current = new Audio();
+        audioRef.current.src = soundFile;
         audioRef.current.preload = 'auto';
-        audioRef.current.volume = 0.7;
+        audioRef.current.volume = 0.9;
+        audioRef.current.load();
+        debugLog('?? Audio initialized with:', selectedSound === 'original' ? 'Original' : 'Zomato Tone', 'Source:', soundFile);
       }
       
       if (audioRef.current) {
@@ -345,13 +358,23 @@ export const useDeliveryNotifications = () => {
         audioUnlockAttemptedRef.current = true;
         try {
           audioRef.current.muted = true;
+          // Ensure src is set even if it was just initialized
+          if (!audioRef.current.src || audioRef.current.src === window.location.href) {
+             const selectedSound = localStorage.getItem('delivery_alert_sound') || 'zomato_tone';
+             const soundFile = selectedSound === 'original'
+                ? resolveAudioSource(originalSound)
+                : resolveAudioSource(alertSound);
+             audioRef.current.src = soundFile;
+          }
+          audioRef.current.load();
           await audioRef.current.play();
           audioRef.current.pause();
           audioRef.current.currentTime = 0;
+          debugLog('?? Audio unlocked successfully');
         } catch (error) {
           audioUnlockAttemptedRef.current = false;
           if (!error.message?.includes('user didn\'t interact') && !error.name?.includes('NotAllowedError')) {
-            debugWarn('Error unlocking notification audio:', error);
+            debugWarn('Error unlocking notification audio:', error, 'Audio src:', audioRef.current?.src);
           }
         } finally {
           // Ensure audio never remains muted after unlock attempts.

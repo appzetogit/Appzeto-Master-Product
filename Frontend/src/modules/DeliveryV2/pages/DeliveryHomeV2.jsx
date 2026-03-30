@@ -25,7 +25,7 @@ import ProfileV2 from '@/modules/DeliveryV2/pages/ProfileV2';
 import { 
   Bell, HelpCircle, Headset, AlertTriangle, 
   Wallet, History, User as UserIcon, LayoutGrid,
-  Plus, Minus, Navigation2, Target, Play, CheckCircle2, Clock
+  Plus, Minus, Navigation2, Target, Play, CheckCircle2, Clock, ChevronDown
 } from 'lucide-react';
 
 import { getHaversineDistance, calculateETA, calculateHeading } from '@/modules/DeliveryV2/utils/geo';
@@ -381,8 +381,8 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
 
       // ETA update is now handled by a separate globally-synchronized effect
 
-      // Phase 11: Geo-fencing Auto-arrival (within 100m)
-      if (distanceToTarget && distanceToTarget <= 100 && !lastAutoArrivalRef.current[tripStatus]) {
+      // Phase 11: Geo-fencing Auto-arrival (within 100m) - Disabled in DEV so UI steps can be tested manually
+      if (!isSimMode && !import.meta.env.DEV && distanceToTarget && distanceToTarget <= 100 && !lastAutoArrivalRef.current[tripStatus]) {
         if (tripStatus === 'PICKING_UP') {
           lastAutoArrivalRef.current[tripStatus] = true;
           reachPickup().catch(() => { lastAutoArrivalRef.current[tripStatus] = false; });
@@ -716,6 +716,7 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
                     order={incomingOrder} 
                     onAccept={(o) => { acceptOrder(o); setIncomingOrder(null); clearNewOrder(); }}
                     onReject={() => { setIncomingOrder(null); clearNewOrder(); }}
+                    onMinimize={() => setIsModalMinimized(true)}
                   />
                 )}
                 {(tripStatus === 'PICKING_UP' || tripStatus === 'REACHED_PICKUP') && (
@@ -727,13 +728,19 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
                     eta={eta}
                     onReachedPickup={reachPickup} 
                     onPickedUp={(billImageUrl) => pickUpOrder(billImageUrl)} 
+                    onMinimize={() => setIsModalMinimized(true)}
                   />
                 )}
                 {(tripStatus === 'PICKED_UP' || tripStatus === 'REACHED_DROP') && (
                   <div className="absolute bottom-4 inset-x-0 z-[120] px-4">
                     {tripStatus === 'PICKED_UP' ? (
                       <div className="bg-white rounded-[3rem] p-8 shadow-[0_-20px_80px_rgba(0,0,0,0.4)] border border-gray-100 flex flex-col items-center">
-                        <div className="w-12 h-1.5 bg-gray-200 rounded-full mb-6" />
+                        {/* Handle / Minimize */}
+                        <div className="w-full flex justify-center pb-4 pt-0 -mt-2">
+                          <button onClick={() => setIsModalMinimized(true)} className="p-1 hover:bg-gray-100 active:scale-95 transition-all rounded-full flex flex-col items-center">
+                             <ChevronDown className="w-6 h-6 text-gray-400 stroke-[3]" />
+                          </button>
+                        </div>
                         <div className="flex justify-between w-full items-center mb-10 px-2 text-left">
                           <div className="flex items-center gap-4">
                             <div className="w-16 h-16 rounded-2xl overflow-hidden border border-gray-100 shadow-sm">

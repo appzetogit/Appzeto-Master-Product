@@ -21,7 +21,8 @@ export const PickupActionModal = ({
   distanceToTarget,
   eta,
   onReachedPickup, 
-  onPickedUp 
+  onPickedUp,
+  onMinimize
 }) => {
   const [showItems, setShowItems] = useState(false);
   const [isUploadingBill, setIsUploadingBill] = useState(false);
@@ -90,7 +91,12 @@ export const PickupActionModal = ({
         animate={{ y: 0 }}
         className="w-full bg-white rounded-t-[2.5rem] shadow-[0_-20px_60px_rgba(0,0,0,0.3)] p-6 pb-12"
       >
-        <div className="w-12 h-1.5 bg-gray-200 rounded-full mx-auto mb-6" />
+        {/* Handle / Minimize */}
+        <div className="w-full flex justify-center pb-4 pt-1">
+          <button onClick={onMinimize} className="p-1 hover:bg-gray-100 active:scale-95 transition-all rounded-full flex flex-col items-center">
+             <ChevronDown className="w-6 h-6 text-gray-400 stroke-[3]" />
+          </button>
+        </div>
 
         {/* Restaurant Header */}
         <div className="flex items-start justify-between mb-8 pb-4 border-b border-gray-50">

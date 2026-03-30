@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { User, MapPin, FastForward, Clock, Phone, ChefHat } from 'lucide-react';
+import { User, MapPin, FastForward, Clock, Phone, ChefHat, ChevronDown } from 'lucide-react';
 import { ActionSlider } from '@/modules/DeliveryV2/components/ui/ActionSlider';
 import { useDeliveryStore } from '@/modules/DeliveryV2/store/useDeliveryStore';
 import { getHaversineDistance, calculateETA } from '@/modules/DeliveryV2/utils/geo';
@@ -9,7 +9,7 @@ import { getHaversineDistance, calculateETA } from '@/modules/DeliveryV2/utils/g
  * NewOrderModal - Ported to Original 1:1 Theme with Slider Accept.
  * Matches the Zomato/Swiggy style Green Header + White Card.
  */
-export const NewOrderModal = ({ order, onAccept, onReject }) => {
+export const NewOrderModal = ({ order, onAccept, onReject, onMinimize }) => {
   const { riderLocation } = useDeliveryStore();
   const [timeLeft, setTimeLeft] = useState(30);
 
@@ -73,8 +73,12 @@ export const NewOrderModal = ({ order, onAccept, onReject }) => {
         exit={{ y: '100%' }}
         className="w-full max-w-lg bg-white rounded-t-[3rem] overflow-hidden shadow-[0_-20px_60px_rgba(0,0,0,0.5)] flex flex-col pt-2"
       >
-        {/* Handle */}
-        <div className="w-12 h-1.5 bg-gray-200 rounded-full mx-auto mb-2" />
+        {/* Handle / Minimize */}
+        <div className="w-full flex justify-center pb-2 pt-1 bg-white relative z-10 rounded-t-[3rem] -mb-[4px]">
+          <button onClick={onMinimize} className="p-1 hover:bg-gray-100 active:scale-95 transition-all rounded-full flex flex-col items-center">
+             <ChevronDown className="w-6 h-6 text-gray-400 stroke-[3]" />
+          </button>
+        </div>
 
         {/* Header Ribbon (Old Green Style) */}
         <div className="bg-green-500 p-8 flex justify-between items-center text-white border-b border-green-600/20">
