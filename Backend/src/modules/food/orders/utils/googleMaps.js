@@ -16,11 +16,14 @@ export async function fetchPolyline(origin, destination) {
     }
 
     try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 5000);
         const originStr = `${origin.lat},${origin.lng}`;
         const destStr = `${destination.lat},${destination.lng}`;
         const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${originStr}&destination=${destStr}&key=${apiKey}`;
 
-        const res = await fetch(url);
+        const res = await fetch(url, { signal: controller.signal });
+        clearTimeout(timeout);
         const data = await res.json();
 
         if (data.status === 'OK' && data.routes?.length > 0) {
