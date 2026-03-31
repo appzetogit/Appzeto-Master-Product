@@ -2496,7 +2496,7 @@ export default function Home() {
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.3 }}
-                className="bg-white"
+                className="bg-white dark:bg-[#0a0a0a]"
               >
                 {/* Flavour Fest Banner */}
                 <FestBanner />
@@ -2512,11 +2512,11 @@ export default function Home() {
                 </div>
 
                 {/* "What's on your mind today?" Section */}
-                <div className="px-4 py-6 space-y-6 bg-white">
+                <div className="px-4 py-6 space-y-6 bg-white dark:bg-[#0a0a0a]">
                   <div className="flex items-center gap-2 min-w-0">
-                    <h2 className="text-lg sm:text-xl font-bold text-gray-900 min-w-0 flex-shrink leading-tight">What's on your mind today?</h2>
-                    <div className="h-[1px] bg-gray-100 flex-1"></div>
-                    <Link to="/food/user/categories" className="text-sm font-bold text-gray-400 flex items-center gap-0.5 whitespace-nowrap shrink-0">
+                    <h2 className="text-lg sm:text-xl font-bold text-gray-900 dark:text-white min-w-0 flex-shrink leading-tight">What's on your mind today?</h2>
+                    <div className="h-[1px] bg-gray-100 dark:bg-gray-800 flex-1"></div>
+                    <Link to="/food/user/categories" className="text-sm font-bold text-gray-400 dark:text-gray-500 flex items-center gap-0.5 whitespace-nowrap shrink-0">
                       View All <ArrowDownUp className="h-3 w-3 rotate-90" />
                     </Link>
                   </div>
@@ -2528,7 +2528,7 @@ export default function Home() {
                         to={`/food/user/category/${category.slug}`}
                         className="flex flex-col items-center gap-2 group"
                       >
-                        <div className="relative w-full aspect-square rounded-full overflow-hidden shadow-sm border border-gray-100 bg-white group-active:scale-95 transition-all duration-300">
+                        <div className="relative w-full aspect-square rounded-full overflow-hidden shadow-sm border border-gray-100 dark:border-gray-800 bg-white dark:bg-[#1a1a1a] group-active:scale-95 transition-all duration-300">
                           {/* Shining Glint Effect */}
                           <div className="absolute inset-0 z-10 pointer-events-none overflow-hidden">
                             <motion.div 
@@ -2551,7 +2551,7 @@ export default function Home() {
                             className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
                           />
                         </div>
-                        <span className="text-[11px] font-bold text-gray-700 text-center leading-tight">
+                        <span className="text-[11px] font-bold text-gray-700 dark:text-gray-300 text-center leading-tight">
                           {category.name}
                         </span>
                       </Link>

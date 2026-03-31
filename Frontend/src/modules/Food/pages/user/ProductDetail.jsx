@@ -4,6 +4,7 @@
 
 import { useState, useMemo } from "react"
 import { useParams, Link, useNavigate } from "react-router-dom"
+import useAppBackNavigation from "@food/hooks/useAppBackNavigation"
 
 import { ArrowLeft, Star, Clock, MapPin, ShoppingBag, Plus, Minus, Calendar, ThumbsUp, MessageCircle, Send } from "lucide-react"
 import AnimatedPage from "@food/components/user/AnimatedPage"
@@ -93,6 +94,7 @@ const generateReviews = (productName, totalReviews = 20) => {
 export default function ProductDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const goBack = useAppBackNavigation()
   const product = productsData[parseInt(id)]
   const { addToCart, isInCart, getCartItem, updateQuantity } = useCart()
   const { getAllOrders } = useOrders()
@@ -283,7 +285,7 @@ export default function ProductDetail() {
             <Button
               variant="ghost"
               size="icon"
-              onClick={() => navigate(-1)}
+              onClick={goBack}
               className="rounded-full bg-white/90 backdrop-blur-sm hover:bg-white shadow-md"
             >
               <ArrowLeft className="h-5 w-5" />

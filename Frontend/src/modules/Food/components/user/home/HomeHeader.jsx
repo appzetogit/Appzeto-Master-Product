@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { MapPin, ChevronDown, Search, Mic, Bell, CheckCircle2, Tag, Gift, AlertCircle, Clock, BellOff } from 'lucide-react';
+import { MapPin, ChevronDown, Search, Mic, Bell, CheckCircle2, Tag, Gift, AlertCircle, Clock, BellOff, X } from 'lucide-react';
 import { 
   Popover, 
   PopoverContent, 
@@ -52,16 +52,25 @@ export default function HomeHeader({
   }, []);
 
   const festCategories = [
-    { id: "food", name: "Food", icon: foodIcon, bgColor: "bg-white" },
-    { id: "quick", name: "Quick", icon: quickIcon, bgColor: "bg-white" },
-    { id: "taxi", name: "Taxi", icon: taxiIcon, bgColor: "bg-white" },
-    { id: "hotel", name: "Hotel", icon: hotelIcon, bgColor: "bg-white" },
+    { id: "food", name: "Food", icon: foodIcon, bgColor: "bg-white dark:bg-[#1a1a1a]" },
+    { id: "quick", name: "Quick", icon: quickIcon, bgColor: "bg-white dark:bg-[#1a1a1a]" },
+    { id: "taxi", name: "Taxi", icon: taxiIcon, bgColor: "bg-white dark:bg-[#1a1a1a]" },
+    { id: "hotel", name: "Hotel", icon: hotelIcon, bgColor: "bg-white dark:bg-[#1a1a1a]" },
   ];
 
   const unreadCount = notifications.filter(n => !n.read).length;
 
+  const handleDeleteNotification = (id) => {
+    setNotifications((prev) => {
+      const next = prev.filter((notification) => notification.id !== id);
+      localStorage.setItem('food_user_notifications', JSON.stringify(next));
+      window.dispatchEvent(new CustomEvent('notificationsUpdated', { detail: { count: next.filter((n) => !n.read).length } }));
+      return next;
+    });
+  };
+
   return (
-    <div className="relative bg-gradient-to-b from-[#f36371] to-[#ef4f5f] pt-5 pb-5 px-4 space-y-5 shadow-xl overflow-hidden">
+    <div className="relative bg-gradient-to-b from-[#f36371] to-[#ef4f5f] pt-5 pb-5 px-4 space-y-5 shadow-xl overflow-hidden dark:from-[#141414] dark:to-[#0a0a0a] dark:shadow-[0_20px_60px_rgba(0,0,0,0.45)]">
       {/* Abstract Background Design */}
       <div className="absolute inset-0 opacity-10 pointer-events-none overflow-hidden">
         <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="w-full h-full">
@@ -74,8 +83,8 @@ export default function HomeHeader({
       </div>
 
       {/* Decorative Glows */}
-      <div className="absolute top-0 left-1/4 w-32 h-32 bg-white/20 blur-[60px] rounded-full pointer-events-none" />
-      <div className="absolute bottom-0 right-1/4 w-40 h-40 bg-yellow-400/10 blur-[80px] rounded-full pointer-events-none" />
+      <div className="absolute top-0 left-1/4 w-32 h-32 bg-white/20 blur-[60px] rounded-full pointer-events-none dark:bg-white/10" />
+      <div className="absolute bottom-0 right-1/4 w-40 h-40 bg-yellow-400/10 blur-[80px] rounded-full pointer-events-none dark:bg-orange-500/10" />
 
       {/* Location & Notification Row - Clean Pixel Match Design */}
       <div className="relative z-10 flex items-center justify-between">
@@ -83,7 +92,7 @@ export default function HomeHeader({
           className="flex items-center gap-1 cursor-pointer group"
           onClick={handleLocationClick}
         >
-          <div className="bg-white/10 p-1.5 rounded-full backdrop-blur-md border border-white/10 group-hover:bg-white/20 transition-colors">
+          <div className="bg-white/10 p-1.5 rounded-full backdrop-blur-md border border-white/10 group-hover:bg-white/20 transition-colors dark:bg-white/5 dark:border-white/5 dark:group-hover:bg-white/10">
             <MapPin className="h-4 w-4 text-white fill-white" />
           </div>
           <div className="flex flex-col">
@@ -98,10 +107,10 @@ export default function HomeHeader({
         </div>
         <Popover>
           <PopoverTrigger asChild>
-            <div className="h-11 w-11 relative flex items-center justify-center rounded-full bg-white/10 backdrop-blur-md border border-white/20 shadow-lg cursor-pointer active:scale-95 transition-all">
+            <div className="h-11 w-11 relative flex items-center justify-center rounded-full bg-white/10 backdrop-blur-md border border-white/20 shadow-lg cursor-pointer active:scale-95 transition-all dark:bg-white/5 dark:border-white/10">
               <Bell className="h-6 w-6 text-white" />
               {unreadCount > 0 && (
-                <span className="absolute top-2.5 right-2.5 w-2.5 h-2.5 bg-yellow-400 rounded-full border-2 border-[#ef4f5f] animate-pulse" />
+                <span className="absolute top-2.5 right-2.5 w-2.5 h-2.5 bg-yellow-400 rounded-full border-2 border-[#ef4f5f] animate-pulse dark:border-[#111111]" />
               )}
             </div>
           </PopoverTrigger>
@@ -135,7 +144,21 @@ export default function HomeHeader({
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center justify-between gap-2 mb-0.5">
                             <span className="text-sm font-bold text-gray-900 dark:text-white truncate">{notif.title}</span>
-                            <span className="text-[10px] text-gray-400 whitespace-nowrap">{notif.time}</span>
+                            <div className="flex items-center gap-1">
+                              <span className="text-[10px] text-gray-400 whitespace-nowrap">{notif.time}</span>
+                              <button
+                                type="button"
+                                aria-label="Delete notification"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  handleDeleteNotification(notif.id);
+                                }}
+                                className="rounded-full p-1 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                              >
+                                <X className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
                           </div>
                           <p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-2 leading-relaxed">
                             {notif.message}
@@ -173,7 +196,7 @@ export default function HomeHeader({
               <motion.div 
                 whileTap={{ scale: 0.9 }}
                 whileHover={{ scale: 1.05 }}
-                className={`w-full aspect-square ${cat.bgColor} rounded-xl flex items-center justify-center p-0 overflow-hidden transition-all duration-300 ${activeTab === cat.id ? 'bg-white scale-105 shadow-[0_0_20px_rgba(255,255,255,0.4)]' : 'bg-white/90 shadow-sm'}`}
+                className={`w-full aspect-square ${cat.bgColor} rounded-xl flex items-center justify-center p-0 overflow-hidden transition-all duration-300 ${activeTab === cat.id ? 'bg-white scale-105 shadow-[0_0_20px_rgba(255,255,255,0.4)] dark:bg-[#1f1f1f] dark:shadow-[0_0_24px_rgba(255,255,255,0.08)]' : 'bg-white/90 shadow-sm dark:bg-[#161616] dark:shadow-[0_10px_24px_rgba(0,0,0,0.28)]'}`}
               >
                 <img src={cat.icon} alt={cat.name} className={`w-full h-full object-cover transition-transform duration-700 ${activeTab === cat.id ? 'scale-105' : 'scale-100 group-hover:scale-110'}`} />
               </motion.div>
@@ -189,8 +212,8 @@ export default function HomeHeader({
                     initial={{ scale: 0, rotate: -45 }}
                     animate={{ scale: 1, rotate: 0 }}
                   >
-                    <div className="bg-yellow-400 text-[6px] font-black text-red-600 w-4 h-4 flex items-center justify-center rounded-full border border-white leading-none shadow-xl">
-                      ★
+                    <div className="bg-yellow-400 text-[6px] font-black text-red-600 w-4 h-4 flex items-center justify-center rounded-full border border-white leading-none shadow-xl dark:border-[#1a1a1a]">
+                      {"\u2605"}
                     </div>
                   </motion.div>
                   <motion.div 
@@ -206,7 +229,7 @@ export default function HomeHeader({
 
       {/* Search Bar - More Normal & Clean */}
       <div 
-        className="relative z-10 bg-white rounded-xl flex items-center px-4 py-3 shadow-md border border-white/20 cursor-pointer active:scale-[0.99] transition-all duration-200 mx-1"
+        className="relative z-10 bg-white rounded-xl flex items-center px-4 py-3 shadow-md border border-white/20 cursor-pointer active:scale-[0.99] transition-all duration-200 mx-1 dark:bg-[#1a1a1a] dark:border-gray-800 dark:shadow-[0_12px_30px_rgba(0,0,0,0.3)]"
         onClick={handleSearchFocus}
         onTouchStart={handleSearchFocus}
         role="button"
@@ -218,7 +241,7 @@ export default function HomeHeader({
           }
         }}
       >
-        <Search className="h-4 w-4 text-gray-500 mr-3" strokeWidth={2.5} />
+        <Search className="h-4 w-4 text-gray-500 mr-3 dark:text-gray-400" strokeWidth={2.5} />
         <div className="flex-1 overflow-hidden relative h-5">
           <input
             type="text"
@@ -234,7 +257,7 @@ export default function HomeHeader({
               animate={{ y: 0, opacity: 1 }}
               exit={{ y: -15, opacity: 0 }}
               transition={{ duration: 0.25, ease: 'easeOut' }}
-              className="absolute inset-0 text-[13px] font-medium text-gray-400"
+              className="absolute inset-0 text-[13px] font-medium text-gray-400 dark:text-gray-500"
             >
               {placeholders?.[placeholderIndex] || 'Search "pizza"'}
             </motion.span>

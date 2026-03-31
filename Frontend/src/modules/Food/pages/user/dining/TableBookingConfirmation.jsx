@@ -4,6 +4,7 @@ import { ArrowLeft, Calendar, Users, MapPin, Ticket, ChevronRight, Edit2, Shield
 import { Button } from "@food/components/ui/button"
 import AnimatedPage from "@food/components/user/AnimatedPage"
 import { diningAPI, authAPI } from "@food/api"
+import useAppBackNavigation from "@food/hooks/useAppBackNavigation"
 import { useEffect } from "react"
 import { toast } from "sonner"
 import Loader from "@food/components/Loader"
@@ -14,8 +15,9 @@ const debugError = (...args) => {}
 const BOOKING_DRAFT_KEY = "food_dining_booking_draft_v1"
 
 export default function TableBookingConfirmation() {
-    const location = useLocation()
-    const navigate = useNavigate()
+  const location = useLocation()
+  const navigate = useNavigate()
+  const goBack = useAppBackNavigation()
     const fallbackDraft = useMemo(() => {
         try {
             const raw = sessionStorage.getItem(BOOKING_DRAFT_KEY)
@@ -113,7 +115,7 @@ export default function TableBookingConfirmation() {
             {/* Header */}
             <div className="bg-[#EB590E] text-white px-4 py-4 sticky top-0 z-50 shadow-md">
                 <div className="flex items-center gap-3">
-                    <button onClick={() => navigate(-1)} className="p-1 hover:bg-white/10 rounded-full transition-colors">
+                    <button onClick={goBack} className="p-1 hover:bg-white/10 rounded-full transition-colors">
                         <ArrowLeft className="w-6 h-6" />
                     </button>
                     <p className="font-semibold text-sm">Reach the restaurant 15 minutes before your booking time for a hassle-free experience</p>

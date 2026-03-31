@@ -4,6 +4,7 @@ import { ArrowLeft, Star, Clock } from "lucide-react"
 import { Button } from "@food/components/ui/button"
 import { Card, CardContent } from "@food/components/ui/card"
 import { restaurantAPI } from "@food/api"
+import useAppBackNavigation from "@food/hooks/useAppBackNavigation"
 import { toast } from "sonner"
 import { RestaurantGridSkeleton } from "@food/components/ui/loading-skeletons"
 import { useDelayedLoading } from "@food/hooks/useDelayedLoading"
@@ -17,6 +18,7 @@ const debugError = (...args) => {}
 
 export default function Offers() {
   const navigate = useNavigate()
+  const goBack = useAppBackNavigation()
   const [offers, setOffers] = useState([])
   const [groupedOffers, setGroupedOffers] = useState({})
   const [loading, setLoading] = useState(true)
@@ -56,7 +58,7 @@ export default function Offers() {
       <div className="relative w-full overflow-hidden min-h-[25vh] md:min-h-[30vh]">
         {/* Back Button */}
         <button 
-          onClick={() => navigate(-1)}
+          onClick={goBack}
           className="absolute top-4 left-4 md:top-6 md:left-6 z-20 w-10 h-10 md:w-12 md:h-12 bg-gray-800/60 backdrop-blur-sm rounded-full flex items-center justify-center hover:bg-gray-800/80 transition-colors"
         >
           <ArrowLeft className="h-5 w-5 md:h-6 md:w-6 text-white" />

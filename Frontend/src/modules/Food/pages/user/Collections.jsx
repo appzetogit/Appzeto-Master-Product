@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom"
 import { ArrowLeft, Plus, Share2, UtensilsCrossed, Store, X } from "lucide-react"
 import { Button } from "@food/components/ui/button"
 import { Input } from "@food/components/ui/input"
+import useAppBackNavigation from "@food/hooks/useAppBackNavigation"
 
 // Import banner
 import collectionsBanner from "@food/assets/collectionspagebanner.png"
@@ -21,6 +22,7 @@ const gradientColors = [
 
 export default function Collections() {
   const navigate = useNavigate()
+  const goBack = useAppBackNavigation()
   const [activeTab, setActiveTab] = useState("delivery")
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
   const [newCollectionName, setNewCollectionName] = useState("")
@@ -61,7 +63,7 @@ export default function Collections() {
     <div className="min-h-screen bg-white dark:bg-[#0a0a0a]">
       {/* Back Button */}
       <button
-        onClick={() => navigate(-1)}
+        onClick={goBack}
         className="fixed top-4 left-4 z-20 w-10 h-10 bg-gray-800/60 backdrop-blur-sm rounded-full flex items-center justify-center hover:bg-gray-800/80 transition-colors"
       >
         <ArrowLeft className="h-5 w-5 text-white" />
@@ -158,7 +160,7 @@ export default function Collections() {
                   <div className="absolute bottom-4 left-4 right-4">
                     <h3 className="text-white font-bold text-lg mb-1">{collection.name}</h3>
                     <p className="text-white/80 text-sm">
-                      {collection.dishes} dish • {collection.restaurants} restaurant
+                      {collection.dishes} dish | {collection.restaurants} restaurant
                     </p>
                   </div>
                 </div>

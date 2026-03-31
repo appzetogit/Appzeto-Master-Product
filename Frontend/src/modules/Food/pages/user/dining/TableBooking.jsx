@@ -4,6 +4,7 @@ import { ArrowLeft, ChevronDown } from "lucide-react"
 import { Button } from "@food/components/ui/button"
 import AnimatedPage from "@food/components/user/AnimatedPage"
 import { diningAPI, restaurantAPI } from "@food/api"
+import useAppBackNavigation from "@food/hooks/useAppBackNavigation"
 import Loader from "@food/components/Loader"
 import { toast } from "sonner"
 
@@ -114,6 +115,7 @@ export default function TableBooking() {
   const { slug } = useParams()
   const location = useLocation()
   const navigate = useNavigate()
+  const goBack = useAppBackNavigation()
 
   const [restaurant, setRestaurant] = useState(location.state?.restaurant || null)
   const [loading, setLoading] = useState(!location.state?.restaurant)
@@ -245,7 +247,7 @@ export default function TableBooking() {
 
         <div className="relative z-10">
           <button
-            onClick={() => navigate(-1)}
+            onClick={goBack}
             className="flex h-10 w-10 items-center justify-center rounded-full bg-white text-[#383838] shadow-sm"
           >
             <ArrowLeft className="h-5 w-5" />

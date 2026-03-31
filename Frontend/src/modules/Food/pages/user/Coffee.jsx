@@ -4,6 +4,7 @@ import { Star, ArrowLeft } from "lucide-react"
 import { Button } from "@food/components/ui/button"
 import AnimatedPage from "@food/components/user/AnimatedPage"
 import { useLocationSelector } from "@food/components/user/UserLayout"
+import useAppBackNavigation from "@food/hooks/useAppBackNavigation"
 import { useLocation as useLocationHook } from "@food/hooks/useLocation"
 import { FaLocationDot } from "react-icons/fa6"
 // Using placeholder for coffee banner
@@ -102,6 +103,7 @@ const blueTokaiStores = [
 
 export default function Coffee() {
   const navigate = useNavigate()
+  const goBack = useAppBackNavigation()
   const { openLocationSelector } = useLocationSelector()
   const { location } = useLocationHook()
   const cityName = location?.city || "Select"
@@ -220,7 +222,7 @@ export default function Coffee() {
             <Button
               variant="ghost"
               size="icon"
-              onClick={() => navigate(-1)}
+              onClick={goBack}
               className="h-9 w-9 sm:h-10 sm:w-10 bg-white/90 backdrop-blur-sm rounded-full hover:bg-white transition-colors flex-shrink-0"
             >
               <ArrowLeft className="h-5 w-5 text-gray-800" strokeWidth={2.5} />

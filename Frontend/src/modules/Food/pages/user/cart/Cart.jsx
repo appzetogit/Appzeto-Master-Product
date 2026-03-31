@@ -19,6 +19,7 @@ import { toast } from "sonner"
 import { getCompanyNameAsync } from "@food/utils/businessSettings"
 import { useCompanyName } from "@food/hooks/useCompanyName"
 import { getRestaurantAvailabilityStatus } from "@food/utils/restaurantAvailability"
+import useAppBackNavigation from "@food/hooks/useAppBackNavigation"
 import zoopSound from "@food/assets/audio/zomato_sms.mp3"
 const debugLog = (...args) => { }
 const debugWarn = (...args) => { }
@@ -78,6 +79,7 @@ const RUPEE_SYMBOL = "\u20B9"
 export default function Cart() {
   const companyName = useCompanyName()
   const navigate = useNavigate()
+  const goBack = useAppBackNavigation()
   const orderSuccessAudioRef = useRef(null)
 
   // Defensive check: Ensure CartProvider is available
@@ -944,7 +946,7 @@ export default function Cart() {
     if (restaurantData?.slug) {
       navigate(`/food/restaurants/${restaurantData.slug}`)
     } else {
-      navigate(-1)
+      goBack()
     }
   }
 
