@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
+import useAppBackNavigation from "@food/hooks/useAppBackNavigation"
 import {
   ArrowLeft,
   ShoppingBag,
@@ -25,6 +26,7 @@ const debugError = (...args) => {}
 
 export default function UserOrderDetails() {
   const navigate = useNavigate()
+  const goBack = useAppBackNavigation()
   const { orderId } = useParams()
   const [order, setOrder] = useState(null)
   const [restaurant, setRestaurant] = useState(null)
@@ -316,7 +318,7 @@ export default function UserOrderDetails() {
         <div className="flex items-center gap-3">
           <button
             type="button"
-            onClick={() => navigate(-1)}
+            onClick={goBack}
             className="p-1 rounded-full hover:bg-gray-100"
           >
             <ArrowLeft className="w-6 h-6 text-gray-700 cursor-pointer" />

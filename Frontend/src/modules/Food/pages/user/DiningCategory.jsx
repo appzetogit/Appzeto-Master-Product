@@ -5,6 +5,7 @@ import { Button } from "@food/components/ui/button"
 import { Card, CardContent } from "@food/components/ui/card"
 import AnimatedPage from "@food/components/user/AnimatedPage"
 import { useLocationSelector } from "@food/components/user/UserLayout"
+import useAppBackNavigation from "@food/hooks/useAppBackNavigation"
 import { useLocation as useLocationHook } from "@food/hooks/useLocation"
 import { useProfile } from "@food/context/ProfileContext"
 import { FaLocationDot } from "react-icons/fa6"
@@ -50,6 +51,7 @@ const formatCategoryHeading = (category) =>
 export default function DiningCategory() {
   const { category } = useParams()
   const navigate = useNavigate()
+  const goBack = useAppBackNavigation()
   const { openLocationSelector } = useLocationSelector()
   const { location } = useLocationHook()
   const { addFavorite, removeFavorite, isFavorite } = useProfile()
@@ -124,7 +126,7 @@ export default function DiningCategory() {
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => navigate(-1)}
+            onClick={goBack}
             className="h-10 w-10 rounded-full border border-[#e7d8c5] bg-white text-[#2f2215] hover:bg-[#fff1df] dark:border-gray-700 dark:bg-[#1a1a1a] dark:text-white dark:hover:bg-gray-800"
           >
             <ArrowLeft className="h-5 w-5" />

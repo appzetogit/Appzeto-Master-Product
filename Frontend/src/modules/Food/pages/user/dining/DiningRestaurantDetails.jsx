@@ -3,6 +3,7 @@ import { useLocation, useNavigate, useParams } from "react-router-dom"
 import { restaurantAPI } from "@food/api"
 import { useProfile } from "@food/context/ProfileContext"
 import { getMenuFromResponse } from "@food/utils/menuItems"
+import useAppBackNavigation from "@food/hooks/useAppBackNavigation"
 import {
     ArrowLeft,
     Bookmark,
@@ -92,6 +93,7 @@ export default function DiningRestaurantDetails() {
   const { category, slug } = useParams()
   const location = useLocation()
   const navigate = useNavigate()
+  const goBack = useAppBackNavigation()
   const { addFavorite, removeFavorite, isFavorite } = useProfile()
 
   const [restaurant, setRestaurant] = useState(location.state?.restaurant || null)
@@ -162,7 +164,7 @@ export default function DiningRestaurantDetails() {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-[#f6f7fb] px-4 text-center">
         <h2 className="text-2xl font-bold text-[#23180f]">Restaurant not found</h2>
-        <Button onClick={() => navigate(-1)} variant="outline">
+        <Button onClick={goBack} variant="outline">
           Go Back
         </Button>
       </div>
@@ -214,7 +216,7 @@ export default function DiningRestaurantDetails() {
 
   const handleBack = () => {
     if (window.history.length > 1) {
-      navigate(-1)
+      goBack()
       return
     }
 
