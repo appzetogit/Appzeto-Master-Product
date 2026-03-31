@@ -353,6 +353,63 @@ export const useDeliveryNotifications = () => {
     }
   }, [playNotificationSound, showBackgroundOrderNotification, startAlertLoop]);
 
+  const recoverDeliveryState = useCallback(async () => {
+    if (!deliveryPartnerId) return;
+
+    try {
+      const [availableResult, currentTripResult] = await Promise.allSettled([
+        deliveryAPI.getOrders({ limit: 20, page: 1 }),
+        deliveryAPI.getCurrentDelivery(),
+      ]);
+
+      const currentTrip =
+        currentTripResult.status === 'fulfilled'
+          ? currentTripResult.value?.data?.data ??
+            currentTripResult.value?.data ??
+            null
+          : null;
+
+      if (currentTrip) {
+        debugLog('Recovered current delivery trip after reconnect/focus:', currentTrip);
+        setOrderStatusUpdate({
+          ...currentTrip,
+          recoverySource: 'delivery_reconnect',
+        });
+        return;
+      }
+
+      const availablePayload =
+        availableResult.status === 'fulfilled'
+          ? availableResult.value?.data?.data ??
+            availableResult.value?.data ??
+            {}
+          : {};
+      const availableOrders = Array.isArray(availablePayload?.docs)
+        ? availablePayload.docs
+        : Array.isArray(availablePayload?.items)
+          ? availablePayload.items
+          : Array.isArray(availablePayload)
+            ? availablePayload
+            : [];
+
+      const recoverableOrder = availableOrders.find((order) => {
+        const dispatchStatus = order?.dispatch?.status;
+        return (
+          ['unassigned', 'assigned'].includes(dispatchStatus) &&
+          ['preparing', 'ready_for_pickup'].includes(order?.orderStatus)
+        );
+      });
+
+      if (recoverableOrder && !activeOrderRef.current) {
+        debugLog('Recovered available delivery order after reconnect/focus:', recoverableOrder);
+        setNewOrder(recoverableOrder);
+        handleIncomingOrderAlert(recoverableOrder);
+      }
+    } catch (error) {
+      debugWarn('Delivery recovery sync failed:', error?.message || error);
+    }
+  }, [deliveryPartnerId, handleIncomingOrderAlert]);
+
   // Step 4: All effects (unconditional hook calls, conditional logic inside)
   useEffect(() => {
     if (!supportsBrowserNotifications()) return;
@@ -622,6 +679,7 @@ export const useDeliveryNotifications = () => {
         socketRef.current.emit('join-delivery', deliveryPartnerId);
       }
       socketRef.current.emit('resync');
+      void recoverDeliveryState();
     });
 
     socketRef.current.on('delivery-room-joined', (data) => {
@@ -671,6 +729,7 @@ export const useDeliveryNotifications = () => {
         socketRef.current.emit('join-delivery', deliveryPartnerId);
       }
       socketRef.current.emit('resync');
+      void recoverDeliveryState();
     });
 
     socketRef.current.on('new_order', (orderData) => {
@@ -765,21 +824,35 @@ export const useDeliveryNotifications = () => {
       }
     };
 
+    const handleWindowFocus = () => {
+      void recoverDeliveryState();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void recoverDeliveryState();
+      }
+    };
+
     window.addEventListener('deliveryAuthChanged', handleAuthChange);
     window.addEventListener('authRefreshed', handleAuthRefreshed);
+    window.addEventListener('focus', handleWindowFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
       debugLog('? Cleaning up socket connection...');
       stopAlertLoop();
       window.removeEventListener('deliveryAuthChanged', handleAuthChange);
       window.removeEventListener('authRefreshed', handleAuthRefreshed);
+      window.removeEventListener('focus', handleWindowFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       if (socketRef.current) {
         socketRef.current.removeAllListeners();
         socketRef.current.disconnect();
         socketRef.current = null;
       }
     };
-  }, [deliveryPartnerId, handleIncomingOrderAlert, playNotificationSound, showBackgroundOrderNotification, startAlertLoop, stopAlertLoop]);
+  }, [deliveryPartnerId, handleIncomingOrderAlert, playNotificationSound, recoverDeliveryState, showBackgroundOrderNotification, startAlertLoop, stopAlertLoop]);
 
   // Helper functions
   const clearNewOrder = () => {

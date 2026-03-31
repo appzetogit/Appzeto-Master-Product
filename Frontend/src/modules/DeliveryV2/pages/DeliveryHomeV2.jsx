@@ -36,8 +36,8 @@ import { useNavigate } from 'react-router-dom';
 function BottomPopup({ isOpen, onClose, title, children }) {
   if (!isOpen) return null;
   return (
-    <div className="fixed inset-0 z-[600] flex items-end" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/40" />
+    <div className="fixed inset-0 z-[600] flex items-end">
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
       <motion.div
         initial={{ y: "100%" }}
         animate={{ y: 0 }}

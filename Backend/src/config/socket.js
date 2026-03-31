@@ -6,6 +6,11 @@ import { getFirebaseDB } from './firebase.js';
 
 let io = null;
 
+function logDeliverySocket(message, extra = {}) {
+    const suffix = Object.keys(extra).length ? ` ${JSON.stringify(extra)}` : '';
+    logger.info(`[DeliverySocket] ${message}${suffix}`);
+}
+
 function getTokenFromHandshake(socket) {
     const authToken = socket?.handshake?.auth?.token;
     if (typeof authToken === 'string' && authToken.trim()) return authToken.trim();
@@ -80,7 +85,14 @@ export const initSocket = async (server) => {
         if (userId && role) {
             if (role === 'RESTAURANT') socket.join(roomNames.restaurant(userId));
             if (role === 'USER') socket.join(roomNames.user(userId));
-            if (role === 'DELIVERY_PARTNER') socket.join(roomNames.delivery(userId));
+            if (role === 'DELIVERY_PARTNER') {
+                socket.join(roomNames.delivery(userId));
+                logDeliverySocket('Auto-joined delivery room on connect', {
+                    socketId: socket.id,
+                    deliveryPartnerId: String(userId),
+                    room: roomNames.delivery(userId),
+                });
+            }
         }
 
         // Explicit join (used by existing restaurant client hook).
@@ -94,11 +106,33 @@ export const initSocket = async (server) => {
 
         // Explicit join (used by existing delivery client hook).
         socket.on('join-delivery', (deliveryPartnerId) => {
-            if (socket.user?.role !== 'DELIVERY_PARTNER') return;
+            if (socket.user?.role !== 'DELIVERY_PARTNER') {
+                logDeliverySocket('Rejected join-delivery for non-delivery role', {
+                    socketId: socket.id,
+                    role: socket.user?.role || 'UNKNOWN',
+                    requestedDeliveryPartnerId: String(deliveryPartnerId || ''),
+                });
+                return;
+            }
             // Security: only join your own delivery room.
-            if (String(socket.user?.userId) !== String(deliveryPartnerId)) return;
-            socket.join(roomNames.delivery(deliveryPartnerId));
-            socket.emit('delivery-room-joined', { room: roomNames.delivery(deliveryPartnerId), deliveryPartnerId: String(deliveryPartnerId) });
+            if (String(socket.user?.userId) !== String(deliveryPartnerId)) {
+                logDeliverySocket('Rejected join-delivery due to user mismatch', {
+                    socketId: socket.id,
+                    authDeliveryPartnerId: String(socket.user?.userId || ''),
+                    requestedDeliveryPartnerId: String(deliveryPartnerId || ''),
+                });
+                return;
+            }
+            const room = roomNames.delivery(deliveryPartnerId);
+            socket.join(room);
+            const roomSize = io?.sockets?.adapter?.rooms?.get(room)?.size || 0;
+            logDeliverySocket('Delivery room joined', {
+                socketId: socket.id,
+                deliveryPartnerId: String(deliveryPartnerId),
+                room,
+                roomSize,
+            });
+            socket.emit('delivery-room-joined', { room, deliveryPartnerId: String(deliveryPartnerId) });
         });
 
         // ─── Live Tracking Events ───────────────────────────────────────
@@ -149,6 +183,15 @@ export const initSocket = async (server) => {
                 accuracy,
                 timestamp: now
             };
+
+            logDeliverySocket('Location update received', {
+                socketId: socket.id,
+                deliveryPartnerId: String(userId),
+                orderId: String(data.orderId),
+                lat,
+                lng,
+                status: data.status || 'on_the_way',
+            });
 
             // Broadcast to tracking room (all users watching this order)
             const trackingRoom = roomNames.tracking(data.orderId);
@@ -235,16 +278,40 @@ export const initSocket = async (server) => {
 
         socket.on('disconnect', () => {
             logger.info(`Socket client disconnected: ${socket.id}`);
+            if (role === 'DELIVERY_PARTNER') {
+                logDeliverySocket('Delivery socket disconnected', {
+                    socketId: socket.id,
+                    deliveryPartnerId: String(userId || ''),
+                });
+            }
         });
 
         // 🆕 Resync State on Reconnect
         socket.on('resync', async () => {
           try {
+            if (role === 'DELIVERY_PARTNER') {
+              logDeliverySocket('Resync requested', {
+                socketId: socket.id,
+                deliveryPartnerId: String(userId || ''),
+              });
+            }
             const { resyncState } = await import('../modules/food/orders/services/order.service.js');
             const state = await resyncState(userId, role);
             if (state.activeOrder) {
               const eventName = role === 'USER' ? 'order_state' : 'active_order';
               socket.emit(eventName, state.activeOrder);
+              if (role === 'DELIVERY_PARTNER') {
+                logDeliverySocket('Resync emitted active order', {
+                  socketId: socket.id,
+                  deliveryPartnerId: String(userId || ''),
+                  orderId: String(
+                    state.activeOrder?.orderId ||
+                    state.activeOrder?.orderMongoId ||
+                    ''
+                  ),
+                  eventName,
+                });
+              }
               
               // Re-emit OTP if user is in drop phase
               if (role === 'USER' && state.activeOrder.handoverOtp) {
@@ -256,6 +323,13 @@ export const initSocket = async (server) => {
               }
             }
             socket.emit('resync_complete', { timestamp: Date.now() });
+            if (role === 'DELIVERY_PARTNER') {
+              logDeliverySocket('Resync complete', {
+                socketId: socket.id,
+                deliveryPartnerId: String(userId || ''),
+                hasActiveOrder: Boolean(state.activeOrder),
+              });
+            }
           } catch (err) {
             logger.error(`Resync failed for ${role}:${userId} — ${err.message}`);
           }
