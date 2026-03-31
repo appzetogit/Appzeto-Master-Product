@@ -129,13 +129,18 @@ export default function OutletTimings() {
 
   const toggleDayOpen = (day) => {
     isInternalUpdate.current = true
-    setDays(prev => ({
-      ...prev,
-      [day]: {
-        ...prev[day],
-        isOpen: !prev[day].isOpen
+    setDays(prev => {
+      const newOpen = !prev[day].isOpen
+      return {
+        ...prev,
+        [day]: {
+          ...prev[day],
+          isOpen: newOpen,
+          openingTime: newOpen ? (prev[day].openingTime || "09:00") : "",
+          closingTime: newOpen ? (prev[day].closingTime || "22:00") : ""
+        }
       }
-    }))
+    })
   }
 
   const handleTimeChange = (day, timeType, newTime) => {
