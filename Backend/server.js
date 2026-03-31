@@ -54,9 +54,16 @@ const startServer = async () => {
         // 3. Initialize Socket.IO with the HTTP server (Redis adapter when Redis enabled)
         await initSocket(httpServer);
 
-        // 4. Conditionally connect Redis (only if REDIS_ENABLED=true)
         if (config.redisEnabled) {
             await connectRedis();
+        }
+        
+        // 5a. Watchdog: Recover stuck orders from previous run
+        try {
+            const { recoverStuckOrders } = await import('./src/modules/food/orders/services/order.service.js');
+            await recoverStuckOrders();
+        } catch (err) {
+            logger.error(`Watchdog startup error: ${err.message}`);
         }
 
         // 5. Conditionally initialize BullMQ queues.

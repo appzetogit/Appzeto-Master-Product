@@ -236,6 +236,30 @@ export const initSocket = async (server) => {
         socket.on('disconnect', () => {
             logger.info(`Socket client disconnected: ${socket.id}`);
         });
+
+        // 🆕 Resync State on Reconnect
+        socket.on('resync', async () => {
+          try {
+            const { resyncState } = await import('../modules/food/orders/services/order.service.js');
+            const state = await resyncState(userId, role);
+            if (state.activeOrder) {
+              const eventName = role === 'USER' ? 'order_state' : 'active_order';
+              socket.emit(eventName, state.activeOrder);
+              
+              // Re-emit OTP if user is in drop phase
+              if (role === 'USER' && state.activeOrder.handoverOtp) {
+                socket.emit('delivery_drop_otp', {
+                  orderId: state.activeOrder.orderId,
+                  otp: state.activeOrder.handoverOtp,
+                  message: 'Share this OTP with your delivery partner.'
+                });
+              }
+            }
+            socket.emit('resync_complete', { timestamp: Date.now() });
+          } catch (err) {
+            logger.error(`Resync failed for ${role}:${userId} — ${err.message}`);
+          }
+        });
     });
 
     logger.info('Socket.IO infrastructure initialized');

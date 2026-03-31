@@ -19,6 +19,7 @@ import {
 } from "../../../../core/notifications/firebase.service.js";
 import { FoodTransaction } from '../models/foodTransaction.model.js';
 import { FoodSupportTicket } from '../../user/models/supportTicket.model.js';
+import { config } from '../../../../config/env.js';
 import {
     createRazorpayOrder,
     createPaymentLink,
@@ -388,7 +389,7 @@ async function listNearbyOnlineDeliveryPartners(
   const allOnline = await FoodDeliveryPartner.find({
     availabilityStatus: "online",
   })
-    .select("_id status lastLat lastLng name")
+    .select("_id status lastLat lastLng lastLocationAt name")
     .lean();
 
   console.log(`[DEBUG] listNearby: Found ${allOnline.length} total online partners globally.`);
@@ -398,14 +399,18 @@ async function listNearbyOnlineDeliveryPartners(
 
   const scored = [];
   const allowedStatuses = process.env.NODE_ENV === 'production' ? ['approved'] : ['approved', 'pending'];
+  const STALE_GPS_MS = 10 * 60 * 1000; // 10 minutes
 
   for (const p of allOnline) {
     if (!allowedStatuses.includes(p.status)) {
         continue;
     }
     
-    // Allow fallback if GPS is missing but they are online
-    if (p.lastLat == null || p.lastLng == null) {
+    // Check GPS staleness: last updated > 10m ago or never updated
+    const isStale = !p.lastLocationAt || (Date.now() - new Date(p.lastLocationAt).getTime()) > STALE_GPS_MS;
+
+    // Allow fallback if GPS is missing/stale but they are online
+    if (p.lastLat == null || p.lastLng == null || isStale) {
         scored.push({ partnerId: p._id, distanceKm: 999 }); // Token "far" distance for sorting but keeps them in list
         continue;
     }
@@ -430,16 +435,27 @@ async function listNearbyOnlineDeliveryPartners(
       .select("_id status name")
       .limit(Math.max(1, limit))
       .lean();
-    
-    console.log(`[DEBUG] listNearby: Fallback found ${anyOnline.length} online partners.`);
+
+    console.log(
+      `[DEBUG] listNearby: Fallback found ${anyOnline.length} online partners.`,
+    );
+
     return {
-      restaurant,
-      partners: anyOnline.map((p) => ({ partnerId: p._id, distanceKm: null })),
+      partners: anyOnline.map((p) => ({
+        partnerId: p._id,
+        distanceKm: null,
+        status: p.status,
+      })),
     };
   }
 
-  console.log(`[DEBUG] listNearby: Final partners list size: ${picked.length}`);
-  return { restaurant, partners: picked };
+  // Filter for approved only in production
+  const final = (config.env === 'production') 
+    ? picked.filter(p => p.status === 'approved')
+    : picked;
+
+  console.log(`[DEBUG] listNearby: Scored ${picked.length} partners. Final (approved): ${final.length}.`);
+  return { partners: final };
 }
 // ----- Settings -----
 export async function getDispatchSettings() {
@@ -962,19 +978,35 @@ export async function verifyPayment(userId, dto) {
  * @param {object} options - Options (retry count, etc)
  */
 export async function tryAutoAssign(orderId, options = {}) {
-    const order = await FoodOrder.findById(orderId).populate(['restaurantId', 'userId']);
-    if (!order) return null;
+    // Atomic Lock: Claim the order for dispatching to prevent overlapping calls.
+    // We allow claim if: status is unassigned OR (assigned but not accepted for > 55s) AND no one else is currently 'dispatching'.
+    const order = await FoodOrder.findOneAndUpdate(
+        {
+            _id: new mongoose.Types.ObjectId(orderId),
+            $or: [
+                { 'dispatch.status': 'unassigned' },
+                { 
+                    'dispatch.status': 'assigned', 
+                    'dispatch.acceptedAt': { $exists: false },
+                    'dispatch.assignedAt': { $lt: new Date(Date.now() - 55000) }
+                }
+            ],
+            'dispatch.dispatchingAt': { $exists: false }
+        },
+        { 
+            $set: { 'dispatch.dispatchingAt': new Date() } 
+        },
+        { new: true }
+    ).populate(['restaurantId', 'userId']);
 
-    // Guard: only dispatch if unassigned OR if we are doing a timeout-reassign.
-    const isUnassigned = order.dispatch?.status === 'unassigned';
-    const isAssignedButUnaccepted = order.dispatch?.status === 'assigned' && !order.dispatch?.acceptedAt;
-    
-    if (!isUnassigned && !isAssignedButUnaccepted) {
-        return order;
+    if (!order) {
+        console.log(`[DEBUG] tryAutoAssign: Skip for ${orderId} (already being dispatched or already accepted).`);
+        return null;
     }
 
-    // Find ineligible partners (who already rejected it or were already offered if we want fresh ones)
-    const offeredIds = (order.dispatch?.offeredTo || []).map(o => o.partnerId.toString());
+    try {
+        // Find ineligible partners (who already rejected it or were already offered if we want fresh ones)
+        const offeredIds = (order.dispatch?.offeredTo || []).map(o => o.partnerId.toString());
     
     // Find nearby online partners
     const searchOptions = { maxKm: 30, limit: 10 }; // Increased radius from 15 to 30 for production robustness
@@ -1093,7 +1125,6 @@ export async function tryAutoAssign(orderId, options = {}) {
         logger.error(`SmartDispatch: Failed to notify partner ${best.partnerId}: ${err.message}`);
     }
 
-    // ⏱️ Schedule a timeout check in 60 seconds
     await addOrderJob({
         action: 'DISPATCH_TIMEOUT_CHECK',
         orderMongoId: order._id.toString(),
@@ -1102,6 +1133,11 @@ export async function tryAutoAssign(orderId, options = {}) {
     }, { delay: 60000 }); // 60 seconds
 
     return order;
+  } finally {
+    await FoodOrder.findByIdAndUpdate(orderId, {
+      $unset: { 'dispatch.dispatchingAt': '' }
+    });
+  }
 }
 
 /**
@@ -1211,6 +1247,113 @@ export async function getOrderById(
   }
 
   return sanitizeOrderForExternal(order);
+}
+
+export async function getDropOtpUser(orderId, userId) {
+  const identity = buildOrderIdentityFilter(orderId);
+  if (!identity) throw new ValidationError("Order id required");
+  const order = await FoodOrder.findOne({
+    ...identity,
+    userId: new mongoose.Types.ObjectId(userId),
+  }).select("+deliveryOtp");
+  if (!order) throw new NotFoundError("Order not found");
+
+  const phase = order.deliveryState?.currentPhase;
+  if (phase !== "at_drop") {
+    throw new ValidationError(
+      "Rider has not reached your location yet. Wait for the rider to arrive to see the OTP."
+    );
+  }
+
+  return { otp: order.deliveryOtp };
+}
+
+/**
+ * Watchdog: Recovers orders stuck in 'assigned' or 'preparing' status for too long.
+ * Should be called on server startup.
+ */
+export async function recoverStuckOrders() {
+  const now = new Date();
+  const FIVE_MIN = 5 * 60 * 1000;
+  const TWO_MIN = 2 * 60 * 1000;
+
+  try {
+    // 1. Stuck in 'assigned' (partner never accepted) for > 2m
+    const stuckAssigned = await FoodOrder.find({
+      'dispatch.status': 'assigned',
+      'dispatch.acceptedAt': { $exists: false },
+      'dispatch.assignedAt': { $lt: new Date(now - TWO_MIN) },
+      orderStatus: { $nin: ['delivered', 'cancelled_by_user', 'cancelled_by_restaurant'] }
+    });
+
+    if (stuckAssigned.length > 0) {
+      logger.info(`Watchdog: Healing ${stuckAssigned.length} stuck assigned orders.`);
+      for (const order of stuckAssigned) {
+        // Reset status to unassigned and re-trigger auto-assign
+        order.dispatch.status = 'unassigned';
+        order.dispatch.deliveryPartnerId = null;
+        await order.save();
+        await tryAutoAssign(order._id);
+      }
+    }
+
+    // 2. Clear old dispatching locks (cleanup in case of crash)
+    await FoodOrder.updateMany(
+      { 'dispatch.dispatchingAt': { $lt: new Date(now - FIVE_MIN) } },
+      { $unset: { 'dispatch.dispatchingAt': '' } }
+    );
+
+  } catch (err) {
+    logger.error(`Watchdog recovery error: ${err.message}`);
+  }
+}
+
+export async function resyncState(userId, role) {
+  if (role === "USER") {
+    const order = await FoodOrder.findOne({
+      userId: new mongoose.Types.ObjectId(userId),
+      orderStatus: {
+        $nin: [
+          "delivered",
+          "cancelled_by_user",
+          "cancelled_by_restaurant",
+          "cancelled_by_admin",
+        ],
+      },
+    })
+      .select("+deliveryOtp")
+      .sort({ createdAt: -1 })
+      .lean();
+
+    if (order) {
+      const out = normalizeOrderForClient(order);
+      // Re-add handover OTP if in drop phase for resync convenience
+      if (
+        order.deliveryState?.currentPhase === "at_drop" &&
+        !order.deliveryVerification?.dropOtp?.verified &&
+        order.deliveryOtp
+      ) {
+        out.handoverOtp = order.deliveryOtp;
+      }
+      return { activeOrder: out };
+    }
+    return { activeOrder: null };
+  }
+
+  if (role === "DELIVERY_PARTNER") {
+    const order = await FoodOrder.findOne({
+      "dispatch.deliveryPartnerId": new mongoose.Types.ObjectId(userId),
+      "dispatch.status": { $in: ["assigned", "accepted"] },
+      orderStatus: {
+        $nin: ["delivered", "cancelled_by_user", "cancelled_by_restaurant"],
+      },
+    })
+      .populate("restaurantId")
+      .lean();
+    return { activeOrder: order ? sanitizeOrderForExternal(order) : null };
+  }
+
+  return {};
 }
 
 export async function cancelOrder(orderId, userId, reason) {
@@ -1462,6 +1605,27 @@ export async function updateOrderStatusRestaurant(
   });
   await order.save();
 
+  // Custom messages / titles for status updates
+  let title = `Order ${order._id.toString()} updated`;
+  let body = `Status changed to ${String(orderStatus).replace(/_/g, " ")}`;
+
+  if (orderStatus === "confirmed") {
+    title = "Order Accepted! 🧑‍🍳";
+    body = "The restaurant has accepted your order and is starting to prepare it.";
+  } else if (orderStatus === "preparing") {
+    title = "Food is being prepared! 🍳";
+    body = "Your food is currently being prepared by the restaurant.";
+  } else if (orderStatus === "ready_for_pickup") {
+    title = "Food is ready! 🛍️";
+    body = "Your order is ready and waiting to be picked up.";
+  } else if (String(orderStatus).includes("cancel")) {
+    const isOnlinePaid = order.payment.method === "razorpay" && (order.payment.status === "paid" || order.payment.status === "refunded");
+    const refundDetail = isOnlinePaid ? ` Your refund of ₹${order.pricing.total} is being processed and will be credited to your original payment method within 5-7 working days.` : "";
+    
+    title = "Order Cancelled ❌";
+    body = `Unfortunately, your order has been cancelled by the restaurant.${refundDetail}`;
+  }
+
   // Real-time: status update to restaurant room.
   try {
     const io = getIO();
@@ -1473,36 +1637,24 @@ export async function updateOrderStatusRestaurant(
         orderMongoId: order._id?.toString?.(),
         orderId: order._id.toString(),
         orderStatus: order.orderStatus,
-        title: title || `Order ${order._id.toString()} updated`,
-        message: body || "",
+        title,
+        message: body,
       };
-      io.to(rooms.restaurant(restaurantId)).emit(
-        "order_status_update",
-        payload,
-      );
-      io.to(rooms.user(order.userId)).emit("order_status_update", payload);
-    }
-
-    let title = `Order ${order._id.toString()} updated`;
-    let body = `Status changed to ${String(orderStatus).replace(/_/g, " ")}`;
-
-    // Custom messages for customer based on status
-    if (orderStatus === "confirmed") {
-      title = "Order Accepted! 🧑‍🍳";
-      body =
-        "The restaurant has accepted your order and is starting to prepare it.";
-    } else if (orderStatus === "preparing") {
-      title = "Food is being prepared! 🍳";
-      body = "Your food is currently being prepared by the restaurant.";
-    } else if (orderStatus === "ready_for_pickup") {
-      title = "Food is ready! 🛍️";
-      body = "Your order is ready and waiting to be picked up.";
-    } else if (String(orderStatus).includes("cancel")) {
-      const isOnlinePaid = order.payment.method === "razorpay" && (order.payment.status === "paid" || order.payment.status === "refunded");
-      const refundDetail = isOnlinePaid ? ` Your refund of ₹${order.pricing.total} is being processed and will be credited to your original payment method within 5-7 working days.` : "";
       
-      title = "Order Cancelled ❌";
-      body = `Unfortunately, your order has been cancelled by the restaurant.${refundDetail}`;
+      const restRoom = rooms.restaurant(restaurantId);
+      const userRoom = rooms.user(order.userId);
+      
+      console.log(`[DEBUG] Emitting order_status_update to rooms: ${restRoom}, ${userRoom}`);
+      io.to(restRoom).emit("order_status_update", payload);
+      io.to(userRoom).emit("order_status_update", payload);
+      
+      // Notify assigned rider via socket if they exist
+      const assignedRiderId = order.dispatch?.deliveryPartnerId;
+      if (assignedRiderId) {
+          const riderRoom = rooms.delivery(assignedRiderId);
+          console.log(`[DEBUG] Emitting order_status_update to rider room: ${riderRoom}`);
+          io.to(riderRoom).emit("order_status_update", payload);
+      }
     }
 
     const notifyList = [
@@ -1684,8 +1836,9 @@ export async function resendDeliveryNotificationRestaurant(orderId, restaurantId
 
     if (!order) throw new NotFoundError('Order not found');
 
-    // Only allow if order is still active and not already terminal
-    const activeStatuses = ['preparing', 'ready_for_pickup', 'ready'];
+    // Allow resend for fresh confirmed orders too, because this route is often
+    // used right after restaurant confirmation when the first rider alert was missed.
+    const activeStatuses = ['confirmed', 'preparing', 'ready_for_pickup', 'ready'];
     if (!activeStatuses.includes(order.orderStatus)) {
         throw new ValidationError(`Cannot resend notification for order in status: ${order.orderStatus}`);
     }
@@ -1713,9 +1866,12 @@ export async function getCurrentTripDelivery(deliveryPartnerId) {
   if (!deliveryPartnerId) throw new ValidationError("Delivery partner ID required");
   const partnerId = new mongoose.Types.ObjectId(deliveryPartnerId);
   
-  // Find the single active order assigned to or accepted by this rider
+  // Only return a trip the rider has actually accepted.
+  // Orders that were merely auto-assigned should still appear in the available feed,
+  // not as the rider's active trip after a refresh/re-login.
   const order = await FoodOrder.findOne({
     "dispatch.deliveryPartnerId": partnerId,
+    "dispatch.status": "accepted",
     orderStatus: {
       $in: ["confirmed", "preparing", "ready_for_pickup", "picked_up"]
     }
@@ -1813,7 +1969,9 @@ export async function acceptOrderDelivery(orderId, deliveryPartnerId) {
     to: "accepted",
   });
   await order.save();
-  await order.populate('restaurantId'); // Need coordinates for Firebase initial write
+  await order.populate('restaurantId userId');
+  const responseOrder = sanitizeOrderForExternal(order);
+  void (async () => {
 
   // ─── Firebase Realtime Database Tracking Initialization (Cost Optimization) ───
   try {
@@ -1893,6 +2051,7 @@ export async function acceptOrderDelivery(orderId, deliveryPartnerId) {
       },
     );
   } catch {}
+  })();
 
   enqueueOrderEvent("delivery_accepted", {
     orderMongoId: order._id?.toString?.(),
@@ -1902,8 +2061,7 @@ export async function acceptOrderDelivery(orderId, deliveryPartnerId) {
     orderStatus: order.orderStatus,
   });
 
-  // Return full populated order so delivery app has restaurant coords for route polyline
-  return getOrderById(order._id, { deliveryPartnerId });
+  return responseOrder;
 }
 
 export async function rejectOrderDelivery(orderId, deliveryPartnerId) {

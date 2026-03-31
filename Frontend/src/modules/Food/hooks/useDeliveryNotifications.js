@@ -32,6 +32,68 @@ const resolveAudioSource = (source) => {
   return url;
 };
 
+const safeReadJson = (key) => {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+};
+
+const decodeJwtPayload = (token) => {
+  try {
+    const parts = String(token || '').split('.');
+    if (parts.length < 2) return null;
+    const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const json = decodeURIComponent(
+      atob(base64)
+        .split('')
+        .map((ch) => `%${(`00${ch.charCodeAt(0).toString(16)}`).slice(-2)}`)
+        .join('')
+    );
+    return JSON.parse(json);
+  } catch {
+    return null;
+  }
+};
+
+const resolveDeliveryPartnerIdFromClient = () => {
+  try {
+    const storedUser =
+      safeReadJson('delivery_user') ||
+      safeReadJson('deliveryUser') ||
+      safeReadJson('user');
+
+    const nestedCandidate =
+      storedUser?.id ||
+      storedUser?._id ||
+      storedUser?.userId ||
+      storedUser?.deliveryId ||
+      storedUser?.deliveryPartnerId ||
+      storedUser?.user?.id ||
+      storedUser?.user?._id ||
+      storedUser?.deliveryPartner?.id ||
+      storedUser?.deliveryPartner?._id;
+
+    if (nestedCandidate) return String(nestedCandidate);
+
+    const token =
+      localStorage.getItem('delivery_accessToken') ||
+      localStorage.getItem('accessToken');
+    const payload = decodeJwtPayload(token);
+    const tokenCandidate =
+      payload?.userId ||
+      payload?.id ||
+      payload?._id ||
+      payload?.sub;
+
+    return tokenCandidate ? String(tokenCandidate) : null;
+  } catch {
+    return null;
+  }
+};
+
 const supportsBrowserNotifications = () =>
   typeof window !== 'undefined' && typeof Notification !== 'undefined';
 
@@ -440,6 +502,12 @@ export const useDeliveryNotifications = () => {
 
   // Fetch delivery partner ID
   useEffect(() => {
+    const fallbackId = resolveDeliveryPartnerIdFromClient();
+    if (fallbackId) {
+      setDeliveryPartnerId(fallbackId);
+      debugLog('? Delivery Partner ID restored from local client auth:', fallbackId);
+    }
+
     const fetchDeliveryPartnerId = async () => {
       try {
         const response = await deliveryAPI.getMe();
@@ -553,6 +621,7 @@ export const useDeliveryNotifications = () => {
         debugLog('?? Joining delivery room with ID:', deliveryPartnerId);
         socketRef.current.emit('join-delivery', deliveryPartnerId);
       }
+      socketRef.current.emit('resync');
     });
 
     socketRef.current.on('delivery-room-joined', (data) => {
@@ -601,6 +670,7 @@ export const useDeliveryNotifications = () => {
       if (deliveryPartnerId) {
         socketRef.current.emit('join-delivery', deliveryPartnerId);
       }
+      socketRef.current.emit('resync');
     });
 
     socketRef.current.on('new_order', (orderData) => {
