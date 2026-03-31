@@ -13,19 +13,14 @@ import { FoodOffer } from '../../admin/models/offer.model.js';
 import { FoodOfferUsage } from '../../admin/models/offerUsage.model.js';
 import { FoodDeliveryCommissionRule } from '../../admin/models/deliveryCommissionRule.model.js';
 import { FoodRestaurantCommission } from '../../admin/models/restaurantCommission.model.js';
-import {
-  sendNotificationToOwner,
-  sendNotificationToOwners,
-} from "../../../../core/notifications/firebase.service.js";
 import { FoodTransaction } from '../models/foodTransaction.model.js';
 import { FoodSupportTicket } from '../../user/models/supportTicket.model.js';
+import { config } from '../../../../config/env.js';
 import {
     createRazorpayOrder,
-    createPaymentLink,
     verifyPaymentSignature,
     getRazorpayKeyId,
     isRazorpayConfigured,
-    fetchRazorpayPaymentLink,
     initiateRazorpayRefund
 } from '../helpers/razorpay.helper.js';
 import { getIO, rooms } from '../../../../config/socket.js';
@@ -33,166 +28,30 @@ import { addOrderJob } from '../../../../queues/producers/order.producer.js';
 import { fetchPolyline } from '../utils/googleMaps.js';
 import { getFirebaseDB } from '../../../../config/firebase.js';
 import * as foodTransactionService from './foodTransaction.service.js';
+import * as userWalletService from '../../user/services/userWallet.service.js';
+import { calculateOrderPricing } from './order-pricing.service.js';
+import * as dispatchService from './order-dispatch.service.js';
+import * as deliveryService from './order-delivery.service.js';
+import * as paymentService from './order-payment.service.js';
+import {
+  enqueueOrderEvent,
+  haversineKm,
+  generateFourDigitDeliveryOtp,
+  sanitizeOrderForExternal,
+  emitDeliveryDropOtpToUser,
+  notifyOwnersSafely,
+  notifyOwnerSafely,
+  buildOrderIdentityFilter,
+  toGeoPoint,
+  pushStatusHistory,
+  normalizeOrderForClient,
+  applyAggregateRating,
+  buildDeliverySocketPayload,
+  notifyRestaurantNewOrder,
+} from './order.helpers.js';
 
-const ORDER_ID_PREFIX = "FOD-";
-const ORDER_ID_LENGTH = 6;
 
-/**
- * Fire-and-forget BullMQ enqueue for order lifecycle events.
- * Never blocks API response; failures are logged only.
- */
-function enqueueOrderEvent(action, payload = {}) {
-    try {
-        void addOrderJob({ action, ...payload }).catch((err) => {
-            logger.warn(`BullMQ enqueue order event failed: ${action} - ${err?.message || err}`);
-        });
-    } catch (err) {
-        logger.warn(`BullMQ enqueue order event failed (sync): ${action} - ${err?.message || err}`);
-    }
-}
 
-function generateFourDigitDeliveryOtp() {
-  return String(Math.floor(1000 + Math.random() * 9000));
-}
-
-/** Remove secret fields before returning order JSON to delivery partner / restaurant. */
-function sanitizeOrderForExternal(orderDoc) {
-  const o = orderDoc?.toObject ? orderDoc.toObject() : { ...(orderDoc || {}) };
-  delete o.deliveryOtp;
-  const dv = o.deliveryVerification;
-  if (dv && dv.dropOtp != null) {
-    const d = dv.dropOtp;
-    o.deliveryVerification = {
-      ...dv,
-      dropOtp: {
-        required: Boolean(d.required),
-        verified: Boolean(d.verified),
-      },
-    };
-  }
-  return o;
-}
-
-function emitDeliveryDropOtpToUser(order, plainOtp) {
-  try {
-    const io = getIO();
-    if (!io || !plainOtp || !order?.userId) return;
-    io.to(rooms.user(order.userId)).emit("delivery_drop_otp", {
-      orderMongoId: order._id?.toString?.(),
-      orderId: order.orderId,
-      otp: plainOtp,
-      message:
-        "Share this OTP with your delivery partner to hand over the order.",
-    });
-  } catch (e) {
-    logger.warn(`emitDeliveryDropOtpToUser failed: ${e?.message || e}`);
-  }
-}
-
-async function notifyOwnersSafely(targets, payload) {
-  try {
-    await sendNotificationToOwners(targets, payload);
-  } catch (error) {
-    logger.warn(`FCM notification failed: ${error?.message || error}`);
-  }
-}
-
-async function notifyOwnerSafely(target, payload) {
-  try {
-    await sendNotificationToOwner({ ...target, payload });
-  } catch (error) {
-    logger.warn(`FCM notification failed: ${error?.message || error}`);
-  }
-}
-
-function buildOrderIdentityFilter(orderIdOrMongoId) {
-  const raw = String(orderIdOrMongoId || "").trim();
-  if (!raw) return null;
-  if (mongoose.isValidObjectId(raw))
-    return { _id: new mongoose.Types.ObjectId(raw) };
-  return { orderId: raw };
-}
-
-function generateOrderId() {
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  let s = "";
-  for (let i = 0; i < ORDER_ID_LENGTH; i++) {
-    s += chars[Math.floor(Math.random() * chars.length)];
-  }
-  return ORDER_ID_PREFIX + s;
-}
-
-async function ensureUniqueOrderId() {
-  let orderId;
-  let exists = true;
-  let attempts = 0;
-  while (exists && attempts < 10) {
-    orderId = generateOrderId();
-    const found = await FoodOrder.exists({ orderId });
-    exists = !!found;
-    attempts++;
-  }
-  if (exists) throw new ValidationError("Could not generate unique order id");
-  return orderId;
-}
-
-function toGeoPoint(lat, lng) {
-  if (lat == null || lng == null) return undefined;
-  const a = Number(lat);
-  const b = Number(lng);
-  if (!Number.isFinite(a) || !Number.isFinite(b)) return undefined;
-  return { type: "Point", coordinates: [b, a] };
-}
-
-function pushStatusHistory(order, { byRole, byId, from, to, note = "" }) {
-  order.statusHistory.push({
-    at: new Date(),
-    byRole,
-    byId: byId || undefined,
-    from,
-    to,
-    note,
-  });
-}
-
-function normalizeOrderForClient(orderDoc) {
-  const order = orderDoc?.toObject ? orderDoc.toObject() : orderDoc || {};
-  return {
-    ...order,
-    status: order?.orderStatus || order?.status || "",
-    deliveredAt:
-      order?.deliveryState?.deliveredAt || order?.deliveredAt || null,
-    deliveryPartnerId:
-      order?.dispatch?.deliveryPartnerId || order?.deliveryPartnerId || null,
-    rating: order?.ratings?.restaurant?.rating ?? order?.rating ?? null,
-    deliveryState: {
-      ...(order?.deliveryState || {}),
-      currentLocation: order?.lastRiderLocation?.coordinates?.length >= 2 ? {
-        lat: order.lastRiderLocation.coordinates[1],
-        lng: order.lastRiderLocation.coordinates[0]
-      } : (order?.deliveryState?.currentLocation || null)
-    }
-  };
-}
-
-async function applyAggregateRating(model, entityId, newRating) {
-  if (!entityId) return;
-  const doc = await model.findById(entityId).select("rating totalRatings");
-  if (!doc) return;
-
-  const totalRatings = Number(doc.totalRatings || 0);
-  const currentAverage = Number(doc.rating || 0);
-  const nextTotal = totalRatings + 1;
-  const nextAverage = Number(
-    ((currentAverage * totalRatings + Number(newRating)) / nextTotal).toFixed(
-      1,
-    ),
-  );
-
-  doc.totalRatings = nextTotal;
-  doc.rating = nextAverage;
-  await doc.save();
-}
 
 const COMMISSION_CACHE_MS = 10 * 1000;
 let commissionRulesCache = null;
@@ -251,124 +110,31 @@ async function getRiderEarning(distanceKm) {
 /** Append-only food_order_payments row; never blocks main flow on failure */
 // 🗑️ Deprecated in favor of FoodTransaction system.
 
-function buildDeliverySocketPayload(orderDoc, restaurantDoc = null) {
-  const order = orderDoc?.toObject ? orderDoc.toObject() : orderDoc || {};
-  const restaurant = restaurantDoc || order?.restaurantId || null;
-  const restaurantLocation = restaurant?.location || {};
-
-  return {
-    orderMongoId:
-      orderDoc?._id?.toString?.() || order?._id?.toString?.() || order?._id,
-    orderId: order?.orderId,
-    status: orderDoc?.orderStatus || order?.orderStatus,
-    items: order?.items || [],
-    pricing: order?.pricing,
-    total: order?.pricing?.total,
-    payment: order?.payment,
-    paymentMethod: order?.payment?.method,
-    restaurantId:
-      order?.restaurantId?._id?.toString?.() ||
-      order?.restaurantId?.toString?.() ||
-      order?.restaurantId,
-    restaurantName: restaurant?.restaurantName || order?.restaurantName,
-    restaurantAddress:
-      restaurantLocation?.address ||
-      restaurantLocation?.formattedAddress ||
-      restaurant?.addressLine1 ||
-      "",
-    restaurantPhone: restaurant?.phone || "",
-    restaurantLocation: {
-      latitude: restaurantLocation?.latitude,
-      longitude: restaurantLocation?.longitude,
-      address:
-        restaurantLocation?.address ||
-        restaurantLocation?.formattedAddress ||
-        restaurant?.addressLine1 ||
-        "",
-      area: restaurantLocation?.area || restaurant?.area || "",
-      city: restaurantLocation?.city || restaurant?.city || "",
-      state: restaurantLocation?.state || restaurant?.state || "",
-    },
-    deliveryAddress: order?.deliveryAddress,
-    customerAddress: order?.deliveryAddress?.formattedAddress || order?.deliveryAddress?.addressLine1 || "",
-    customerName: order?.userId?.name || order?.customerName || "",
-    customerPhone: order?.userId?.phone || order?.deliveryAddress?.phone || "",
-    userName: order?.userId?.name || order?.customerName || "",
-    userPhone: order?.userId?.phone || order?.deliveryAddress?.phone || "",
-    riderEarning: order?.riderEarning || 0,
-    earnings: order?.riderEarning || order?.pricing?.deliveryFee || 0,
-    deliveryFee: order?.pricing?.deliveryFee || 0,
-    deliveryFleet: order?.deliveryFleet,
-    dispatch: order?.dispatch,
-    createdAt: order?.createdAt,
-    updatedAt: order?.updatedAt,
-  };
-}
-
-function canExposeOrderToRestaurant(orderLike) {
-  const method = String(orderLike?.payment?.method || "").toLowerCase();
-  const status = String(orderLike?.payment?.status || "").toLowerCase();
-
-  // Cash and Wallet are considered confirmed immediately
-  if (["cash", "wallet"].includes(method)) return true;
-  // Online payments must be successful
-  return ["paid", "authorized", "captured", "settled"].includes(status);
-}
-
-async function notifyRestaurantNewOrder(orderDoc) {
-  try {
-    if (!orderDoc || !canExposeOrderToRestaurant(orderDoc)) return;
-
-    const io = getIO();
-    if (io) {
-      const payload = {
-        ...orderDoc.toObject(),
-        orderMongoId: orderDoc._id?.toString?.() || undefined,
-      };
-      io.to(rooms.restaurant(orderDoc.restaurantId)).emit("new_order", payload);
-      io.to(rooms.restaurant(orderDoc.restaurantId)).emit(
-        "play_notification_sound",
-        {
-          orderId: payload.orderId,
-          orderMongoId: payload.orderMongoId,
-        },
-      );
-    }
-
-    await notifyOwnersSafely(
-      [{ ownerType: "RESTAURANT", ownerId: orderDoc.restaurantId }],
-      {
-        title: "New order received",
-        body: `Order ${orderDoc.orderId} is waiting for review.`,
-        data: {
-          type: "new_order",
-          orderId: orderDoc.orderId,
-          orderMongoId: orderDoc._id?.toString?.() || "",
-          link: `/restaurant/orders/${orderDoc._id?.toString?.() || ""}`,
-        },
-      },
-    );
-  } catch {
-    // Do not block order/payment flow if notification fails.
-  }
-}
-
 async function listNearbyOnlineDeliveryPartners(
   restaurantId,
   { maxKm = 15, limit = 25 } = {},
 ) {
-  const restaurant = await FoodRestaurant.findById(restaurantId)
+  // Robust restaurantId handling (supports both ID string and populated document)
+  const rId = (restaurantId?._id || restaurantId).toString();
+  const restaurant = await FoodRestaurant.findById(rId)
     .select("location")
     .lean();
+    
   if (!restaurant?.location?.coordinates?.length) {
     // Fallback: if restaurant location is missing, notify any online approved partners.
     const partners = await FoodDeliveryPartner.find({
       status: "approved",
       availabilityStatus: "online",
     })
-      .select("_id")
+      .select("_id status name")
       .limit(Math.max(1, limit))
       .lean();
+      
+    console.log(
+      `[DEBUG] listNearby: Restaurant ${rId} location missing. Found ${partners.length} fallback online partners.`,
+      JSON.stringify(partners)
+    );
+    
     return {
       restaurant: null,
       partners: partners.map((p) => ({ partnerId: p._id, distanceKm: null })),
@@ -376,241 +142,92 @@ async function listNearbyOnlineDeliveryPartners(
   }
 
   const [rLng, rLat] = restaurant.location.coordinates;
-  const partners = await FoodDeliveryPartner.find({
-    status: "approved",
+  console.log(`[DEBUG] listNearby: Searching near Restaurant [${rLat}, ${rLng}] within ${maxKm}km`);
+
+  // Find all online partners first to see why they might be excluded
+  const allOnline = await FoodDeliveryPartner.find({
     availabilityStatus: "online",
-    lastLat: { $exists: true, $ne: null },
-    lastLng: { $exists: true, $ne: null },
   })
-    .select("_id lastLat lastLng")
+    .select("_id status lastLat lastLng lastLocationAt name")
     .lean();
 
-  console.log(
-    `[DEBUG] listNearby: Restaurant [${rLat}, ${rLng}] found ${partners.length} online approved partners with GPS`,
-  );
+  console.log(`[DEBUG] listNearby: Found ${allOnline.length} total online partners globally.`);
+  if (allOnline.length > 0) {
+    console.log(`[DEBUG] listNearby: Sample partner: ${allOnline[0]._id} status=${allOnline[0].status}`);
+  }
 
   const scored = [];
-  for (const p of partners) {
+  const allowedStatuses = process.env.NODE_ENV === 'production' ? ['approved'] : ['approved', 'pending'];
+  const STALE_GPS_MS = 10 * 60 * 1000; // 10 minutes
+
+  for (const p of allOnline) {
+    if (!allowedStatuses.includes(p.status)) {
+        continue;
+    }
+    
+    // Check GPS staleness: last updated > 10m ago or never updated
+    const isStale = !p.lastLocationAt || (Date.now() - new Date(p.lastLocationAt).getTime()) > STALE_GPS_MS;
+
+    // Allow fallback if GPS is missing/stale but they are online
+    if (p.lastLat == null || p.lastLng == null || isStale) {
+        scored.push({ partnerId: p._id, distanceKm: 999 }); // Token "far" distance for sorting but keeps them in list
+        continue;
+    }
+
     const d = haversineKm(rLat, rLng, p.lastLat, p.lastLng);
-    if (Number.isFinite(d) && d <= maxKm)
-      scored.push({ partnerId: p._id, distanceKm: d });
+    if (Number.isFinite(d) && d <= maxKm) {
+        scored.push({ partnerId: p._id, distanceKm: d });
+    }
   }
 
   scored.sort((a, b) => a.distanceKm - b.distanceKm);
   const picked = scored.slice(0, Math.max(1, limit));
 
-  // Fallback: if no one has GPS yet, still notify online partners (common right after login).
+  console.log(`[DEBUG] listNearby: Scored ${scored.length} partners. Picked ${picked.length}.`);
+
+  // Fallback: if no one was found (unlikely now with GPS missing allowed), try strict status check
   if (picked.length === 0) {
     const anyOnline = await FoodDeliveryPartner.find({
-      status: "approved",
+      status: { $in: allowedStatuses },
       availabilityStatus: "online",
     })
-      .select("_id")
+      .select("_id status name")
       .limit(Math.max(1, limit))
       .lean();
+
+    console.log(
+      `[DEBUG] listNearby: Fallback found ${anyOnline.length} online partners.`,
+    );
+
     return {
-      restaurant,
-      partners: anyOnline.map((p) => ({ partnerId: p._id, distanceKm: null })),
+      partners: anyOnline.map((p) => ({
+        partnerId: p._id,
+        distanceKm: null,
+        status: p.status,
+      })),
     };
   }
 
-  return { restaurant, partners: picked };
-}
+  // Filter for approved only in production
+  const final = (config.env === 'production') 
+    ? picked.filter(p => p.status === 'approved')
+    : picked;
 
+  console.log(`[DEBUG] listNearby: Scored ${picked.length} partners. Final (approved): ${final.length}.`);
+  return { partners: final };
+}
 // ----- Settings -----
 export async function getDispatchSettings() {
-  let doc = await FoodSettings.findOne({ key: "dispatch" }).lean();
-  if (!doc) {
-    await FoodSettings.create({ key: "dispatch", dispatchMode: "manual" });
-    doc = await FoodSettings.findOne({ key: "dispatch" }).lean();
-  }
-  return { dispatchMode: doc?.dispatchMode || "manual" };
+  return dispatchService.getDispatchSettings();
 }
 
 export async function updateDispatchSettings(dispatchMode, adminId) {
-  await FoodSettings.findOneAndUpdate(
-    { key: "dispatch" },
-    {
-      $set: {
-        dispatchMode,
-        updatedBy: { role: "ADMIN", adminId, at: new Date() },
-      },
-    },
-    { upsert: true, new: true },
-  );
-  return getDispatchSettings();
+  return dispatchService.updateDispatchSettings(dispatchMode, adminId);
 }
 
 // ----- Calculate (validation + return pricing from payload) -----
 export async function calculateOrder(userId, dto) {
-  const restaurant = await FoodRestaurant.findById(dto.restaurantId)
-    .select("status")
-    .lean();
-  if (!restaurant) throw new ValidationError("Restaurant not found");
-  if (restaurant.status !== "approved")
-    throw new ValidationError("Restaurant not available");
-
-  const items = Array.isArray(dto.items) ? dto.items : [];
-  const subtotal = items.reduce(
-    (sum, it) => sum + (Number(it.price) || 0) * (Number(it.quantity) || 1),
-    0,
-  );
-
-  // Fee settings (admin-configured). Use safe fallbacks for dev if not configured.
-  const feeDoc = await FoodFeeSettings.findOne({ isActive: true })
-    .sort({ createdAt: -1 })
-    .lean();
-  const feeSettings = feeDoc || {
-    deliveryFee: 25,
-    deliveryFeeRanges: [],
-    freeDeliveryThreshold: 149,
-    platformFee: 5,
-    gstRate: 5,
-  };
-
-  const packagingFee = 0;
-  const platformFee = Number(feeSettings.platformFee || 0);
-
-  // Delivery fee by subtotal range (fallback to flat fee; free above threshold).
-  const freeThreshold = Number(feeSettings.freeDeliveryThreshold || 0);
-  let deliveryFee = 0;
-  if (
-    Number.isFinite(freeThreshold) &&
-    freeThreshold > 0 &&
-    subtotal >= freeThreshold
-  ) {
-    deliveryFee = 0;
-  } else {
-    const ranges = Array.isArray(feeSettings.deliveryFeeRanges)
-      ? [...feeSettings.deliveryFeeRanges]
-      : [];
-    if (ranges.length > 0) {
-      ranges.sort((a, b) => Number(a.min) - Number(b.min));
-      let matched = null;
-      for (let i = 0; i < ranges.length; i += 1) {
-        const r = ranges[i] || {};
-        const min = Number(r.min);
-        const max = Number(r.max);
-        const fee = Number(r.fee);
-        if (
-          !Number.isFinite(min) ||
-          !Number.isFinite(max) ||
-          !Number.isFinite(fee)
-        )
-          continue;
-        const isLast = i === ranges.length - 1;
-        const inRange = isLast
-          ? subtotal >= min && subtotal <= max
-          : subtotal >= min && subtotal < max;
-        if (inRange) {
-          matched = fee;
-          break;
-        }
-      }
-      deliveryFee = Number.isFinite(matched)
-        ? matched
-        : Number(feeSettings.deliveryFee || 0);
-    } else {
-      deliveryFee = Number(feeSettings.deliveryFee || 0);
-    }
-  }
-
-  const gstRate = Number(feeSettings.gstRate || 0);
-  const tax =
-    Number.isFinite(gstRate) && gstRate > 0
-      ? Math.round(subtotal * (gstRate / 100))
-      : 0;
-
-  let discount = 0;
-  let appliedCoupon = null;
-  const codeRaw = dto.couponCode
-    ? String(dto.couponCode).trim().toUpperCase()
-    : "";
-  if (codeRaw) {
-    const now = new Date();
-    const offer = await FoodOffer.findOne({ couponCode: codeRaw }).lean();
-    if (!offer) {
-      discount = 0;
-    } else {
-      const statusOk = offer.status === "active";
-      const startOk = !offer.startDate || now >= new Date(offer.startDate);
-      const endOk = !offer.endDate || now < new Date(offer.endDate);
-      const scopeOk =
-        offer.restaurantScope !== "selected" ||
-        String(offer.restaurantId || "") === String(dto.restaurantId || "");
-      const minOk = subtotal >= (Number(offer.minOrderValue) || 0);
-      let usageOk = true;
-      if (
-        Number(offer.usageLimit) > 0 &&
-        Number(offer.usedCount || 0) >= Number(offer.usageLimit)
-      )
-        usageOk = false;
-      let perUserOk = true;
-      if (userId && Number(offer.perUserLimit) > 0) {
-        const usage = await FoodOfferUsage.findOne({
-          offerId: offer._id,
-          userId,
-        }).lean();
-        if (usage && Number(usage.count) >= Number(offer.perUserLimit))
-          perUserOk = false;
-      }
-      let firstOrderOk = true;
-      if (userId && offer.customerScope === "first-time") {
-        const c = await FoodOrder.countDocuments({
-          userId: new mongoose.Types.ObjectId(userId),
-        });
-        firstOrderOk = c === 0;
-      }
-      if (userId && offer.isFirstOrderOnly === true) {
-        const c2 = await FoodOrder.countDocuments({
-          userId: new mongoose.Types.ObjectId(userId),
-        });
-        if (c2 > 0) firstOrderOk = false;
-      }
-      const allowed =
-        statusOk &&
-        startOk &&
-        endOk &&
-        scopeOk &&
-        minOk &&
-        usageOk &&
-        perUserOk &&
-        firstOrderOk;
-      if (allowed) {
-        if (offer.discountType === "percentage") {
-          const raw = subtotal * (Number(offer.discountValue) / 100);
-          const capped = Number(offer.maxDiscount)
-            ? Math.min(raw, Number(offer.maxDiscount))
-            : raw;
-          discount = Math.max(0, Math.min(subtotal, Math.floor(capped)));
-        } else {
-          discount = Math.max(
-            0,
-            Math.min(subtotal, Math.floor(Number(offer.discountValue) || 0)),
-          );
-        }
-        appliedCoupon = { code: codeRaw, discount };
-      }
-    }
-  }
-  const total = Math.max(
-    0,
-    subtotal + packagingFee + deliveryFee + platformFee + tax - discount,
-  );
-  return {
-    pricing: {
-      subtotal,
-      tax,
-      packagingFee,
-      deliveryFee,
-      platformFee,
-      discount,
-      total,
-      currency: "INR",
-      couponCode: appliedCoupon?.code || codeRaw || null,
-      appliedCoupon,
-    },
-  };
+  return calculateOrderPricing(userId, dto);
 }
 
 // ----- Create order -----
@@ -622,7 +239,7 @@ export async function createOrder(userId, dto) {
   if (restaurant.status !== "approved")
     throw new ValidationError("Restaurant not accepting orders");
 
-  const orderId = await ensureUniqueOrderId();
+
   const settings = await getDispatchSettings();
   const dispatchMode = settings.dispatchMode;
 
@@ -706,7 +323,7 @@ export async function createOrder(userId, dto) {
     distanceKm = Number.isFinite(d) ? d : null;
   } else {
     console.warn(
-      `Food order ${orderId}: distance not available, rider earning set to 0`,
+      `Food order: distance not available, rider earning set to 0`,
     );
   }
 
@@ -729,7 +346,6 @@ export async function createOrder(userId, dto) {
   );
 
   const order = new FoodOrder({
-    orderId,
     userId: new mongoose.Types.ObjectId(userId),
     restaurantId: new mongoose.Types.ObjectId(dto.restaurantId),
     zoneId: dto.zoneId
@@ -765,7 +381,7 @@ export async function createOrder(userId, dto) {
     if (amountPaise < 100)
       throw new ValidationError("Amount too low for online payment");
     try {
-      const rzOrder = await createRazorpayOrder(amountPaise, "INR", orderId);
+      const rzOrder = await createRazorpayOrder(amountPaise, "INR", order._id.toString());
       order.payment.razorpay = {
         orderId: rzOrder.id,
         paymentId: "",
@@ -785,6 +401,18 @@ export async function createOrder(userId, dto) {
 
   await order.save();
 
+  if (isWallet) {
+    try {
+      await userWalletService.deductWalletBalance(userId, order.pricing.total, `Payment for order #${order._id}`, { orderId: order._id });
+    } catch (err) {
+      // If wallet deduction fails (e.g. insufficient balance), we should not have saved the order or we should delete/cancel it.
+      // But since we already saved it, let's at least throw the error so the user knows.
+      // Ideally this should be in a transaction.
+      await FoodOrder.deleteOne({ _id: order._id });
+      throw err;
+    }
+  }
+
   await foodTransactionService.createInitialTransaction(order);
 
   if (paymentMethod === "razorpay" && order.payment?.razorpay?.orderId) {
@@ -802,14 +430,14 @@ export async function createOrder(userId, dto) {
         ? "Complete Payment to Confirm Order"
         : "Order Confirmed! 🍔",
       body: isAwaitingOnlinePayment
-        ? `Order #${orderId} is created. Please complete payment to send it to ${restaurant.restaurantName || "the restaurant"}.`
-        : `Your order #${orderId} from ${restaurant.restaurantName || "the restaurant"} has been placed successfully.`,
+        ? `Order #${order._id} is created. Please complete payment to send it to ${restaurant.restaurantName || "the restaurant"}.`
+        : `Your order #${order._id} from ${restaurant.restaurantName || "the restaurant"} has been placed successfully.`,
       image: "https://i.ibb.co/3m2Yh7r/Appzeto-Brand-Image.png",
       data: {
         type: isAwaitingOnlinePayment
           ? "order_created_pending_payment"
           : "order_created",
-        orderId: String(orderId),
+        orderId: String(order._id),
         orderMongoId: order._id?.toString?.() || "",
         link: `/food/user/orders/${order._id?.toString?.() || ""}`,
       },
@@ -900,11 +528,11 @@ export async function verifyPayment(userId, dto) {
   // Notify Customer about payment success
   await notifyOwnersSafely([{ ownerType: "USER", ownerId: userId }], {
     title: "Payment Successful! ✅",
-    body: `We have received your payment of ₹${order.payment.amountDue} for Order #${order.orderId}.`,
+    body: `We have received your payment of ₹${order.payment.amountDue} for Order #${order._id.toString()}.`,
     image: "https://i.ibb.co/3m2Yh7r/Appzeto-Brand-Image.png",
     data: {
       type: "payment_success",
-      orderId: String(order.orderId),
+      orderId: String(order._id.toString()),
       orderMongoId: String(order._id),
     },
   });
@@ -920,19 +548,6 @@ export async function verifyPayment(userId, dto) {
 }
 
 // ----- Auto-assign -----
-function haversineKm(lat1, lon1, lat2, lon2) {
-  const R = 6371;
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLon = ((lon2 - lon1) * Math.PI) / 180;
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos((lat1 * Math.PI) / 180) *
-      Math.cos((lat2 * Math.PI) / 180) *
-      Math.sin(dLon / 2) *
-      Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
-}
 
 /**
  * Start or continue a smart cascading dispatch.
@@ -940,43 +555,128 @@ function haversineKm(lat1, lon1, lat2, lon2) {
  * @param {object} options - Options (retry count, etc)
  */
 export async function tryAutoAssign(orderId, options = {}) {
-    const order = await FoodOrder.findById(orderId).populate(['restaurantId', 'userId']);
-    if (!order) return null;
+    return dispatchService.tryAutoAssign(orderId, options);
+    // Atomic Lock: Claim the order for dispatching to prevent overlapping calls.
+    // We allow claim if: status is unassigned OR (assigned but not accepted for > 55s) AND no one else is currently 'dispatching'.
+    const order = await FoodOrder.findOneAndUpdate(
+        {
+            _id: new mongoose.Types.ObjectId(orderId),
+            $or: [
+                { 'dispatch.status': 'unassigned' },
+                { 
+                    'dispatch.status': 'assigned', 
+                    'dispatch.acceptedAt': { $exists: false },
+                    'dispatch.assignedAt': { $lt: new Date(Date.now() - 55000) }
+                }
+            ],
+            'dispatch.dispatchingAt': { $exists: false }
+        },
+        { 
+            $set: { 'dispatch.dispatchingAt': new Date() } 
+        },
+        { new: true }
+    ).populate(['restaurantId', 'userId']);
 
-    // Guard: only dispatch if unassigned OR if we are doing a timeout-reassign.
-    const isUnassigned = order.dispatch?.status === 'unassigned';
-    const isAssignedButUnaccepted = order.dispatch?.status === 'assigned' && !order.dispatch?.acceptedAt;
-    
-    if (!isUnassigned && !isAssignedButUnaccepted) {
-        return order;
+    if (!order) {
+        console.log(`[DEBUG] tryAutoAssign: Skip for ${orderId} (already being dispatched or already accepted).`);
+        return null;
     }
 
-    // Find ineligible partners (who already rejected it or were already offered if we want fresh ones)
-    const offeredIds = (order.dispatch?.offeredTo || []).map(o => o.partnerId.toString());
+    try {
+        // Find ineligible partners (who already rejected it or were already offered if we want fresh ones)
+        const offeredIds = (order.dispatch?.offeredTo || []).map(o => o.partnerId.toString());
     
     // Find nearby online partners
-    const { partners } = await listNearbyOnlineDeliveryPartners(order.restaurantId, { maxKm: 15, limit: 10 });
+    const searchOptions = { maxKm: 30, limit: 10 }; // Increased radius from 15 to 30 for production robustness
+    const { partners } = await listNearbyOnlineDeliveryPartners(order.restaurantId, searchOptions);
+    
+    console.log(`[DEBUG] tryAutoAssign: partners found: ${partners.length}`);
     
     // Filter out already offered/rejected partners
     const eligible = partners.filter(p => !offeredIds.includes(p.partnerId.toString()));
+    
+    console.log(
+        `[DEBUG] tryAutoAssign: Found ${partners.length} total online partners. ${eligible.length} are eligible (not already offered).`,
+        JSON.stringify(eligible)
+    );
 
     if (eligible.length === 0) {
         // No more specific partners to offer to? 
-        // If it's still unassigned, we leave it in the marketplace pool (broadcast was already sent)
-        // or we could expand the search radius.
-        logger.info(`SmartDispatch: No more eligible partners for order ${order.orderId}. Leaving in marketplace.`);
+        // If it's still unassigned, we leave it in the marketplace pool (sending broadcast now)
+        logger.info(`SmartDispatch: No more eligible partners for order ${order._id.toString()}. Broadcasting to marketplace.`);
+        
+        try {
+            const io = getIO();
+            if (io) {
+                const restaurant = order.restaurantId;
+                const payload = buildDeliverySocketPayload(order, restaurant);
+                console.log(`[DEBUG] tryAutoAssign Broadcast: Emitting to ${partners.length} total partners.`);
+                for (const p of partners) {
+                    const rName = rooms.delivery(p.partnerId);
+                    io.to(rName).emit('new_order_available', {
+                        ...payload,
+                        pickupDistanceKm: p.distanceKm
+                    });
+                    io.to(rooms.delivery(p.partnerId)).emit('play_notification_sound', {
+                        orderId: payload.orderId,
+                        orderMongoId: payload.orderMongoId
+                    });
+                }
+            }
+            
+            await notifyOwnersSafely(
+                partners.slice(0, 10).map(p => ({ ownerType: 'DELIVERY_PARTNER', ownerId: p.partnerId })),
+                {
+                    title: 'New delivery order available',
+                    body: `Order #${order._id.toString()} is available near you.`,
+                    data: {
+                        type: 'new_order_available',
+                        orderId: order._id.toString(),
+                        orderMongoId: order._id.toString(),
+                        link: '/delivery'
+                    }
+                }
+            );
+        } catch (err) {
+            logger.warn(`SmartDispatch: Broadcast failed for order ${order._id.toString()}: ${err.message}`);
+        }
         return order;
     }
 
     // Pick the best (first in sorted list)
-    const best = eligible[0];
+    // Notify ALL eligible partners (Broadcast Mode for reliability in dev/testing)
+    const payload = buildDeliverySocketPayload(order, order.restaurantId);
+    const io = getIO();
     
-    // Assign to this partner
+    console.log(`[DEBUG] tryAutoAssign: Notifying ${eligible.length} eligible partners via 'new_order'.`, JSON.stringify(eligible.map(e => e.partnerId)));
+
+    for (const p of eligible) {
+        const roomName = rooms.delivery(p.partnerId);
+        try {
+            if (io) {
+                // Add distance to payload per partner
+                const pPayload = { ...payload, distanceKm: p.distanceKm === 999 ? null : p.distanceKm };
+                
+                io.to(roomName).emit('new_order', pPayload);
+                io.to(roomName).emit('play_notification_sound', {
+                    orderId: payload.orderId,
+                    orderMongoId: payload.orderMongoId
+                });
+                console.log(`[DEBUG] tryAutoAssign: Emitted 'new_order' to "${roomName}"`);
+            }
+        } catch (err) {
+            console.error(`[ERROR] tryAutoAssign: Failed to notify partner ${p.partnerId}:`, err.message);
+        }
+    }
+
+    // Assign to the first one but keep it in a state that others can still see/accept if first one doesn't.
+    const best = eligible[0];
     order.dispatch.status = 'assigned';
+
     order.dispatch.deliveryPartnerId = best.partnerId;
     order.dispatch.assignedAt = new Date();
     
-    // Record in history
+    // Record first one in history (standard behavior)
     order.dispatch.offeredTo.push({
         partnerId: best.partnerId,
         at: new Date(),
@@ -985,26 +685,15 @@ export async function tryAutoAssign(orderId, options = {}) {
 
     await order.save();
 
-    // 🚀 Notify the specific partner instantly
     try {
-        const io = getIO();
-        if (io) {
-            const restaurant = order.restaurantId;
-            const payload = buildDeliverySocketPayload(order, restaurant);
-            io.to(rooms.delivery(best.partnerId)).emit('new_order', payload);
-            io.to(rooms.delivery(best.partnerId)).emit('play_notification_sound', {
-                orderId: payload.orderId,
-                orderMongoId: payload.orderMongoId
-            });
-        }
         await notifyOwnerSafely(
             { ownerType: 'DELIVERY_PARTNER', ownerId: best.partnerId },
             {
                 title: 'New order assigned! 🛵',
-                body: `You have 60 seconds to accept Order #${order.orderId}.`,
+                body: `You have 60 seconds to accept Order #${order._id.toString()}.`,
                 data: {
                     type: 'new_order',
-                    orderId: order.orderId,
+                    orderId: order._id.toString(),
                     orderMongoId: order._id.toString(),
                     link: '/delivery'
                 }
@@ -1014,21 +703,26 @@ export async function tryAutoAssign(orderId, options = {}) {
         logger.error(`SmartDispatch: Failed to notify partner ${best.partnerId}: ${err.message}`);
     }
 
-    // ⏱️ Schedule a timeout check in 60 seconds
     await addOrderJob({
         action: 'DISPATCH_TIMEOUT_CHECK',
         orderMongoId: order._id.toString(),
-        orderId: order.orderId,
+        orderId: order._id.toString(),
         partnerId: best.partnerId.toString()
     }, { delay: 60000 }); // 60 seconds
 
     return order;
+  } finally {
+    await FoodOrder.findByIdAndUpdate(orderId, {
+      $unset: { 'dispatch.dispatchingAt': '' }
+    });
+  }
 }
 
 /**
  * Triggered by worker after 60 seconds of zero response.
  */
 export async function processDispatchTimeout(orderId, partnerId) {
+    return dispatchService.processDispatchTimeout(orderId, partnerId);
     const order = await FoodOrder.findById(orderId);
     if (!order) return;
 
@@ -1038,7 +732,7 @@ export async function processDispatchTimeout(orderId, partnerId) {
                           !order.dispatch?.acceptedAt;
 
     if (stillAssigned) {
-        logger.info(`SmartDispatch: Timeout for order ${order.orderId} (Partner: ${partnerId}). Moving to next.`);
+        logger.info(`SmartDispatch: Timeout for order ${order._id.toString()} (Partner: ${partnerId}). Moving to next.`);
         
         // Mark as timeout in history
         const offer = order.dispatch.offeredTo.find(o => String(o.partnerId) === String(partnerId) && o.action === 'offered');
@@ -1134,6 +828,113 @@ export async function getOrderById(
   return sanitizeOrderForExternal(order);
 }
 
+export async function getDropOtpUser(orderId, userId) {
+  const identity = buildOrderIdentityFilter(orderId);
+  if (!identity) throw new ValidationError("Order id required");
+  const order = await FoodOrder.findOne({
+    ...identity,
+    userId: new mongoose.Types.ObjectId(userId),
+  }).select("+deliveryOtp");
+  if (!order) throw new NotFoundError("Order not found");
+
+  const phase = order.deliveryState?.currentPhase;
+  if (phase !== "at_drop") {
+    throw new ValidationError(
+      "Rider has not reached your location yet. Wait for the rider to arrive to see the OTP."
+    );
+  }
+
+  return { otp: order.deliveryOtp };
+}
+
+/**
+ * Watchdog: Recovers orders stuck in 'assigned' or 'preparing' status for too long.
+ * Should be called on server startup.
+ */
+export async function recoverStuckOrders() {
+  const now = new Date();
+  const FIVE_MIN = 5 * 60 * 1000;
+  const TWO_MIN = 2 * 60 * 1000;
+
+  try {
+    // 1. Stuck in 'assigned' (partner never accepted) for > 2m
+    const stuckAssigned = await FoodOrder.find({
+      'dispatch.status': 'assigned',
+      'dispatch.acceptedAt': { $exists: false },
+      'dispatch.assignedAt': { $lt: new Date(now - TWO_MIN) },
+      orderStatus: { $nin: ['delivered', 'cancelled_by_user', 'cancelled_by_restaurant'] }
+    });
+
+    if (stuckAssigned.length > 0) {
+      logger.info(`Watchdog: Healing ${stuckAssigned.length} stuck assigned orders.`);
+      for (const order of stuckAssigned) {
+        // Reset status to unassigned and re-trigger auto-assign
+        order.dispatch.status = 'unassigned';
+        order.dispatch.deliveryPartnerId = null;
+        await order.save();
+        await tryAutoAssign(order._id);
+      }
+    }
+
+    // 2. Clear old dispatching locks (cleanup in case of crash)
+    await FoodOrder.updateMany(
+      { 'dispatch.dispatchingAt': { $lt: new Date(now - FIVE_MIN) } },
+      { $unset: { 'dispatch.dispatchingAt': '' } }
+    );
+
+  } catch (err) {
+    logger.error(`Watchdog recovery error: ${err.message}`);
+  }
+}
+
+export async function resyncState(userId, role) {
+  if (role === "USER") {
+    const order = await FoodOrder.findOne({
+      userId: new mongoose.Types.ObjectId(userId),
+      orderStatus: {
+        $nin: [
+          "delivered",
+          "cancelled_by_user",
+          "cancelled_by_restaurant",
+          "cancelled_by_admin",
+        ],
+      },
+    })
+      .select("+deliveryOtp")
+      .sort({ createdAt: -1 })
+      .lean();
+
+    if (order) {
+      const out = normalizeOrderForClient(order);
+      // Re-add handover OTP if in drop phase for resync convenience
+      if (
+        order.deliveryState?.currentPhase === "at_drop" &&
+        !order.deliveryVerification?.dropOtp?.verified &&
+        order.deliveryOtp
+      ) {
+        out.handoverOtp = order.deliveryOtp;
+      }
+      return { activeOrder: out };
+    }
+    return { activeOrder: null };
+  }
+
+  if (role === "DELIVERY_PARTNER") {
+    const order = await FoodOrder.findOne({
+      "dispatch.deliveryPartnerId": new mongoose.Types.ObjectId(userId),
+      "dispatch.status": { $in: ["assigned", "accepted"] },
+      orderStatus: {
+        $nin: ["delivered", "cancelled_by_user", "cancelled_by_restaurant"],
+      },
+    })
+      .populate("restaurantId")
+      .lean();
+    return { activeOrder: order ? sanitizeOrderForExternal(order) : null };
+  }
+
+  return {};
+}
+
 export async function cancelOrder(orderId, userId, reason) {
   const identity = buildOrderIdentityFilter(orderId);
   if (!identity) throw new ValidationError("Order id required");
@@ -1190,13 +991,30 @@ export async function cancelOrder(orderId, userId, reason) {
       console.error(`Refund processing error for Order ${orderId}:`, err);
       order.payment.refund = { status: "failed", amount: order.pricing.total };
     }
+  } else if (
+    order.payment.status === "paid" &&
+    order.payment.method === "wallet" &&
+    (!order.payment.refund || order.payment.refund.status !== "processed")
+  ) {
+    try {
+      await userWalletService.refundWalletBalance(userId, order.pricing.total, `Refund for cancelled order #${order._id}`, { orderId: order._id });
+      order.payment.status = "refunded";
+      order.payment.refund = {
+        status: "processed",
+        amount: order.pricing.total,
+        processedAt: new Date()
+      };
+    } catch (err) {
+      console.error(`Wallet refund processing error for Order ${orderId}:`, err);
+      order.payment.refund = { status: "failed", amount: order.pricing.total };
+    }
   }
 
   await order.save();
 
   enqueueOrderEvent("order_cancelled_by_user", {
     orderMongoId: order._id?.toString?.(),
-    orderId: order.orderId,
+    orderId: order._id.toString(),
     userId,
     reason: reason || "",
   });
@@ -1225,11 +1043,11 @@ export async function cancelOrder(orderId, userId, reason) {
     ],
     {
       title: "Order Cancelled ❌",
-      body: `Order #${order.orderId} has been cancelled successfully.${refundDetail}`,
+      body: `Order #${order._id.toString()} has been cancelled successfully.${refundDetail}`,
       image: "https://i.ibb.co/3m2Yh7r/Appzeto-Brand-Image.png",
       data: {
         type: "order_cancelled",
-        orderId: String(order.orderId),
+        orderId: String(order._id.toString()),
         orderMongoId: String(order._id),
       },
     },
@@ -1241,9 +1059,9 @@ export async function cancelOrder(orderId, userId, reason) {
     if (io) {
       const payload = {
         orderMongoId: order._id?.toString?.(),
-        orderId: order.orderId,
+        orderId: order._id.toString(),
         orderStatus: order.orderStatus,
-        message: `Order #${order.orderId} has been cancelled successfully.${refundDetail}`
+        message: `Order #${order._id.toString()} has been cancelled successfully.${refundDetail}`
       };
       io.to(rooms.user(userId)).emit("order_status_update", payload);
       io.to(rooms.restaurant(order.restaurantId)).emit("order_status_update", payload);
@@ -1317,7 +1135,7 @@ export async function submitOrderRatings(orderId, userId, dto) {
     await order.save();
     enqueueOrderEvent('order_ratings_submitted', {
         orderMongoId: order._id?.toString?.(),
-        orderId: order.orderId,
+        orderId: order._id.toString(),
         userId,
         restaurantRating: dto.restaurantRating,
         deliveryPartnerRating: hasDeliveryPartner ? dto.deliveryPartnerRating : null
@@ -1366,6 +1184,27 @@ export async function updateOrderStatusRestaurant(
   });
   await order.save();
 
+  // Custom messages / titles for status updates
+  let title = `Order ${order._id.toString()} updated`;
+  let body = `Status changed to ${String(orderStatus).replace(/_/g, " ")}`;
+
+  if (orderStatus === "confirmed") {
+    title = "Order Accepted! 🧑‍🍳";
+    body = "The restaurant has accepted your order and is starting to prepare it.";
+  } else if (orderStatus === "preparing") {
+    title = "Food is being prepared! 🍳";
+    body = "Your food is currently being prepared by the restaurant.";
+  } else if (orderStatus === "ready_for_pickup") {
+    title = "Food is ready! 🛍️";
+    body = "Your order is ready and waiting to be picked up.";
+  } else if (String(orderStatus).includes("cancel")) {
+    const isOnlinePaid = order.payment.method === "razorpay" && (order.payment.status === "paid" || order.payment.status === "refunded");
+    const refundDetail = isOnlinePaid ? ` Your refund of ₹${order.pricing.total} is being processed and will be credited to your original payment method within 5-7 working days.` : "";
+    
+    title = "Order Cancelled ❌";
+    body = `Unfortunately, your order has been cancelled by the restaurant.${refundDetail}`;
+  }
+
   // Real-time: status update to restaurant room.
   try {
     const io = getIO();
@@ -1375,38 +1214,26 @@ export async function updateOrderStatusRestaurant(
       );
       const payload = {
         orderMongoId: order._id?.toString?.(),
-        orderId: order.orderId,
+        orderId: order._id.toString(),
         orderStatus: order.orderStatus,
-        title: title || `Order ${order.orderId} updated`,
-        message: body || "",
+        title,
+        message: body,
       };
-      io.to(rooms.restaurant(restaurantId)).emit(
-        "order_status_update",
-        payload,
-      );
-      io.to(rooms.user(order.userId)).emit("order_status_update", payload);
-    }
-
-    let title = `Order ${order.orderId} updated`;
-    let body = `Status changed to ${String(orderStatus).replace(/_/g, " ")}`;
-
-    // Custom messages for customer based on status
-    if (orderStatus === "confirmed") {
-      title = "Order Accepted! 🧑‍🍳";
-      body =
-        "The restaurant has accepted your order and is starting to prepare it.";
-    } else if (orderStatus === "preparing") {
-      title = "Food is being prepared! 🍳";
-      body = "Your food is currently being prepared by the restaurant.";
-    } else if (orderStatus === "ready_for_pickup" || orderStatus === "ready") {
-      title = "Food is ready! 🛍️";
-      body = "Your order is ready and waiting to be picked up.";
-    } else if (String(orderStatus).includes("cancel")) {
-      const isOnlinePaid = order.payment.method === "razorpay" && (order.payment.status === "paid" || order.payment.status === "refunded");
-      const refundDetail = isOnlinePaid ? ` Your refund of ₹${order.pricing.total} is being processed and will be credited to your original payment method within 5-7 working days.` : "";
       
-      title = "Order Cancelled ❌";
-      body = `Unfortunately, your order has been cancelled by the restaurant.${refundDetail}`;
+      const restRoom = rooms.restaurant(restaurantId);
+      const userRoom = rooms.user(order.userId);
+      
+      console.log(`[DEBUG] Emitting order_status_update to rooms: ${restRoom}, ${userRoom}`);
+      io.to(restRoom).emit("order_status_update", payload);
+      io.to(userRoom).emit("order_status_update", payload);
+      
+      // Notify assigned rider via socket if they exist
+      const assignedRiderId = order.dispatch?.deliveryPartnerId;
+      if (assignedRiderId) {
+          const riderRoom = rooms.delivery(assignedRiderId);
+          console.log(`[DEBUG] Emitting order_status_update to rider room: ${riderRoom}`);
+          io.to(riderRoom).emit("order_status_update", payload);
+      }
     }
 
     const notifyList = [
@@ -1419,12 +1246,12 @@ export async function updateOrderStatusRestaurant(
       notifyList.push({ ownerType: "DELIVERY_PARTNER", ownerId: assignedRiderId });
     }
 
-    let riderTitle = `Order #${order.orderId} updated`;
+    let riderTitle = `Order #${order._id.toString()} updated`;
     let riderBody = `The order status is now ${String(orderStatus).replace(/_/g, " ")}.`;
 
     if (String(orderStatus).includes("cancel")) {
       riderTitle = "Order Cancelled ❌";
-      riderBody = `Order #${order.orderId} has been cancelled. Please stop your current task.`;
+      riderBody = `Order #${order._id.toString()} has been cancelled. Please stop your current task.`;
       
       // Sync transaction status
       try {
@@ -1448,7 +1275,7 @@ export async function updateOrderStatusRestaurant(
         image: "https://i.ibb.co/3m2Yh7r/Appzeto-Brand-Image.png",
         data: {
           type: "order_status_update",
-          orderId: order.orderId,
+          orderId: order._id.toString(),
           orderMongoId: order._id?.toString?.() || "",
           orderStatus: String(orderStatus || ""),
           link: `/food/user/orders/${order._id?.toString?.() || ""}`,
@@ -1463,122 +1290,46 @@ export async function updateOrderStatusRestaurant(
   try {
     const io = getIO();
     if (io) {
-      // On accept (confirmed or preparing) -> request delivery partners.
+      // On accept (confirmed or preparing) -> request delivery partners via central logic
       if (
         (String(orderStatus) === "preparing" || String(orderStatus) === "confirmed") && 
         (String(from) !== "preparing" && String(from) !== "confirmed")
       ) {
         console.log(
-          `[DEBUG] Order ${order.orderId} status changed to '${orderStatus}'. Triggering delivery dispatch.`,
+          `[DEBUG] Order ${order._id.toString()} status changed to '${orderStatus}'. Triggering central delivery dispatch.`,
         );
-        // If auto dispatch, try assign now.
-        if (
-          order.dispatch?.status === "unassigned" &&
-          order.dispatch?.modeAtCreation === "auto"
-        ) {
-          try {
-            console.log(`[DEBUG] Auto-assigning order ${order.orderId}`);
-            await tryAutoAssign(order._id);
-            // Refresh order state from DB after auto-assignment
-            order = await FoodOrder.findById(order._id); 
-          } catch (err) {
-            console.error(
-              `[DEBUG] Auto-assign failed for order ${order.orderId}:`,
-              err,
-            );
-          }
-        }
 
-        const restaurant = await FoodRestaurant.findById(order.restaurantId)
-          .select("restaurantName location addressLine1 area city state")
-          .lean();
-        const payload = buildDeliverySocketPayload(order, restaurant);
-
-        // If assigned, notify assigned partner only.
-        const assignedId =
-          order.dispatch?.deliveryPartnerId?.toString?.() ||
-          order.dispatch?.deliveryPartnerId;
-        if (assignedId && order.dispatch?.status === "assigned") {
-          console.log(
-            `[DEBUG] Order ${order.orderId} assigned to ${assignedId}. Notifying.`,
-          );
-          io.to(rooms.delivery(assignedId)).emit("new_order", payload);
-          io.to(rooms.delivery(assignedId)).emit("play_notification_sound", {
-            orderId: payload.orderId,
-            orderMongoId: payload.orderMongoId,
-          });
-          await notifyOwnerSafely(
-            { ownerType: "DELIVERY_PARTNER", ownerId: assignedId },
-            {
-              title: "New delivery task",
-              body: `Order ${payload.orderId} is assigned to you.`,
-              data: {
-                type: "new_order",
-                orderId: payload.orderId,
-                orderMongoId: payload.orderMongoId,
-                link: "/delivery",
-              },
-            },
-          );
+        if (order.dispatch?.modeAtCreation === "auto") {
+            try {
+                await tryAutoAssign(order._id);
+                // Refresh local order state after assignment
+                order = await FoodOrder.findById(order._id); 
+            } catch (err) {
+                console.error(`[DEBUG] Auto-assign in updateOrderStatusRestaurant failed:`, err);
+            }
         } else {
-          // Broadcast to nearby online partners so someone can accept/claim.
-          console.log(
-            `[DEBUG] Searching for nearby partners for order ${order.orderId}`,
-          );
-          const { partners } = await listNearbyOnlineDeliveryPartners(
-            order.restaurantId,
-            { maxKm: 15, limit: 25 },
-          );
-          console.log(
-            `[DEBUG] Found ${partners.length} partners: ${JSON.stringify(partners)}`,
-          );
-          for (const p of partners) {
-            const targetRoom = rooms.delivery(p.partnerId);
-            console.log(
-              `[DEBUG] Emitting new_order_available to room: ${targetRoom}`,
-            );
-            io.to(targetRoom).emit("new_order_available", {
-              ...payload,
-              pickupDistanceKm: p.distanceKm,
-            });
-          }
-          await notifyOwnersSafely(
-            partners.slice(0, 5).map((p) => ({
-              ownerType: "DELIVERY_PARTNER",
-              ownerId: p.partnerId,
-            })),
-            {
-              title: "New delivery order available",
-              body: `Order ${payload.orderId} is available near ${restaurant?.restaurantName || "your area"}.`,
-              data: {
-                type: "new_order_available",
-                orderId: payload.orderId,
-                orderMongoId: payload.orderMongoId,
-                link: "/delivery",
-              },
-            },
-          );
-          // Also trigger a generic sound event for the first few partners.
-          for (const p of partners.slice(0, 5)) {
-            io.to(rooms.delivery(p.partnerId)).emit("play_notification_sound", {
-              orderId: payload.orderId,
-              orderMongoId: payload.orderMongoId,
-            });
-          }
+            // Manual mode: just trigger the broadcast aspect of tryAutoAssign if unassigned
+            if (order.dispatch?.status === 'unassigned') {
+              await tryAutoAssign(order._id);
+              order = await FoodOrder.findById(order._id);
+            }
         }
       }
 
             // When ready for pickup -> ping assigned delivery partner.
             if (String(orderStatus) === 'ready_for_pickup' && String(from) !== 'ready_for_pickup') {
-                console.log(`[DEBUG] Order ${order.orderId} changed to 'ready_for_pickup'.`);
+                console.log(`[DEBUG] Order ${order._id.toString()} changed to 'ready_for_pickup'.`);
                 const assignedId = order.dispatch?.deliveryPartnerId?.toString?.() || order.dispatch?.deliveryPartnerId;
                 if (assignedId) {
                     console.log(`[DEBUG] Notifying assigned partner ${assignedId} that order is ready.`);
                     const restaurant = await FoodRestaurant.findById(order.restaurantId).select('restaurantName location addressLine1 area city state').lean();
                     const payload = buildDeliverySocketPayload(order, restaurant);
+                    logger.info(
+                      `[DeliveryDispatch] Emitting order_ready to ${rooms.delivery(assignedId)} for order ${order._id.toString()}`,
+                    );
                     io.to(rooms.delivery(assignedId)).emit('order_ready', payload);
                 } else {
-                    console.log(`[DEBUG] Order ${order.orderId} is ready but no partner assigned.`);
+                    console.log(`[DEBUG] Order ${order._id.toString()} is ready but no partner assigned.`);
                 }
             }
         }
@@ -1588,7 +1339,7 @@ export async function updateOrderStatusRestaurant(
 
     enqueueOrderEvent('restaurant_order_status_updated', {
         orderMongoId: order._id?.toString?.(),
-        orderId: order.orderId,
+        orderId: order._id.toString(),
         restaurantId,
         from,
         to: orderStatus
@@ -1625,7 +1376,27 @@ export async function updateOrderStatusRestaurant(
           };
         }
       } catch (err) {
-        console.error(`Automated refund failed for Order ${orderId} (Restaurant Cancel):`, err);
+        console.error(`Automated refund failed for Order ${order._id.toString()} (Restaurant Cancel):`, err);
+        order.payment.refund = { status: "failed", amount: order.pricing.total };
+      }
+      // Re-save order with updated payment status
+      await order.save();
+    } else if (
+      String(orderStatus).includes("cancel") &&
+      order.payment.status === "paid" &&
+      order.payment.method === "wallet" &&
+      (!order.payment.refund || order.payment.refund.status !== "processed")
+    ) {
+      try {
+        await userWalletService.refundWalletBalance(order.userId, order.pricing.total, `Refund for order #${order._id} cancelled by restaurant`, { orderId: order._id });
+        order.payment.status = "refunded";
+        order.payment.refund = {
+          status: "processed",
+          amount: order.pricing.total,
+          processedAt: new Date()
+        };
+      } catch (err) {
+        console.error(`Wallet refund processing error for Order ${order._id.toString()}:`, err);
         order.payment.refund = { status: "failed", amount: order.pricing.total };
       }
       // Re-save order with updated payment status
@@ -1640,6 +1411,7 @@ export async function updateOrderStatusRestaurant(
  * Only allowed if status is preparing/ready and no partner has accepted yet.
  */
 export async function resendDeliveryNotificationRestaurant(orderId, restaurantId) {
+    return dispatchService.resendDeliveryNotificationRestaurant(orderId, restaurantId);
     const order = await FoodOrder.findOne({
         _id: new mongoose.Types.ObjectId(orderId),
         restaurantId: new mongoose.Types.ObjectId(restaurantId)
@@ -1647,8 +1419,9 @@ export async function resendDeliveryNotificationRestaurant(orderId, restaurantId
 
     if (!order) throw new NotFoundError('Order not found');
 
-    // Only allow if order is still active and not already terminal
-    const activeStatuses = ['preparing', 'ready_for_pickup', 'ready'];
+    // Allow resend for fresh confirmed orders too, because this route is often
+    // used right after restaurant confirmation when the first rider alert was missed.
+    const activeStatuses = ['confirmed', 'preparing', 'ready_for_pickup', 'ready'];
     if (!activeStatuses.includes(order.orderStatus)) {
         throw new ValidationError(`Cannot resend notification for order in status: ${order.orderStatus}`);
     }
@@ -1667,321 +1440,30 @@ export async function resendDeliveryNotificationRestaurant(orderId, restaurantId
     await order.save();
 
     // Trigger smart dispatch logic immediately
-    const { tryAutoAssign } = await import('./order.service.js');
     await tryAutoAssign(order._id);
 
     return { success: true };
 }
 
 export async function getCurrentTripDelivery(deliveryPartnerId) {
-  if (!deliveryPartnerId) throw new ValidationError("Delivery partner ID required");
-  const partnerId = new mongoose.Types.ObjectId(deliveryPartnerId);
-  
-  // Find the single active order assigned to or accepted by this rider
-  const order = await FoodOrder.findOne({
-    "dispatch.deliveryPartnerId": partnerId,
-    orderStatus: {
-      $in: ["confirmed", "preparing", "ready_for_pickup", "picked_up", "reached_pickup", "reached_drop"]
-    }
-  })
-    .populate({ path: "restaurantId", select: "restaurantName name phone location addressLine1 area city state profileImage" })
-    .populate({ path: "userId", select: "name phone" })
-    .sort({ updatedAt: -1 })
-    .lean();
-
-  if (!order) return null;
-  return sanitizeOrderForExternal(order);
+  return deliveryService.getCurrentTripDelivery(deliveryPartnerId);
 }
 
 // ----- Delivery: available, accept, reject, status -----
 export async function listOrdersAvailableDelivery(deliveryPartnerId, query) {
-  const { page, limit, skip } = buildPaginationOptions(query);
-  const filter = {
-    $or: [
-      // "Marketplace" pool – only show orders once restaurant accepted.
-      {
-        "dispatch.status": "unassigned",
-        orderStatus: { $in: ["preparing", "ready_for_pickup"] },
-      },
-      // My assigned/accepted orders – keep showing until terminal.
-      {
-        "dispatch.deliveryPartnerId": new mongoose.Types.ObjectId(
-          deliveryPartnerId,
-        ),
-        orderStatus: {
-          $nin: [
-            "delivered",
-            "cancelled_by_user",
-            "cancelled_by_restaurant",
-            "cancelled_by_admin",
-          ],
-        },
-      },
-    ],
-  };
-  const [docs, total] = await Promise.all([
-    FoodOrder.find(filter)
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit)
-      .populate("userId", "name phone email")
-      .populate("restaurantId", "restaurantName name address phone ownerPhone location profileImage")
-      .lean(),
-    FoodOrder.countDocuments(filter),
-  ]);
-  return buildPaginatedResult({ docs, total, page, limit });
+  return deliveryService.listOrdersAvailableDelivery(deliveryPartnerId, query);
 }
 
 export async function acceptOrderDelivery(orderId, deliveryPartnerId) {
-  const partnerId = new mongoose.Types.ObjectId(deliveryPartnerId);
-  const identity = buildOrderIdentityFilter(orderId);
-  if (!identity) throw new ValidationError("Order id required");
-
-  // Atomically claim if unassigned, or accept if already assigned to me.
-  const order = await FoodOrder.findOne({
-    ...identity,
-    orderStatus: {
-      $nin: [
-        "delivered",
-        "cancelled_by_user",
-        "cancelled_by_restaurant",
-        "cancelled_by_admin",
-      ],
-    },
-    $or: [
-      { "dispatch.status": "unassigned" },
-      { "dispatch.deliveryPartnerId": partnerId },
-    ],
-  });
-
-  if (!order) throw new NotFoundError("Order not found");
-
-  // Guard: only dispatchable after restaurant accepted.
-  if (
-    !["preparing", "ready_for_pickup", "picked_up"].includes(order.orderStatus)
-  ) {
-    throw new ValidationError("Order not ready for delivery assignment");
-  }
-
-  const wasUnassigned =
-    order.dispatch?.status === "unassigned" ||
-    !order.dispatch?.deliveryPartnerId;
-  if (
-    !wasUnassigned &&
-    order.dispatch.deliveryPartnerId?.toString() !==
-      deliveryPartnerId.toString()
-  ) {
-    throw new ForbiddenError("Not your order");
-  }
-
-  const from = order.dispatch?.status || "unassigned";
-  order.dispatch.deliveryPartnerId = partnerId;
-  order.dispatch.status = "accepted";
-  if (!order.dispatch.assignedAt) order.dispatch.assignedAt = new Date();
-  order.dispatch.acceptedAt = new Date();
-  pushStatusHistory(order, {
-    byRole: "DELIVERY_PARTNER",
-    byId: deliveryPartnerId,
-    from,
-    to: "accepted",
-  });
-  await order.save();
-  await order.populate('restaurantId'); // Need coordinates for Firebase initial write
-
-  // ─── Firebase Realtime Database Tracking Initialization (Cost Optimization) ───
-  try {
-      const rest = order.restaurantId;
-      const userLoc = order.deliveryAddress?.location?.coordinates; // [lng, lat]
-      const restLoc = rest?.location?.coordinates; // [lng, lat]
-
-      if (restLoc?.[0] && userLoc?.[0]) {
-          // Fetch polyline only once upon acceptance.
-          const polyline = await fetchPolyline(
-              { lat: restLoc[1], lng: restLoc[0] },
-              { lat: userLoc[1], lng: userLoc[0] }
-          );
-
-          const db = getFirebaseDB();
-          if (db) {
-              const orderRef = db.ref(`active_orders/${order.orderId}`);
-              await orderRef.set({
-                  polyline,
-                  lat: restLoc[1], // Initial boy position at restaurant
-                  lng: restLoc[0],
-                  boy_lat: restLoc[1],
-                  boy_lng: restLoc[0],
-                  restaurant_lat: restLoc[1],
-                  restaurant_lng: restLoc[0],
-                  customer_lat: userLoc[1],
-                  customer_lng: userLoc[0],
-                  status: 'accepted',
-                  last_updated: Date.now()
-              }).catch(e => logger.error(`Firebase orderRef set error: ${e.message}`));
-          }
-      }
-  } catch (err) {
-      logger.error(`Error initializing Firebase order tracking: ${err.message}`);
-  }
-
-  await foodTransactionService.updateTransactionRider(order._id, deliveryPartnerId);
-
-  // Notify delivery partner (self) + restaurant about dispatch acceptance.
-  try {
-    const io = getIO();
-    if (io) {
-      io.to(rooms.delivery(deliveryPartnerId)).emit("order_status_update", {
-        orderMongoId: order._id?.toString?.(),
-        orderId: order.orderId,
-        dispatchStatus: order.dispatch?.status,
-      });
-      io.to(rooms.restaurant(order.restaurantId)).emit("order_status_update", {
-        orderMongoId: order._id?.toString?.(),
-        orderId: order.orderId,
-        orderStatus: order.orderStatus,
-        dispatchStatus: order.dispatch?.status,
-      });
-      io.to(rooms.user(order.userId)).emit("order_status_update", {
-        orderMongoId: order._id?.toString?.(),
-        orderId: order.orderId,
-        orderStatus: order.orderStatus,
-        dispatchStatus: order.dispatch?.status,
-      });
-    }
-    await notifyOwnersSafely(
-      [
-        { ownerType: "USER", ownerId: order.userId },
-        { ownerType: "RESTAURANT", ownerId: order.restaurantId },
-        { ownerType: "DELIVERY_PARTNER", ownerId: deliveryPartnerId },
-      ],
-      {
-        title: `Order ${order.orderId} accepted`,
-        body: "A delivery partner has accepted your order.",
-        data: {
-          type: "delivery_accepted",
-          orderId: order.orderId,
-          orderMongoId: order._id?.toString?.() || "",
-          dispatchStatus: order.dispatch?.status,
-          link: "/food/user/orders",
-        },
-      },
-    );
-  } catch {}
-
-  enqueueOrderEvent("delivery_accepted", {
-    orderMongoId: order._id?.toString?.(),
-    orderId: order.orderId,
-    deliveryPartnerId,
-    dispatchStatus: order.dispatch?.status,
-    orderStatus: order.orderStatus,
-  });
-
-  // Return full populated order so delivery app has restaurant coords for route polyline
-  return getOrderById(order._id, { deliveryPartnerId });
+  return deliveryService.acceptOrderDelivery(orderId, deliveryPartnerId);
 }
 
 export async function rejectOrderDelivery(orderId, deliveryPartnerId) {
-    const identity = buildOrderIdentityFilter(orderId);
-    if (!identity) throw new ValidationError('Order id required');
-    const order = await FoodOrder.findOne(identity);
-    if (!order) throw new NotFoundError('Order not found');
-    if (order.dispatch.deliveryPartnerId?.toString() !== deliveryPartnerId.toString()) throw new ForbiddenError('Not your order');
-    
-    // Mark as rejected in history
-    const offer = order.dispatch.offeredTo.find(o => String(o.partnerId) === String(deliveryPartnerId) && o.action === 'offered');
-    if (offer) offer.action = 'rejected';
-
-    order.dispatch.status = 'unassigned';
-    order.dispatch.deliveryPartnerId = undefined;
-    order.dispatch.assignedAt = undefined;
-    order.dispatch.acceptedAt = undefined;
-    pushStatusHistory(order, { byRole: 'DELIVERY_PARTNER', byId: deliveryPartnerId, from: 'assigned', to: 'unassigned', note: 'Rejected' });
-    await order.save();
-    
-    enqueueOrderEvent('delivery_rejected', {
-        orderMongoId: order._id?.toString?.(),
-        orderId: order.orderId,
-        deliveryPartnerId
-    });
-
-    // 🚀 Immediately try to find the next best partner instead of waiting for timeout
-    void tryAutoAssign(order._id).catch(err => logger.error(`SmartDispatch: Auto-assign after reject failed: ${err.message}`));
-
-    return order.toObject();
+  return deliveryService.rejectOrderDelivery(orderId, deliveryPartnerId);
 }
 
 export async function confirmReachedPickupDelivery(orderId, deliveryPartnerId) {
-  const identity = buildOrderIdentityFilter(orderId);
-  if (!identity) throw new ValidationError("Order id required");
-
-  const order = await FoodOrder.findOne(identity);
-  if (!order) throw new NotFoundError("Order not found");
-  if (
-    order.dispatch?.deliveryPartnerId?.toString() !==
-    deliveryPartnerId.toString()
-  )
-    throw new ForbiddenError("Not your order");
-  if (order.orderStatus === "delivered")
-    throw new ValidationError("Order already delivered");
-
-  // Idempotent: if already at/after pickup, keep success.
-  const currentPhase = order.deliveryState?.currentPhase || "";
-  const currentStatus = order.deliveryState?.status || "";
-  if (currentPhase === "at_pickup" || currentStatus === "reached_pickup") {
-    return order.toObject();
-  }
-
-  const from = currentStatus || currentPhase || order.orderStatus;
-  order.deliveryState = {
-    ...(order.deliveryState?.toObject?.() || order.deliveryState || {}),
-    currentPhase: "at_pickup",
-    status: "reached_pickup",
-    reachedPickupAt: order.deliveryState?.reachedPickupAt || new Date(),
-  };
-  pushStatusHistory(order, {
-    byRole: "DELIVERY_PARTNER",
-    byId: deliveryPartnerId,
-    from,
-    to: "reached_pickup",
-    note: "Reached pickup location",
-  });
-  await order.save();
-
-  // Notify
-  emitOrderUpdate(order, deliveryPartnerId);
-
-  // Notify Restaurant about rider arrival
-  try {
-    const restaurant = await FoodRestaurant.findById(order.restaurantId).select("restaurantName").lean();
-    const partner = await FoodDeliveryPartner.findById(deliveryPartnerId).select("name").lean();
-    
-    const { notifyOwnersSafely } = await import("../../../../core/notifications/firebase.service.js");
-    await notifyOwnersSafely(
-      [{ ownerType: "RESTAURANT", ownerId: order.restaurantId }],
-      {
-        title: "Rider Arrived! 🛵",
-        body: `${partner?.name || "The delivery partner"} has arrived at your restaurant to pick up Order #${order.orderId}.`,
-        image: "https://i.ibb.co/3m2Yh7r/Appzeto-Brand-Image.png",
-        data: {
-          type: "rider_arrived",
-          orderId: String(order.orderId),
-          orderMongoId: String(order._id),
-          partnerName: partner?.name || ""
-        }
-      }
-    );
-  } catch (err) {
-    console.error("[DEBUG] Error notifying restaurant about rider arrival:", err);
-  }
-
-    enqueueOrderEvent('reached_pickup', {
-        orderMongoId: order._id?.toString?.(),
-        orderId: order.orderId,
-        deliveryPartnerId,
-        orderStatus: order.orderStatus,
-        deliveryPhase: order.deliveryState?.currentPhase,
-        deliveryStatus: order.deliveryState?.status
-    });
-    return order.toObject();
+  return deliveryService.confirmReachedPickupDelivery(orderId, deliveryPartnerId);
 }
 
 /**
@@ -1992,338 +1474,29 @@ export async function confirmPickupDelivery(
   deliveryPartnerId,
   billImageUrl,
 ) {
-  const identity = buildOrderIdentityFilter(orderId);
-  const order = await FoodOrder.findOne(identity);
-  if (!order) throw new NotFoundError("Order not found");
-  if (
-    order.dispatch?.deliveryPartnerId?.toString() !==
-    deliveryPartnerId.toString()
-  )
-    throw new ForbiddenError("Not your order");
-
-  const from = order.orderStatus;
-  order.orderStatus = "picked_up";
-  order.deliveryState = {
-    ...(order.deliveryState?.toObject?.() || order.deliveryState || {}),
-    currentPhase: "en_route_to_delivery",
-    status: "picked_up",
-    pickedUpAt: new Date(),
+  return deliveryService.confirmPickupDelivery(
+    orderId,
+    deliveryPartnerId,
     billImageUrl,
-  };
-  pushStatusHistory(order, {
-    byRole: "DELIVERY_PARTNER",
-    byId: deliveryPartnerId,
-    from,
-    to: "picked_up",
-    note: "Order picked up",
-  });
-  await order.save();
-
-    emitOrderUpdate(order, deliveryPartnerId);
-    enqueueOrderEvent('picked_up', {
-        orderMongoId: order._id?.toString?.(),
-        orderId: order.orderId,
-        deliveryPartnerId,
-        billImageUrl: billImageUrl || null
-    });
-    return order.toObject();
+  );
 }
 
 export async function confirmReachedDropDelivery(orderId, deliveryPartnerId) {
-  const identity = buildOrderIdentityFilter(orderId);
-  if (!identity) throw new ValidationError("Order id required");
-
-  const order = await FoodOrder.findOne(identity).select("+deliveryOtp");
-  if (!order) throw new NotFoundError("Order not found");
-  if (
-    order.dispatch?.deliveryPartnerId?.toString() !==
-    deliveryPartnerId.toString()
-  )
-    throw new ForbiddenError("Not your order");
-
-  if (order.deliveryVerification?.dropOtp?.verified) {
-    emitOrderUpdate(order, deliveryPartnerId);
-    return sanitizeOrderForExternal(order);
-  }
-
-  const alreadyAtDrop =
-    order.deliveryState?.currentPhase === "at_drop" ||
-    order.deliveryState?.status === "reached_drop";
-  const fromPhase =
-    order.deliveryState?.status ||
-    order.deliveryState?.currentPhase ||
-    order.orderStatus ||
-    "";
-
-  const existingOtp = String(order.deliveryOtp || "").trim();
-  if (!alreadyAtDrop || !existingOtp) {
-    order.deliveryOtp = generateFourDigitDeliveryOtp();
-    order.deliveryVerification = {
-      ...(order.deliveryVerification?.toObject?.() ||
-        order.deliveryVerification ||
-        {}),
-      dropOtp: { required: true, verified: false },
-    };
-  }
-
-  order.deliveryState = {
-    ...(order.deliveryState?.toObject?.() || order.deliveryState || {}),
-    currentPhase: "at_drop",
-    status: "reached_drop",
-    reachedDropAt: order.deliveryState?.reachedDropAt || new Date(),
-  };
-
-  if (!alreadyAtDrop) {
-    pushStatusHistory(order, {
-      byRole: "DELIVERY_PARTNER",
-      byId: deliveryPartnerId,
-      from: fromPhase,
-      to: "reached_drop",
-      note: "Reached drop location",
-    });
-  }
-
-  await order.save();
-
-    const plainOtp = String(order.deliveryOtp || '').trim();
-    emitDeliveryDropOtpToUser(order, plainOtp);
-    emitOrderUpdate(order, deliveryPartnerId);
-    enqueueOrderEvent('reached_drop', {
-        orderMongoId: order._id?.toString?.(),
-        orderId: order.orderId,
-        deliveryPartnerId,
-        dropOtpRequired: order.deliveryVerification?.dropOtp?.required ?? true,
-        dropOtpVerified: order.deliveryVerification?.dropOtp?.verified ?? false
-    });
-    return sanitizeOrderForExternal(order);
+  return deliveryService.confirmReachedDropDelivery(orderId, deliveryPartnerId);
 }
 
 export async function verifyDropOtpDelivery(orderId, deliveryPartnerId, otp) {
-  const identity = buildOrderIdentityFilter(orderId);
-  const order = await FoodOrder.findOne(identity).select("+deliveryOtp");
-  if (!order) throw new NotFoundError("Order not found");
-  if (
-    order.dispatch?.deliveryPartnerId?.toString() !==
-    deliveryPartnerId.toString()
-  )
-    throw new ForbiddenError("Not your order");
-
-  const otpStr = String(otp || "").trim();
-  if (!otpStr) throw new ValidationError("OTP is required");
-
-  if (!order.deliveryVerification?.dropOtp?.required) {
-    throw new ValidationError(
-      "OTP verification is not active for this order. Confirm reached drop first.",
-    );
-  }
-  if (order.deliveryVerification?.dropOtp?.verified) {
-    return { order: sanitizeOrderForExternal(order) };
-  }
-
-  const expected = String(order.deliveryOtp || "").trim();
-  if (!expected || expected !== otpStr) {
-    throw new ValidationError(
-      "Invalid OTP. Ask the customer for the code shown in their app.",
-    );
-  }
-
-  // Use direct path assignment for robustness in Mongoose change detection
-  if (!order.deliveryVerification) order.deliveryVerification = { dropOtp: {} };
-  order.deliveryVerification.dropOtp.verified = true;
-  order.markModified('deliveryVerification.dropOtp.verified');
-  
-  order.deliveryOtp = "";
-  await order.save();
-
-    emitOrderUpdate(order, deliveryPartnerId);
-    enqueueOrderEvent('drop_otp_verified', {
-        orderMongoId: order._id?.toString?.(),
-        orderId: order.orderId,
-        deliveryPartnerId
-    });
-    return { order: sanitizeOrderForExternal(order) };
+  return deliveryService.verifyDropOtpDelivery(orderId, deliveryPartnerId, otp);
 }
 
 export async function completeDelivery(orderId, deliveryPartnerId, body = {}) {
-  const identity = buildOrderIdentityFilter(orderId);
-  const order = await FoodOrder.findOne(identity);
-  if (!order) throw new NotFoundError("Order not found");
-  if (
-    order.dispatch?.deliveryPartnerId?.toString() !==
-    deliveryPartnerId.toString()
-  )
-    throw new ForbiddenError("Not your order");
-
-  const { otp, ratings } = body;
-
-  // Inline verification if OTP is passed in body but not yet verified in DB
-  if (otp && order.deliveryVerification?.dropOtp?.required && !order.deliveryVerification?.dropOtp?.verified) {
-     // We can refetch with secret to verify, but for robustness against racing calls, 
-     // we assume the prior verify-otp call did its job. 
-     // If we really want security, we'd verify here too.
-     // For now, let's just proceed if 'verified' is false but OTP provided.
-  }
-
-  if (
-    order.deliveryVerification?.dropOtp?.required &&
-    !order.deliveryVerification?.dropOtp?.verified && 
-    !otp // Only throw if OTP is not provided here as fallback
-  ) {
-    throw new ValidationError(
-      "Customer handover OTP is required. Verify the OTP from the customer before completing delivery.",
-    );
-  }
-
-  const from = order.orderStatus;
-  const prevPayStatus = order.payment.status;
-  const payMethod = order.payment.method;
-
-  // Security gate: only complete QR delivery after Razorpay payment-link is actually paid.
-  // This enables frontend auto-complete after QR success.
-  if (payMethod === "razorpay_qr") {
-    // syncRazorpayQrPayment is a helper presumed present in this service context
-    if (typeof syncRazorpayQrPayment === 'function') await syncRazorpayQrPayment(order);
-    if (order.payment.status !== "paid") {
-      throw new ValidationError("QR payment not verified yet");
-    }
-  }
-
-  order.orderStatus = "delivered";
-  order.payment.status = "paid"; 
-  order.deliveryState = {
-    ...(order.deliveryState?.toObject?.() || order.deliveryState || {}),
-    currentPhase: "delivered",
-    status: "delivered",
-    deliveredAt: new Date(),
-  };
-
-  if (ratings) {
-    order.ratings = {
-       ...(order.ratings?.toObject?.() || order.ratings || {}),
-       ...ratings
-    };
-  }
-
-  pushStatusHistory(order, {
-    byRole: "DELIVERY_PARTNER",
-    byId: deliveryPartnerId,
-    from,
-    to: "delivered",
-    note: "Delivery completed successfully",
-  });
-
-  await order.save();
-  emitOrderUpdate(order, deliveryPartnerId);
-  const ledgerKind =
-    payMethod === "cash" && prevPayStatus === "cod_pending"
-      ? "cod_marked_paid_on_delivery"
-      : "payment_snapshot_sync";
-      
-  await foodTransactionService.updateTransactionStatus(order._id, ledgerKind, {
-    status: 'captured',
-    recordedByRole: "DELIVERY_PARTNER",
-    recordedById: deliveryPartnerId,
-    note: `Delivery completed. Prev status: ${prevPayStatus}`
-  });
-
-  emitOrderUpdate(order, deliveryPartnerId);
-  enqueueOrderEvent('delivery_completed', {
-      orderMongoId: order._id?.toString?.(),
-      orderId: order.orderId,
-      deliveryPartnerId,
-      payMethod,
-      prevPayStatus,
-      paymentStatus: order.payment?.status
-  });
-  return sanitizeOrderForExternal(order);
+  return deliveryService.completeDelivery(orderId, deliveryPartnerId, body);
 }
 
-function emitOrderUpdate(order, deliveryPartnerId) {
-  try {
-    const io = getIO();
-    if (io) {
-      const dv =
-        order.deliveryVerification?.toObject?.() || order.deliveryVerification;
-      const payload = {
-        orderMongoId: order._id?.toString?.(),
-        orderId: order.orderId,
-        orderStatus: order.orderStatus,
-        deliveryState: order.deliveryState,
-        deliveryVerification: dv,
-      };
-      io.to(rooms.delivery(deliveryPartnerId)).emit(
-        "order_status_update",
-        payload,
-      );
-      io.to(rooms.restaurant(order.restaurantId)).emit(
-        "order_status_update",
-        payload,
-      );
-      io.to(rooms.user(order.userId)).emit("order_status_update", payload);
-    }
-    let riderTitle = `Order deliverd! 🏁`;
-    let riderBody = `Order #${order.orderId} has been marked as delivered.`;
 
-    // Special message for COD payment collection
-    if (order.payment?.method === "cash") {
-      riderTitle = "Payment Collected! 💵";
-      riderBody = `You have collected ₹${order.pricing?.total || 0} cash for Order #${order.orderId}.`;
-    }
-
-    void notifyOwnersSafely(
-      [
-        { ownerType: "RESTAURANT", ownerId: order.restaurantId },
-        { ownerType: "USER", ownerId: order.userId },
-      ],
-      {
-        title: `Order #${order.orderId} delivered! ✅`,
-        body: `Hope you enjoyed your meal!`,
-        data: {
-          type: "order_status_update",
-          orderId: order.orderId,
-          orderMongoId: order._id?.toString?.() || "",
-          orderStatus: "delivered",
-        },
-      },
-    );
-
-    void notifyOwnerSafely(
-      { ownerType: "DELIVERY_PARTNER", ownerId: deliveryPartnerId },
-      {
-        title: riderTitle,
-        body: riderBody,
-        data: {
-          type: "order_completed",
-          orderId: order.orderId,
-          orderMongoId: order._id?.toString?.() || "",
-          paymentMethod: order.payment?.method,
-          amountCollected: String(order.pricing?.total || 0),
-        },
-      }
-    );
-  } catch (e) {
-    console.error("Error emitting order update:", e);
-  }
-}
 
 export async function updateOrderStatusDelivery(orderId, deliveryPartnerId, orderStatus) {
-    const identity = buildOrderIdentityFilter(orderId);
-    if (!identity) throw new ValidationError('Order id required');
-    const order = await FoodOrder.findOne(identity);
-    if (!order) throw new NotFoundError('Order not found');
-    if (order.dispatch.deliveryPartnerId?.toString() !== deliveryPartnerId.toString()) throw new ForbiddenError('Not your order');
-    const from = order.orderStatus;
-    order.orderStatus = orderStatus;
-    pushStatusHistory(order, { byRole: 'DELIVERY_PARTNER', byId: deliveryPartnerId, from, to: orderStatus });
-    await order.save();
-    enqueueOrderEvent('delivery_status_updated', {
-        orderMongoId: order._id?.toString?.(),
-        orderId: order.orderId,
-        deliveryPartnerId,
-        from,
-        to: orderStatus
-    });
-    return order.toObject();
+  return deliveryService.updateOrderStatusDelivery(orderId, deliveryPartnerId, orderStatus);
 }
 
 // ----- COD QR collection -----
@@ -2332,177 +1505,11 @@ export async function createCollectQr(
   deliveryPartnerId,
   customerInfo = {},
 ) {
-  const query = mongoose.Types.ObjectId.isValid(orderId) ? { _id: orderId } : { orderId };
-  const order = await FoodOrder.findOne(query)
-    .populate("userId", "name email phone")
-    .lean();
-  if (!order) throw new NotFoundError("Order not found");
-  if (
-    order.dispatch.deliveryPartnerId?.toString() !==
-    deliveryPartnerId.toString()
-  )
-    throw new ForbiddenError("Not your order");
-  if (order.payment.method !== "cash" && order.payment.status === "paid")
-    throw new ValidationError("Order already paid");
-  const amountDue = order.payment.amountDue ?? order.pricing?.total ?? 0;
-  if (amountDue < 1) throw new ValidationError("No amount due");
-
-  if (!isRazorpayConfigured())
-    throw new ValidationError("QR payment not configured");
-
-  const amountPaise = Math.round(amountDue * 100);
-  const user = order.userId || {};
-  const link = await createPaymentLink({
-    amountPaise,
-    currency: "INR",
-    description: `Order ${order.orderId} - COD collect`,
-    orderId: order.orderId,
-    customerName: customerInfo.name || user.name || "Customer",
-    customerEmail: customerInfo.email || user.email || "customer@example.com",
-    customerPhone: customerInfo.phone || user.phone,
-  });
-
-  await FoodOrder.findByIdAndUpdate(order._id, {
-    $set: {
-      "payment.method": "razorpay_qr",
-      "payment.status": "pending_qr",
-      "payment.qr": {
-        paymentLinkId: link.id,
-        shortUrl: link.short_url,
-        imageUrl: link.short_url,
-        status: link.status || "created",
-        expiresAt: link.expire_by ? new Date(link.expire_by * 1000) : null,
-      },
-    },
-  });
-
-    const updated = await FoodOrder.findById(order._id).select('orderId restaurantId userId riderEarning payment pricing').lean();
-    if (updated) {
-        await foodTransactionService.updateTransactionStatus(order._id, 'cod_collect_qr_created', {
-            recordedByRole: 'DELIVERY_PARTNER',
-            recordedById: deliveryPartnerId,
-            note: 'COD collection QR created'
-        });
-    }
-
-    enqueueOrderEvent('collect_qr_created', {
-        orderMongoId: String(orderId),
-        orderId: updated?.orderId || null,
-        deliveryPartnerId,
-        paymentLinkId: link.id,
-        shortUrl: link.short_url,
-        amountDue
-    });
-
-  // IMPORTANT: return QR payload so frontend can render "Generate QR" / "Show QR".
-  const shortUrl =
-    link?.short_url ?? link?.shortUrl ?? link?.short_url_path ?? null;
-  const imageUrl =
-    link?.short_url ??
-    link?.image_url ??
-    link?.imageUrl ??
-    link?.image ??
-    null;
-
-  return {
-    shortUrl,
-    imageUrl,
-    amount: amountDue,
-    expiresAt:
-      link?.expire_by
-        ? new Date(link.expire_by * 1000)
-        : link?.expiresAt
-          ? new Date(link.expiresAt)
-          : null,
-  };
-}
-
-/**
- * Razorpay QR auto-verify:
- * - Fetch payment-link status from Razorpay
- * - Update `order.payment.status` to `paid` when Razorpay marks it paid
- * - Update `order.payment.qr.status` for UI/debugging
- *
- * IMPORTANT: Callers should `await` this before completing delivery.
- */
-async function syncRazorpayQrPayment(orderDoc) {
-  if (!orderDoc?.payment) return orderDoc?.payment;
-  if (orderDoc.payment.method !== "razorpay_qr") return orderDoc.payment;
-  if (orderDoc.payment.status === "paid") return orderDoc.payment;
-
-  const paymentLinkId = orderDoc.payment?.qr?.paymentLinkId;
-  if (!paymentLinkId) return orderDoc.payment;
-  if (!isRazorpayConfigured()) return orderDoc.payment;
-
-  let link;
-  try {
-    link = await fetchRazorpayPaymentLink(paymentLinkId);
-  } catch (err) {
-    logger.warn(
-      `Razorpay payment-link fetch failed for ${paymentLinkId}: ${
-        err?.message || err
-      }`
-    );
-    return orderDoc.payment;
-  }
-
-  const linkStatus = String(link?.status || "").toLowerCase();
-  if (!linkStatus) return orderDoc.payment;
-
-  // Update QR snapshot status.
-  orderDoc.payment.qr = {
-    ...(orderDoc.payment.qr?.toObject?.() || orderDoc.payment.qr || {}),
-    status: linkStatus,
-  };
-
-  // Mark paid only when Razorpay says it's paid/settled.
-  if (["paid", "captured", "authorized"].includes(linkStatus)) {
-    orderDoc.payment.status = "paid";
-    await orderDoc.save();
-  } else if (["expired", "cancelled", "canceled", "failed"].includes(linkStatus)) {
-    orderDoc.payment.status = "failed";
-    await orderDoc.save();
-  }
-
-  return orderDoc.payment;
+  return paymentService.createCollectQr(orderId, deliveryPartnerId, customerInfo);
 }
 
 export async function getPaymentStatus(orderId, deliveryPartnerId) {
-  // Support both short orderId strings and MongoDB _ids.
-  const identity = buildOrderIdentityFilter(orderId);
-  if (!identity) throw new ValidationError("Order id required");
-
-  const order = await FoodOrder.findOne(identity).select(
-    "payment dispatch riderEarning platformProfit pricing"
-  );
-  if (!order) throw new NotFoundError("Order not found");
-  if (
-    order.dispatch?.deliveryPartnerId?.toString() !==
-    deliveryPartnerId.toString()
-  )
-    throw new ForbiddenError("Not your order");
-
-  // Auto-sync Razorpay QR payment status before returning.
-  // syncRazorpayQrPayment calls Razorpay, updates order.payment.status, and saves.
-  if (order.payment?.method === "razorpay_qr") {
-    await syncRazorpayQrPayment(order);
-  }
-
-  const transaction = await FoodTransaction.findOne({ orderId: order._id }).lean();
-  const latestHistory = (transaction?.history || []).sort((a, b) => (b.at || 0) - (a.at || 0))[0] || null;
-
-  return {
-    payment: {
-      ...(order.payment?.toObject?.() || order.payment || {}),
-      // Expose the effective status in a flat field for easy frontend reading
-      status: order.payment?.status,
-    },
-    latestPaymentSnapshot: latestHistory,
-    riderEarning: order.riderEarning ?? 0,
-    platformProfit: order.platformProfit ?? 0,
-    pricingTotal: order.pricing?.total ?? 0,
-    transactionStatus: transaction?.status ?? null,
-  };
+  return paymentService.getPaymentStatus(orderId, deliveryPartnerId);
 }
 
 // ----- Admin -----
@@ -2641,7 +1648,7 @@ export async function assignDeliveryPartnerAdmin(
     await order.save();
     enqueueOrderEvent('delivery_partner_assigned', {
         orderMongoId: order._id?.toString?.(),
-        orderId: order.orderId,
+        orderId: order._id.toString(),
         deliveryPartnerId,
         adminId
     });
@@ -2662,7 +1669,7 @@ export async function deleteOrderAdmin(orderId, adminId) {
       { $set: { orderId: null } },
     ),
     FoodTransaction.deleteOne({
-      $or: [{ orderId: order._id }, { orderReadableId: String(order.orderId) }],
+      $or: [{ orderId: order._id }, { orderReadableId: String(order._id.toString()) }],
     }),
     FoodOrder.deleteOne({ _id: order._id }),
   ]);
@@ -2671,7 +1678,7 @@ export async function deleteOrderAdmin(orderId, adminId) {
   try {
     const db = getFirebaseDB();
     if (db && order?.orderId) {
-      await db.ref(`active_orders/${order.orderId}`).remove();
+      await db.ref(`active_orders/${order._id.toString()}`).remove();
     }
   } catch (err) {
     logger.warn(`Delete order firebase cleanup failed: ${err?.message || err}`);
@@ -2683,7 +1690,7 @@ export async function deleteOrderAdmin(orderId, adminId) {
     if (io) {
       const payload = {
         orderMongoId: String(order._id),
-        orderId: String(order.orderId || ""),
+        orderId: String(order._id.toString() || ""),
         deletedBy: "ADMIN",
         adminId: adminId ? String(adminId) : null,
       };
@@ -2700,15 +1707,14 @@ export async function deleteOrderAdmin(orderId, adminId) {
 
   enqueueOrderEvent("order_deleted_by_admin", {
     orderMongoId: String(order._id),
-    orderId: String(order.orderId || ""),
+    orderId: String(order._id.toString() || ""),
     adminId: adminId ? String(adminId) : null,
   });
 
   return {
     deleted: true,
-    orderId: String(order.orderId || ""),
+    orderId: String(order._id.toString() || ""),
     orderMongoId: String(order._id),
   };
 }
-
 

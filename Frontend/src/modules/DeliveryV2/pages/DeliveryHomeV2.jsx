@@ -25,7 +25,7 @@ import ProfileV2 from '@/modules/DeliveryV2/pages/ProfileV2';
 import { 
   Bell, HelpCircle, Headset, AlertTriangle, 
   Wallet, History, User as UserIcon, LayoutGrid,
-  Plus, Minus, Navigation2, Target, Play, CheckCircle2, Clock
+  Plus, Minus, Navigation2, Target, Play, CheckCircle2, Clock, ChevronDown
 } from 'lucide-react';
 
 import { getHaversineDistance, calculateETA, calculateHeading } from '@/modules/DeliveryV2/utils/geo';
@@ -36,8 +36,8 @@ import { useNavigate } from 'react-router-dom';
 function BottomPopup({ isOpen, onClose, title, children }) {
   if (!isOpen) return null;
   return (
-    <div className="fixed inset-0 z-[600] flex items-end" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/40" />
+    <div className="fixed inset-0 z-[600] flex items-end">
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
       <motion.div
         initial={{ y: "100%" }}
         animate={{ y: 0 }}
@@ -381,8 +381,8 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
 
       // ETA update is now handled by a separate globally-synchronized effect
 
-      // Phase 11: Geo-fencing Auto-arrival (within 100m)
-      if (distanceToTarget && distanceToTarget <= 100 && !lastAutoArrivalRef.current[tripStatus]) {
+      // Phase 11: Geo-fencing Auto-arrival (within 100m) - Disabled in DEV so UI steps can be tested manually
+      if (!isSimMode && !import.meta.env.DEV && distanceToTarget && distanceToTarget <= 100 && !lastAutoArrivalRef.current[tripStatus]) {
         if (tripStatus === 'PICKING_UP') {
           lastAutoArrivalRef.current[tripStatus] = true;
           reachPickup().catch(() => { lastAutoArrivalRef.current[tripStatus] = false; });
@@ -450,7 +450,107 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
     return () => navigator.geolocation.clearWatch(watchId);
   }, [isOnline, setRiderLocation, isSimMode]);
 
+  // 3.5. Background Ping / Heartbeat
+  // If watchPosition stops firing (e.g. app in background or device stationary),
+  // this ensures we ping the backend periodically. This keeps the token fresh (via 401 interceptor)
+  // and keeps the Delivery Partner "online" in the backend.
+  useEffect(() => {
+    if (!isOnline) return;
+    
+    const pingInterval = setInterval(() => {
+      const now = Date.now();
+      // If no natural GPS update happened in the last 15 seconds, force a ping
+      if (now - lastLocationSentAt.current >= 15000 && lastCoordRef.current) {
+        lastLocationSentAt.current = now;
+        deliveryAPI.updateLocation(
+          lastCoordRef.current.lat, 
+          lastCoordRef.current.lng, 
+          true, 
+          { heading: 0, speed: 0, accuracy: null }
+        ).catch(() => {});
+      }
+    }, 10000); // Check every 10 seconds
+    
+    return () => clearInterval(pingInterval);
+  }, [isOnline]);
+
   useEffect(() => { if (newOrder) setIncomingOrder(newOrder); }, [newOrder]);
+
+  useEffect(() => {
+    if (activeOrder && incomingOrder) {
+      setIncomingOrder(null);
+    }
+  }, [activeOrder, incomingOrder]);
+
+  useEffect(() => {
+    if (!isOnline) return;
+    if (currentTab !== 'feed') return;
+    if (activeOrder) return;
+
+    let cancelled = false;
+
+    const hydrateAvailableOrder = async () => {
+      try {
+        const currentResponse = await deliveryAPI.getCurrentDelivery();
+        const currentPayload =
+          currentResponse?.data?.data?.activeOrder ||
+          currentResponse?.data?.data ||
+          null;
+
+        if (!cancelled && currentPayload && (currentPayload._id || currentPayload.orderId)) {
+          setActiveOrder(currentPayload);
+          return;
+        }
+
+        const availableResponse = await deliveryAPI.getOrders({ limit: 20, page: 1 });
+        const availablePayload =
+          availableResponse?.data?.data ||
+          availableResponse?.data ||
+          {};
+        const availableOrders = Array.isArray(availablePayload?.docs)
+          ? availablePayload.docs
+          : Array.isArray(availablePayload?.items)
+            ? availablePayload.items
+            : Array.isArray(availablePayload)
+              ? availablePayload
+              : [];
+
+        const nextIncomingOrder = availableOrders.find((order) => {
+          const dispatchStatus = String(order?.dispatch?.status || '').toLowerCase();
+          const orderStatus = String(order?.orderStatus || order?.status || '').toLowerCase();
+          return (
+            ['unassigned', 'assigned'].includes(dispatchStatus) &&
+            ['confirmed', 'preparing', 'ready_for_pickup'].includes(orderStatus)
+          );
+        });
+
+        if (!cancelled && nextIncomingOrder) {
+          setIncomingOrder((prev) => {
+            const prevId = prev?.orderId || prev?._id || prev?.orderMongoId;
+            const nextId =
+              nextIncomingOrder?.orderId ||
+              nextIncomingOrder?._id ||
+              nextIncomingOrder?.orderMongoId;
+            return prevId === nextId && prev ? prev : nextIncomingOrder;
+          });
+        }
+      } catch (error) {
+        console.warn('[DeliveryHomeV2] Available order fallback sync failed:', error?.message || error);
+      }
+    };
+
+    void hydrateAvailableOrder();
+    const poller = window.setInterval(() => {
+      if (!document.hidden) {
+        void hydrateAvailableOrder();
+      }
+    }, isSocketConnected ? 12000 : 5000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(poller);
+    };
+  }, [activeOrder, currentTab, isOnline, isSocketConnected, setActiveOrder]);
 
   useEffect(() => {
     if (orderStatusUpdate) {
@@ -692,6 +792,7 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
                     order={incomingOrder} 
                     onAccept={(o) => { acceptOrder(o); setIncomingOrder(null); clearNewOrder(); }}
                     onReject={() => { setIncomingOrder(null); clearNewOrder(); }}
+                    onMinimize={() => setIsModalMinimized(true)}
                   />
                 )}
                 {(tripStatus === 'PICKING_UP' || tripStatus === 'REACHED_PICKUP') && (
@@ -703,13 +804,19 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
                     eta={eta}
                     onReachedPickup={reachPickup} 
                     onPickedUp={(billImageUrl) => pickUpOrder(billImageUrl)} 
+                    onMinimize={() => setIsModalMinimized(true)}
                   />
                 )}
                 {(tripStatus === 'PICKED_UP' || tripStatus === 'REACHED_DROP') && (
                   <div className="absolute bottom-4 inset-x-0 z-[120] px-4">
                     {tripStatus === 'PICKED_UP' ? (
                       <div className="bg-white rounded-[3rem] p-8 shadow-[0_-20px_80px_rgba(0,0,0,0.4)] border border-gray-100 flex flex-col items-center">
-                        <div className="w-12 h-1.5 bg-gray-200 rounded-full mb-6" />
+                        {/* Handle / Minimize */}
+                        <div className="w-full flex justify-center pb-4 pt-0 -mt-2">
+                          <button onClick={() => setIsModalMinimized(true)} className="p-1 hover:bg-gray-100 active:scale-95 transition-all rounded-full flex flex-col items-center">
+                             <ChevronDown className="w-6 h-6 text-gray-400 stroke-[3]" />
+                          </button>
+                        </div>
                         <div className="flex justify-between w-full items-center mb-10 px-2 text-left">
                           <div className="flex items-center gap-4">
                             <div className="w-16 h-16 rounded-2xl overflow-hidden border border-gray-100 shadow-sm">

@@ -34,6 +34,7 @@ import { DateRangeCalendar } from "@food/components/ui/date-range-calendar"
 import { clearModuleAuth, clearAuthData, getCurrentUser } from "@food/utils/auth"
 import { restaurantAPI } from "@food/api"
 import { firebaseAuth, ensureFirebaseInitialized } from "@food/firebase"
+import BottomNavOrders from "@food/components/restaurant/BottomNavOrders"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -871,7 +872,7 @@ export default function ExploreMore() {
         duration: 0.2,
         ease: [0.25, 0.1, 0.25, 1]
       }}
-      className="min-h-screen bg-white overflow-x-hidden"
+      className="min-h-screen bg-white overflow-x-hidden pb-24"
     >
       {/* Header */}
       <motion.div
@@ -1628,6 +1629,7 @@ export default function ExploreMore() {
           </>
         )}
       </AnimatePresence>
+      <BottomNavOrders />
     </motion.div>
   )
 }

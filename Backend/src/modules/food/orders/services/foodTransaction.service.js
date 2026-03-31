@@ -94,7 +94,7 @@ export async function createInitialTransaction(order) {
 
     const transaction = new FoodTransaction({
         orderId: order._id,
-        orderReadableId: order.orderId,
+
         userId: order.userId,
         restaurantId: order.restaurantId,
         deliveryPartnerId: order.dispatch?.deliveryPartnerId,
@@ -138,7 +138,7 @@ export async function createInitialTransaction(order) {
  * Updates transaction status (captured, settled, etc) and appends to history.
  */
 export async function updateTransactionStatus(orderId, kind, details = {}) {
-    const query = mongoose.Types.ObjectId.isValid(orderId) ? { orderId } : { orderReadableId: orderId };
+    const query = { orderId };
     const transaction = await FoodTransaction.findOne(query);
     if (!transaction) return null;
 
@@ -162,7 +162,7 @@ export async function updateTransactionStatus(orderId, kind, details = {}) {
  * Updates the rider in the transaction when an order is accepted.
  */
 export async function updateTransactionRider(orderId, riderId) {
-    const query = mongoose.Types.ObjectId.isValid(orderId) ? { orderId } : { orderReadableId: orderId };
+    const query = { orderId };
     return await FoodTransaction.findOneAndUpdate(
         query,
         { $set: { deliveryPartnerId: riderId } },

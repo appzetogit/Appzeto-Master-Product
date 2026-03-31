@@ -3,7 +3,7 @@ import mongoose from 'mongoose';
 const foodTransactionSchema = new mongoose.Schema({
     // Identifiers
     orderId: { type: mongoose.Schema.Types.ObjectId, ref: 'FoodOrder', required: true, unique: true, index: true },
-    orderReadableId: { type: String, required: true, index: true }, // e.g., FOD-123456
+
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'FoodUser', required: true, index: true },
     restaurantId: { type: mongoose.Schema.Types.ObjectId, ref: 'FoodRestaurant', required: true, index: true },
     deliveryPartnerId: { type: mongoose.Schema.Types.ObjectId, ref: 'FoodDeliveryPartner', index: true },

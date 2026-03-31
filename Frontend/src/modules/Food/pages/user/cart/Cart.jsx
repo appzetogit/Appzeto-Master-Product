@@ -19,6 +19,7 @@ import { toast } from "sonner"
 import { getCompanyNameAsync } from "@food/utils/businessSettings"
 import { useCompanyName } from "@food/hooks/useCompanyName"
 import { getRestaurantAvailabilityStatus } from "@food/utils/restaurantAvailability"
+import useAppBackNavigation from "@food/hooks/useAppBackNavigation"
 import zoopSound from "@food/assets/audio/zomato_sms.mp3"
 const debugLog = (...args) => { }
 const debugWarn = (...args) => { }
@@ -78,6 +79,7 @@ const RUPEE_SYMBOL = "\u20B9"
 export default function Cart() {
   const companyName = useCompanyName()
   const navigate = useNavigate()
+  const goBack = useAppBackNavigation()
   const orderSuccessAudioRef = useRef(null)
 
   // Defensive check: Ensure CartProvider is available
@@ -944,7 +946,7 @@ export default function Cart() {
     if (restaurantData?.slug) {
       navigate(`/food/restaurants/${restaurantData.slug}`)
     } else {
-      navigate(-1)
+      goBack()
     }
   }
 
@@ -1448,7 +1450,7 @@ export default function Cart() {
       // Cash flow: order placed without online payment
       if (selectedPaymentMethod === "cash") {
         toast.success("Order placed with Cash on Delivery")
-        setPlacedOrderId(order?.orderId || order?.id || null)
+        setPlacedOrderId(order?._id || order?.orderId || order?.id || null)
         setShowOrderSuccess(true)
         window.dispatchEvent(new CustomEvent('order-placed', { detail: { order } }))
         clearCart()
@@ -1459,7 +1461,7 @@ export default function Cart() {
       // Wallet flow: order placed with wallet payment (already processed in backend)
       if (selectedPaymentMethod === "wallet") {
         toast.success("Order placed with Wallet payment")
-        setPlacedOrderId(order?.orderId || order?.id || null)
+        setPlacedOrderId(order?._id || order?.orderId || order?.id || null)
         setShowOrderSuccess(true)
         window.dispatchEvent(new CustomEvent('order-placed', { detail: { order } }))
         clearCart()
@@ -1513,14 +1515,14 @@ export default function Cart() {
         currency: razorpay.currency || 'INR',
         order_id: razorpay.orderId,
         name: companyName,
-        description: `Order ${order.orderId} - ${RUPEE_SYMBOL}${(razorpay.amount / 100).toFixed(2)}`,
+        description: `Order ${order._id || order.orderId} - ${RUPEE_SYMBOL}${(razorpay.amount / 100).toFixed(2)}`,
         prefill: {
           name: userName,
           email: userEmail,
           contact: formattedPhone
         },
         notes: {
-          orderId: order.orderId,
+          orderId: order._id || order.orderId,
           userId: userInfo.id || "",
           restaurantId: restaurantId || "unknown"
         },
@@ -1548,10 +1550,10 @@ export default function Cart() {
             if (verifyResponse.data.success) {
               // Payment successful
               debugLog("?? Order placed successfully:", {
-                orderId: order.orderId,
+                orderId: order._id || order.orderId,
                 paymentId: verifyResponse.data.data?.payment?.paymentId
               })
-              setPlacedOrderId(order.orderId)
+              setPlacedOrderId(order._id || order.orderId)
               setShowOrderSuccess(true)
               window.dispatchEvent(new CustomEvent('order-placed', { detail: { order } }))
               clearCart()
@@ -1664,7 +1666,7 @@ export default function Cart() {
           </div>
           <h2 className="text-lg font-semibold text-gray-800 dark:text-white mb-1">Your cart is empty</h2>
           <p className="text-sm text-gray-500 dark:text-gray-400 mb-4 text-center">Add items from a restaurant to start a new order</p>
-          <Link to="/restaurants">
+          <Link to="/user">
             <Button className="bg-primary-orange hover:opacity-90 text-white">Browse Restaurants</Button>
           </Link>
         </div>

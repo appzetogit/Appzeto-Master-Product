@@ -110,7 +110,8 @@ const dispatchSchema = new mongoose.Schema(
             partnerId: { type: mongoose.Schema.Types.ObjectId, ref: 'FoodDeliveryPartner' },
             at: { type: Date, default: Date.now },
             action: { type: String, enum: ['offered', 'rejected', 'timeout'], default: 'offered' }
-        }]
+        }],
+        dispatchingAt: { type: Date }
     },
     { _id: false }
 );
@@ -179,12 +180,7 @@ const deliveryVerificationSchema = new mongoose.Schema(
 
 const orderSchema = new mongoose.Schema(
     {
-        orderId: {
-            type: String,
-            required: true,
-            unique: true,
-            trim: true
-        },
+
         userId: {
             type: mongoose.Schema.Types.ObjectId,
             ref: 'FoodUser',
@@ -233,7 +229,9 @@ const orderSchema = new mongoose.Schema(
                 'confirmed',
                 'preparing',
                 'ready_for_pickup',
+                'reached_pickup',
                 'picked_up',
+                'reached_drop',
                 'delivered',
                 'cancelled_by_user',
                 'cancelled_by_restaurant',
@@ -287,6 +285,8 @@ orderSchema.index({ userId: 1, createdAt: -1 });
 orderSchema.index({ restaurantId: 1, orderStatus: 1, createdAt: -1 });
 orderSchema.index({ 'dispatch.deliveryPartnerId': 1, orderStatus: 1 });
 orderSchema.index({ 'dispatch.status': 1, orderStatus: 1 });
+orderSchema.index({ 'dispatch.status': 1, orderStatus: 1, updatedAt: -1 });
+orderSchema.index({ 'dispatch.deliveryPartnerId': 1, 'dispatch.status': 1, updatedAt: -1 });
 orderSchema.index({ 'payment.status': 1, createdAt: -1 });
 orderSchema.index({ 'payment.method': 1, createdAt: -1 });
 

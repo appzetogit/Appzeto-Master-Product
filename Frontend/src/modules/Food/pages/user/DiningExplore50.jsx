@@ -6,6 +6,7 @@ import { Input } from "@food/components/ui/input"
 import { Card, CardContent } from "@food/components/ui/card"
 import AnimatedPage from "@food/components/user/AnimatedPage"
 import { useSearchOverlay, useLocationSelector } from "@food/components/user/UserLayout"
+import useAppBackNavigation from "@food/hooks/useAppBackNavigation"
 import { useLocation as useLocationHook } from "@food/hooks/useLocation"
 import { useProfile } from "@food/context/ProfileContext"
 import { FaLocationDot } from "react-icons/fa6"
@@ -101,6 +102,7 @@ const popularRestaurants = [
 
 export default function DiningExplore50() {
   const navigate = useNavigate()
+  const goBack = useAppBackNavigation()
   const [heroSearch, setHeroSearch] = useState("")
   const [activeFilters, setActiveFilters] = useState(new Set())
   const [isFilterOpen, setIsFilterOpen] = useState(false)
@@ -211,7 +213,7 @@ export default function DiningExplore50() {
             <Button
               variant="ghost"
               size="icon"
-              onClick={() => navigate(-1)}
+              onClick={goBack}
               className="h-9 w-9 sm:h-10 sm:w-10 bg-white/90 backdrop-blur-sm rounded-full hover:bg-white transition-colors flex-shrink-0"
             >
               <ArrowLeft className="h-5 w-5 text-gray-800" strokeWidth={2.5} />

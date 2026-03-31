@@ -1,12 +1,39 @@
+import { useState, useRef } from "react"
 import { useNavigate } from "react-router-dom"
-import { ArrowLeft } from "lucide-react"
+import { ArrowLeft, Upload } from "lucide-react"
+import { ImageSourcePicker } from "@food/components/ImageSourcePicker"
+import { isFlutterBridgeAvailable } from "@food/utils/imageUploadUtils"
+import { toast } from "sonner"
 
 export default function FssaiUpdate() {
   const navigate = useNavigate()
+  const [uploadedFile, setUploadedFile] = useState(null)
+  const [isPhotoPickerOpen, setIsPhotoPickerOpen] = useState(false)
+  const fileInputRef = useRef(null)
+
+  const handleFileSelect = (file) => {
+    if (file) {
+      if (file.size > 5 * 1024 * 1024) {
+        toast.error("Image size too large. Max 5MB allowed.")
+        return
+      }
+      setUploadedFile(file)
+      toast.success("FSSAI license uploaded")
+    }
+  }
+
+  const handleFileClick = () => {
+    if (isFlutterBridgeAvailable()) {
+      setIsPhotoPickerOpen(true)
+    } else {
+      fileInputRef.current?.click()
+    }
+  }
 
   const handleSubmit = (e) => {
     e.preventDefault()
     // For now just go back
+    toast.success("FSSAI details updated")
     navigate(-1)
   }
 
@@ -24,7 +51,7 @@ export default function FssaiUpdate() {
         <h1 className="text-base font-semibold text-gray-900">Update FSSAI</h1>
       </div>
 
-      <form onSubmit={handleSubmit} className="flex-1 px-4 pt-4 pb-28 space-y-4">
+      <form onSubmit={handleSubmit} id="fssai-form" className="flex-1 px-4 pt-4 pb-28 space-y-4">
         <div>
           <label className="block text-xs font-medium text-gray-700 mb-1">
             FSSAI registration number
@@ -47,22 +74,42 @@ export default function FssaiUpdate() {
           />
         </div>
 
-        <div>
-          <label className="block text-xs font-medium text-gray-700 mb-2">
+        <div className="space-y-2">
+          <label className="block text-xs font-medium text-gray-700">
             Upload your FSSAI license
           </label>
-          <div className="w-full rounded-xl border border-dashed border-gray-300 bg-gray-50 px-4 py-8 flex flex-col items-center justify-center text-center">
-            <div className="mb-2 text-2xl">⬆️</div>
-            <p className="text-sm font-medium text-gray-900 mb-1">
-              Upload your FSSAI license
-            </p>
-            <p className="text-xs text-gray-500">
-              jpeg, png, or pdf (up to 5MB)
-            </p>
+          <div 
+            onClick={handleFileClick}
+            className="w-full rounded-xl border border-dashed border-gray-300 bg-gray-50 px-4 py-8 flex flex-col items-center justify-center text-center cursor-pointer hover:bg-gray-100 transition-colors"
+          >
+            {uploadedFile ? (
+              <div className="space-y-2">
+                <div className="text-2xl">✅</div>
+                <p className="text-sm font-medium text-gray-900">{uploadedFile.name}</p>
+                <p className="text-xs text-gray-500">Click to change</p>
+              </div>
+            ) : (
+              <>
+                <div className="mb-2 text-2xl">⬆️</div>
+                <p className="text-sm font-medium text-gray-900 mb-1">
+                  Upload your FSSAI license
+                </p>
+                <p className="text-xs text-gray-500">
+                  jpeg, png, or pdf (up to 5MB)
+                </p>
+              </>
+            )}
+            <input
+              ref={fileInputRef}
+              type="file"
+              className="hidden"
+              onChange={(e) => handleFileSelect(e.target.files?.[0])}
+              accept="image/*,application/pdf"
+            />
           </div>
           <button
             type="button"
-            className="mt-2 text-xs text-gray-700 underline underline-offset-2"
+            className="text-xs text-gray-700 underline underline-offset-2"
           >
             View upload guidelines
           </button>
@@ -73,13 +120,27 @@ export default function FssaiUpdate() {
       <div className="px-4 pb-6 pt-2 border-t border-gray-200 bg-white">
         <button
           type="submit"
-          form=""
-          className="w-full py-3 rounded-full bg-gray-200 text-gray-500 text-sm font-medium"
-          disabled
+          form="fssai-form"
+          className={`w-full py-3 rounded-full text-sm font-medium transition-colors ${
+            uploadedFile 
+              ? "bg-black text-white hover:bg-gray-900" 
+              : "bg-gray-200 text-gray-500 cursor-not-allowed"
+          }`}
+          disabled={!uploadedFile}
         >
           Confirm
         </button>
       </div>
+
+      <ImageSourcePicker
+        isOpen={isPhotoPickerOpen}
+        onClose={() => setIsPhotoPickerOpen(false)}
+        onFileSelect={handleFileSelect}
+        title="Upload FSSAI License"
+        description="Choose how to upload your FSSAI license"
+        fileNamePrefix="fssai-license"
+        galleryInputRef={fileInputRef}
+      />
     </div>
   )
 }

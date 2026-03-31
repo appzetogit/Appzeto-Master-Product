@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, Component } from "react"
+import { useState, useEffect, useRef, Component, useMemo } from "react"
 import { createPortal } from "react-dom"
 import { motion, AnimatePresence } from "framer-motion"
 import { useParams, useNavigate, useSearchParams } from "react-router-dom"
@@ -48,6 +48,7 @@ import AddToCartAnimation from "@food/components/user/AddToCartAnimation"
 import { getCompanyNameAsync } from "@food/utils/businessSettings"
 import { isModuleAuthenticated } from "@food/utils/auth"
 import { getRestaurantAvailabilityStatus } from "@food/utils/restaurantAvailability"
+import useAppBackNavigation from "@food/hooks/useAppBackNavigation"
 import fssaiLogo from "@food/assets/fssai.png"
 import { RestaurantDetailSkeleton } from "@food/components/ui/loading-skeletons"
 
@@ -63,8 +64,10 @@ const RUPEE_SYMBOL = "\u20B9"
 function RestaurantDetailsContent() {
   const { slug } = useParams()
   const navigate = useNavigate()
+  const goBack = useAppBackNavigation()
   const [searchParams] = useSearchParams()
   const showOnlyUnder250 = searchParams.get('under250') === 'true'
+  const targetDishId = useMemo(() => String(searchParams.get('dish') || '').trim(), [searchParams])
   const { addToCart, updateQuantity, removeFromCart, getCartItem, cart } = useCart()
   const { vegMode, addDishFavorite, removeDishFavorite, isDishFavorite, getDishFavorites, getFavorites, addFavorite, removeFavorite, isFavorite } = useProfile()
   const { location: userLocation } = useLocation() // Get user's current location
@@ -92,7 +95,9 @@ function RestaurantDetailsContent() {
   const [sharePayload, setSharePayload] = useState(null)
   const [expandedAddButtons, setExpandedAddButtons] = useState(new Set())
   const [expandedSections, setExpandedSections] = useState(new Set([0])) // Default: Recommended section is expanded
+  const [highlightedDishId, setHighlightedDishId] = useState(null)
   const [loadingMenuItems, setLoadingMenuItems] = useState(true)
+  const dishCardRefs = useRef({})
   const [filters, setFilters] = useState({
     sortBy: null, // "low-to-high" | "high-to-low"
     vegNonVeg: null, // "veg" | "non-veg"
@@ -490,7 +495,7 @@ function RestaurantDetailsContent() {
           try {
             const outletRestaurantId = transformedRestaurant.mongoId || actualRestaurant?._id || apiRestaurant?._id
             if (outletRestaurantId) {
-              const outletResponse = await restaurantAPI.getOutletTimingsByRestaurantId(outletRestaurantId)
+              const outletResponse = await restaurantAPI.getOutletTimingsByRestaurantId(outletRestaurantId, { noCache: true })
               const outletTimingsData = outletResponse?.data?.data?.outletTimings || outletResponse?.data?.outletTimings
               if (outletTimingsData) {
                 setRestaurant((prev) => ({ ...prev, outletTimings: outletTimingsData }))
@@ -1525,6 +1530,64 @@ function RestaurantDetailsContent() {
       .filter(({ section }) => sectionHasItemsUnder250(section));
   }
 
+  useEffect(() => {
+    if (!restaurant?.menuSections || !targetDishId) return
+
+    let matchedItem = null
+    const sectionKeysToExpand = new Set()
+
+    restaurant.menuSections.forEach((section, originalIndex) => {
+      const sectionItems = toRenderableArray(section?.items)
+      const matchedSectionItem = sectionItems.find(
+        (item) => String(item?.id || item?._id || "").trim() === targetDishId,
+      )
+
+      if (matchedSectionItem && !matchedItem) {
+        matchedItem = matchedSectionItem
+        sectionKeysToExpand.add(originalIndex)
+      }
+
+      const sectionSubsections = toRenderableArray(section?.subsections)
+      sectionSubsections.forEach((subsection, subIndex) => {
+        const subsectionItems = toRenderableArray(subsection?.items)
+        const matchedSubsectionItem = subsectionItems.find(
+          (item) => String(item?.id || item?._id || "").trim() === targetDishId,
+        )
+
+        if (matchedSubsectionItem && !matchedItem) {
+          matchedItem = matchedSubsectionItem
+          sectionKeysToExpand.add(originalIndex)
+          sectionKeysToExpand.add(`${originalIndex}-${subIndex}`)
+        }
+      })
+    })
+
+    if (!matchedItem) return
+
+    setExpandedSections((prev) => {
+      const next = new Set(prev)
+      sectionKeysToExpand.forEach((key) => next.add(key))
+      return next
+    })
+    setHighlightedDishId(targetDishId)
+
+    const scrollTimer = window.setTimeout(() => {
+      const targetNode = dishCardRefs.current[targetDishId]
+      if (targetNode) {
+        targetNode.scrollIntoView({ behavior: "smooth", block: "center" })
+      }
+    }, 250)
+
+    const highlightTimer = window.setTimeout(() => {
+      setHighlightedDishId((current) => (current === targetDishId ? null : current))
+    }, 2600)
+
+    return () => {
+      window.clearTimeout(scrollTimer)
+      window.clearTimeout(highlightTimer)
+    }
+  }, [restaurant, targetDishId])
+
   const toRenderableArray = (value) => {
     if (Array.isArray(value)) return value
     if (!value || typeof value !== "object") return []
@@ -1585,7 +1648,7 @@ function RestaurantDetailsContent() {
                   Make sure the backend server is running at {API_BASE_URL.replace('/api', '')}
                 </p>
               )}
-              <Button onClick={() => navigate(-1)} variant="outline">
+              <Button onClick={goBack} variant="outline">
                 Go Back
               </Button>
             </div>
@@ -1603,7 +1666,7 @@ function RestaurantDetailsContent() {
           <div className="flex flex-col items-center gap-4">
             <AlertCircle className="h-12 w-12 text-red-500" />
             <span className="text-sm text-gray-600">Restaurant not found</span>
-            <Button onClick={() => navigate(-1)} variant="outline">
+            <Button onClick={goBack} variant="outline">
               Go Back
             </Button>
           </div>
@@ -1630,7 +1693,7 @@ function RestaurantDetailsContent() {
             variant="outline"
             size="icon"
             className="rounded-full h-10 w-10 border-gray-200 dark:border-gray-800 shadow-sm bg-white dark:bg-[#1a1a1a]"
-            onClick={() => navigate(-1)}
+            onClick={goBack}
           >
             <ArrowLeft className="h-5 w-5 text-gray-900 dark:text-white" />
           </Button>
@@ -1937,7 +2000,14 @@ function RestaurantDetailsContent() {
                         return (
                           <div
                             key={item.id}
-                            className="flex gap-4 p-4 border-b border-gray-100 last:border-none relative cursor-pointer"
+                            ref={(node) => {
+                              if (node) {
+                                dishCardRefs.current[item.id] = node
+                              } else {
+                                delete dishCardRefs.current[item.id]
+                              }
+                            }}
+                            className={`flex gap-4 p-4 border-b border-gray-100 last:border-none relative cursor-pointer transition-all duration-300 ${highlightedDishId === item.id ? "bg-orange-50 ring-2 ring-[#EB590E] ring-inset dark:bg-orange-950/20" : ""}`}
                             onClick={() => handleItemClick(item)}
                           >
                             {/* Left Side - Details */}
@@ -2161,7 +2231,14 @@ function RestaurantDetailsContent() {
                                   return (
                                     <div
                                       key={item.id}
-                                      className="flex gap-4 p-4 border-b border-gray-100 last:border-none relative cursor-pointer"
+                                      ref={(node) => {
+                                        if (node) {
+                                          dishCardRefs.current[item.id] = node
+                                        } else {
+                                          delete dishCardRefs.current[item.id]
+                                        }
+                                      }}
+                                      className={`flex gap-4 p-4 border-b border-gray-100 last:border-none relative cursor-pointer transition-all duration-300 ${highlightedDishId === item.id ? "bg-orange-50 ring-2 ring-[#EB590E] ring-inset dark:bg-orange-950/20" : ""}`}
                                       onClick={() => handleItemClick(item)}
                                     >
                                       {/* Left Side - Details */}

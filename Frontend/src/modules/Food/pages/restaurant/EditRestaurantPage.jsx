@@ -1,52 +1,28 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useNavigate } from "react-router-dom"
-import { motion, AnimatePresence } from "framer-motion"
-import Lenis from "lenis"
-import { 
-  ArrowLeft,
-  Home,
-  ShoppingBag,
-  Store,
-  Wallet,
-  Menu,
-  Upload,
-  Image as ImageIcon
-} from "lucide-react"
-import { Card, CardContent } from "@food/components/ui/card"
+import { ArrowLeft, Upload, Image as ImageIcon } from "lucide-react"
 import { Button } from "@food/components/ui/button"
+import { Card, CardContent } from "@food/components/ui/card"
+import { getRestaurantData, updateRestaurantData } from "@food/utils/restaurantManagement"
 import BottomNavbar from "@food/components/restaurant/BottomNavbar"
 import MenuOverlay from "@food/components/restaurant/MenuOverlay"
-import { getRestaurantData, updateRestaurantData } from "@food/utils/restaurantManagement"
-const debugLog = (...args) => {}
-const debugWarn = (...args) => {}
-const debugError = (...args) => {}
+import { restaurantAPI } from "@food/api"
+import { ImageSourcePicker } from "@food/components/ImageSourcePicker"
+import { isFlutterBridgeAvailable } from "@food/utils/imageUploadUtils"
+import { toast } from "sonner"
 
+const debugError = (...args) => {}
 
 export default function EditRestaurantPage() {
   const navigate = useNavigate()
   const [activeLanguage, setActiveLanguage] = useState("english")
   const [showMenu, setShowMenu] = useState(false)
+  
+  const logoInputRef = useRef(null)
+  const coverInputRef = useRef(null)
+  const metaInputRef = useRef(null)
+  const [activePicker, setActivePicker] = useState(null) // { type: string, ref: any, title: string }
 
-  // Lenis smooth scrolling
-  useEffect(() => {
-    const lenis = new Lenis({
-      duration: 1.2,
-      easing: (t) => Math.min(1, 1.001 - Math.pow(2, -10 * t)),
-      smoothWheel: true,
-    })
-
-    function raf(time) {
-      lenis.raf(time)
-      requestAnimationFrame(raf)
-    }
-
-    requestAnimationFrame(raf)
-
-    return () => {
-      lenis.destroy()
-    }
-  }, [])
-  // Load restaurant data from localStorage
   const [formData, setFormData] = useState(() => {
     const savedData = getRestaurantData()
     return {
@@ -100,8 +76,8 @@ export default function EditRestaurantPage() {
 
   const languages = [
     { id: "english", label: "English" },
-    { id: "bengali", label: "Bengali - বাংলা" },
-    { id: "arabic", label: "Arabic - العربية" },
+    { id: "bengali", label: "Bengali" },
+    { id: "arabic", label: "Arabic" },
     { id: "spanish", label: "Spanish" }
   ]
 
@@ -124,6 +100,10 @@ export default function EditRestaurantPage() {
 
   const handleImageUpload = (field, file) => {
     if (file) {
+      if (file.size > 5 * 1024 * 1024) {
+        toast.error("Image size too large. Max 5MB allowed.")
+        return
+      }
       const reader = new FileReader()
       reader.onloadend = () => {
         setFormData(prev => ({
@@ -132,6 +112,14 @@ export default function EditRestaurantPage() {
         }))
       }
       reader.readAsDataURL(file)
+    }
+  }
+
+  const handleImageClick = (type, ref, title) => {
+    if (isFlutterBridgeAvailable()) {
+      setActivePicker({ type, ref, title })
+    } else {
+      ref.current?.click()
     }
   }
 
@@ -199,7 +187,7 @@ export default function EditRestaurantPage() {
               {/* Name Input */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Restaurant Name ({languages.find(l => l.id === activeLanguage)?.label.split(" - ")[0]})
+                  Restaurant Name ({languages.find(l => l.id === activeLanguage)?.label})
                 </label>
                 <input
                   type="text"
@@ -224,7 +212,7 @@ export default function EditRestaurantPage() {
                 </label>
                 <div className="flex items-center gap-2">
                   <div className="flex items-center gap-2 px-3 py-2 border border-gray-300 rounded-l-lg bg-gray-50">
-                    <span className="text-lg">????</span>
+                    <span className="text-lg">USA</span>
                     <span className="text-sm text-gray-700">+1</span>
                   </div>
                   <input
@@ -260,7 +248,7 @@ export default function EditRestaurantPage() {
                 Restaurant Logo<span className="text-red-500">*</span>
               </h2>
               <p className="text-xs md:text-sm text-gray-500 mb-4">
-                JPG, JPEG, PNG Less Than 1MB (Ratio 1:1)
+                JPG, JPEG, PNG Less Than 5MB (Ratio 1:1)
               </p>
               <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 md:p-8 flex flex-col items-center justify-center min-h-[150px]">
                 {formData.logo ? (
@@ -275,7 +263,7 @@ export default function EditRestaurantPage() {
                       onClick={() => setFormData(prev => ({ ...prev, logo: null }))}
                       className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1"
                     >
-                      �
+                      x
                     </button>
                   </div>
                 ) : (
@@ -283,15 +271,19 @@ export default function EditRestaurantPage() {
                     <div className="w-16 h-16 bg-gray-200 rounded-lg flex items-center justify-center mb-3">
                       <ImageIcon className="w-8 h-8 text-gray-400" />
                     </div>
-                    <label className="cursor-pointer">
+                    <div 
+                      onClick={() => handleImageClick("logo", logoInputRef, "Upload Logo")}
+                      className="cursor-pointer"
+                    >
                       <input
+                        ref={logoInputRef}
                         type="file"
                         accept="image/jpeg,image/jpg,image/png"
                         onChange={(e) => handleImageUpload("logo", e.target.files[0])}
                         className="hidden"
                       />
                       <span className="text-sm text-gray-600 underline">Upload Logo</span>
-                    </label>
+                    </div>
                   </>
                 )}
               </div>
@@ -305,7 +297,7 @@ export default function EditRestaurantPage() {
                 Restaurant Cover<span className="text-red-500">*</span>
               </h2>
               <p className="text-xs md:text-sm text-gray-500 mb-4">
-                JPG, JPEG, PNG Less Than 1MB (Ratio 2:1)
+                JPG, JPEG, PNG Less Than 5MB (Ratio 2:1)
               </p>
               <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 md:p-8 flex flex-col items-center justify-center min-h-[200px]">
                 {formData.cover ? (
@@ -320,21 +312,25 @@ export default function EditRestaurantPage() {
                       onClick={() => setFormData(prev => ({ ...prev, cover: null }))}
                       className="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1"
                     >
-                      �
+                      x
                     </button>
                   </div>
                 ) : (
                   <>
                     <Upload className="w-12 h-12 text-gray-400 mb-3" />
-                    <label className="cursor-pointer">
+                    <div 
+                      onClick={() => handleImageClick("cover", coverInputRef, "Upload Cover")}
+                      className="cursor-pointer"
+                    >
                       <input
+                        ref={coverInputRef}
                         type="file"
                         accept="image/jpeg,image/jpg,image/png"
                         onChange={(e) => handleImageUpload("cover", e.target.files[0])}
                         className="hidden"
                       />
                       <span className="text-sm text-gray-600 underline">Upload Cover</span>
-                    </label>
+                    </div>
                   </>
                 )}
               </div>
@@ -393,21 +389,25 @@ export default function EditRestaurantPage() {
                       onClick={() => setFormData(prev => ({ ...prev, metaImage: null }))}
                       className="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1"
                     >
-                      �
+                      x
                     </button>
                   </div>
                 ) : (
                   <>
                     <Upload className="w-12 h-12 text-gray-400 mb-3" />
-                    <label className="cursor-pointer">
+                    <div 
+                      onClick={() => handleImageClick("metaImage", metaInputRef, "Upload Meta Image")}
+                      className="cursor-pointer"
+                    >
                       <input
+                        ref={metaInputRef}
                         type="file"
                         accept="image/jpeg,image/jpg,image/png"
                         onChange={(e) => handleImageUpload("metaImage", e.target.files[0])}
                         className="hidden"
                       />
                       <span className="text-sm text-gray-600 underline">Upload Meta Image</span>
-                    </label>
+                    </div>
                   </>
                 )}
               </div>
@@ -431,8 +431,16 @@ export default function EditRestaurantPage() {
       
       {/* Menu Overlay */}
       <MenuOverlay showMenu={showMenu} setShowMenu={setShowMenu} />
+
+      <ImageSourcePicker
+        isOpen={!!activePicker}
+        onClose={() => setActivePicker(null)}
+        onFileSelect={(file) => handleImageUpload(activePicker?.type, file)}
+        title={activePicker?.title}
+        description={`Choose how to upload your ${activePicker?.type === 'logo' ? 'logo' : 'image'}`}
+        fileNamePrefix={`restaurant-${activePicker?.type}`}
+        galleryInputRef={activePicker?.ref}
+      />
     </div>
   )
 }
-
-

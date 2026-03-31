@@ -13,6 +13,9 @@ import { Card, CardContent } from "@food/components/ui/card"
 import { Button } from "@food/components/ui/button"
 import { Input } from "@food/components/ui/input"
 import BottomNavbar from "@food/components/restaurant/BottomNavbar"
+import { ImageSourcePicker } from "@food/components/ImageSourcePicker"
+import { isFlutterBridgeAvailable } from "@food/utils/imageUploadUtils"
+import { toast } from "sonner"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -34,6 +37,9 @@ export default function NewAdvertisementPage() {
   const [uploadedVideo, setUploadedVideo] = useState(null)
   const categoryRef = useRef(null)
   const validityRef = useRef(null)
+  const fileInputRef = useRef(null)
+  const videoInputRef = useRef(null)
+  const [isPhotoPickerOpen, setIsPhotoPickerOpen] = useState(false)
 
   // Lenis smooth scrolling
   useEffect(() => {
@@ -79,10 +85,37 @@ export default function NewAdvertisementPage() {
     "Banner Promotion"
   ]
 
+  const handleFileSelect = (file) => {
+    if (file) {
+      if (file.size > 5 * 1024 * 1024) {
+        toast.error("Image size too large. Max 5MB allowed.")
+        return
+      }
+      setUploadedFile(file)
+      // For preview
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        setFormData(prev => ({
+          ...prev,
+          fileDescription: file.name
+        }))
+      }
+      reader.readAsDataURL(file)
+    }
+  }
+
+  const handleFileClick = () => {
+    if (isFlutterBridgeAvailable()) {
+      setIsPhotoPickerOpen(true)
+    } else {
+      fileInputRef.current?.click()
+    }
+  }
+
   const handleFileUpload = (e, type) => {
     const file = e.target.files[0]
     if (type === "file") {
-      setUploadedFile(file)
+      handleFileSelect(file)
     } else if (type === "video") {
       setUploadedVideo(file)
     }
@@ -241,15 +274,8 @@ export default function NewAdvertisementPage() {
 
               {/* File Upload Area */}
               <div className="border-2 border-dashed border-gray-300 rounded-lg p-4">
-                <input
-                  type="file"
-                  id="file-upload"
-                  onChange={(e) => handleFileUpload(e, "file")}
-                  className="hidden"
-                  accept="image/*"
-                />
-                <label
-                  htmlFor="file-upload"
+                <div 
+                  onClick={handleFileClick}
                   className="block cursor-pointer"
                 >
                   {uploadedFile ? (
@@ -262,7 +288,14 @@ export default function NewAdvertisementPage() {
                       <p className="text-sm text-gray-500">Click to upload file</p>
                     </div>
                   )}
-                </label>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    className="hidden"
+                    onChange={(e) => handleFileUpload(e, "file")}
+                    accept="image/*"
+                  />
+                </div>
 
                 {/* File Description */}
                 <div className="mt-4">
@@ -381,6 +414,16 @@ export default function NewAdvertisementPage() {
 
       {/* Bottom Navigation Bar */}
       <BottomNavbar />
+
+      <ImageSourcePicker
+        isOpen={isPhotoPickerOpen}
+        onClose={() => setIsPhotoPickerOpen(false)}
+        onFileSelect={handleFileSelect}
+        title="Upload Ad Image"
+        description="Choose how to upload your advertisement image"
+        fileNamePrefix="ad-photo"
+        galleryInputRef={fileInputRef}
+      />
     </div>
   )
 }

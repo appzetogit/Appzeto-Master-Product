@@ -21,6 +21,10 @@ import { restaurantAPI } from "@food/api"
 import OptimizedImage from "@food/components/OptimizedImage"
 import { clearModuleAuth } from "@food/utils/auth"
 import { firebaseAuth, ensureFirebaseInitialized } from "@food/firebase"
+
+import { ImageSourcePicker } from "@food/components/ImageSourcePicker"
+import { isFlutterBridgeAvailable } from "@food/utils/imageUploadUtils"
+import { toast } from "sonner"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -50,6 +54,7 @@ export default function EditOwner() {
   const fileInputRef = useRef(null)
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
+  const [isPhotoPickerOpen, setIsPhotoPickerOpen] = useState(false)
 
   // Lenis smooth scrolling
   useEffect(() => {
@@ -128,9 +133,20 @@ export default function EditOwner() {
     }))
   }
 
-  const handlePhotoChange = (event) => {
-    const file = event.target.files?.[0]
+  const handlePhotoClick = () => {
+    if (isFlutterBridgeAvailable()) {
+      setIsPhotoPickerOpen(true)
+    } else {
+      fileInputRef.current?.click()
+    }
+  }
+
+  const handlePhotoSelect = (file) => {
     if (file) {
+      if (file.size > 5 * 1024 * 1024) {
+        toast.error("Image size too large. Max 5MB allowed.")
+        return
+      }
       setProfileImageFile(file)
       const reader = new FileReader()
       reader.onload = (e) => {
@@ -142,6 +158,11 @@ export default function EditOwner() {
       }
       reader.readAsDataURL(file)
     }
+  }
+
+  const handlePhotoChange = (event) => {
+    const file = event.target.files?.[0]
+    handlePhotoSelect(file)
   }
 
   const handleSave = async () => {
@@ -263,167 +284,179 @@ export default function EditOwner() {
   }
 
   return (
-    <div className="min-h-screen bg-white overflow-x-hidden">
-      {/* Header */}
-      <div className="bg-white border-b border-gray-200 px-4 py-3 sticky top-0 z-50">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => navigate(-1)}
-            className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
-            aria-label="Go back"
-          >
-            <ArrowLeft className="w-6 h-6 text-gray-900" />
-          </button>
-          <h1 className="text-lg font-bold text-gray-900">Contact details</h1>
-        </div>
-      </div>
-
-      {/* Content */}
-      <div className="px-4 py-6 space-y-6">
-        {/* Profile Photo Section */}
-        <div className="flex flex-col items-center gap-3">
-          <div className="relative">
-            <div className="w-24 h-24 bg-gray-200 rounded-full flex items-center justify-center overflow-hidden">
-              {loading ? (
-                <User className="w-12 h-12 text-gray-500" />
-              ) : formData.photo ? (
-                <OptimizedImage
-                  src={formData.photo}
-                  alt="Owner profile"
-                  className="w-full h-full object-cover"
-                />
-              ) : (
-                <User className="w-12 h-12 text-gray-500" />
-              )}
-            </div>
+    <>
+      <div className="min-h-screen bg-white overflow-x-hidden">
+        {/* Header */}
+        <div className="bg-white border-b border-gray-200 px-4 py-3 sticky top-0 z-50">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => navigate(-1)}
+              className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
+              aria-label="Go back"
+            >
+              <ArrowLeft className="w-6 h-6 text-gray-900" />
+            </button>
+            <h1 className="text-lg font-bold text-gray-900">Contact details</h1>
           </div>
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            disabled={loading || saving}
-            className="text-blue-600 text-sm font-normal hover:text-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            Edit photo
-          </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={handlePhotoChange}
-            disabled={loading || saving}
-          />
         </div>
 
-        {/* Editable Fields */}
-        <div className="space-y-4">
-          {/* Name Field */}
-          <div>
-            <label className="text-sm font-medium text-gray-700 mb-2 block">Name</label>
+        {/* Content */}
+        <div className="px-4 py-6 space-y-6">
+          {/* Profile Photo Section */}
+          <div className="flex flex-col items-center gap-3">
             <div className="relative">
-              <Input
-                type="text"
-                value={loading ? "Loading..." : formData.name}
-                onChange={(e) => handleInputChange("name", e.target.value)}
-                placeholder="Enter name"
-                className="w-full pr-10"
-                disabled={loading || saving}
-              />
-              <Edit className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-blue-600" />
+              <div className="w-24 h-24 bg-gray-200 rounded-full flex items-center justify-center overflow-hidden">
+                {loading ? (
+                  <User className="w-12 h-12 text-gray-500" />
+                ) : formData.photo ? (
+                  <OptimizedImage
+                    src={formData.photo}
+                    alt="Owner profile"
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <User className="w-12 h-12 text-gray-500" />
+                )}
+              </div>
             </div>
-          </div>
-
-          {/* Phone Number Field */}
-          <div>
-            <label className="text-sm font-medium text-gray-700 mb-2 block">Phone number</label>
-            <Input
-              type="tel"
-              value={loading ? "Loading..." : formData.phone}
-              placeholder="Enter phone number"
-              className="w-full focus-visible:border-black focus-visible:ring-0"
-              readOnly
+            <button
+              onClick={handlePhotoClick}
+              disabled={loading || saving}
+              className="text-blue-600 text-sm font-normal hover:text-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Edit photo
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handlePhotoChange}
               disabled={loading || saving}
             />
           </div>
 
-          {/* Email Field */}
-          <div>
-            <label className="text-sm font-medium text-gray-700 mb-2 block">Email</label>
-            <div className="relative">
+          {/* Editable Fields */}
+          <div className="space-y-4">
+            {/* Name Field */}
+            <div>
+              <label className="text-sm font-medium text-gray-700 mb-2 block">Name</label>
+              <div className="relative">
+                <Input
+                  type="text"
+                  value={loading ? "Loading..." : formData.name}
+                  onChange={(e) => handleInputChange("name", e.target.value)}
+                  placeholder="Enter name"
+                  className="w-full pr-10"
+                  disabled={loading || saving}
+                />
+                <Edit className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-blue-600" />
+              </div>
+            </div>
+
+            {/* Phone Number Field */}
+            <div>
+              <label className="text-sm font-medium text-gray-700 mb-2 block">Phone number</label>
               <Input
-                type="email"
-                value={loading ? "Loading..." : formData.email}
-                onChange={(e) => handleInputChange("email", e.target.value)}
-                placeholder="Enter email address"
-                className="w-full pr-10 focus-visible:border-black focus-visible:ring-0"
+                type="tel"
+                value={loading ? "Loading..." : formData.phone}
+                placeholder="Enter phone number"
+                className="w-full focus-visible:border-black focus-visible:ring-0"
+                readOnly
                 disabled={loading || saving}
               />
-              <Edit className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-blue-600" />
             </div>
+
+            {/* Email Field */}
+            <div>
+              <label className="text-sm font-medium text-gray-700 mb-2 block">Email</label>
+              <div className="relative">
+                <Input
+                  type="email"
+                  value={loading ? "Loading..." : formData.email}
+                  onChange={(e) => handleInputChange("email", e.target.value)}
+                  placeholder="Enter email address"
+                  className="w-full pr-10 focus-visible:border-black focus-visible:ring-0"
+                  disabled={loading || saving}
+                />
+                <Edit className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-blue-600" />
+              </div>
+            </div>
+          </div>
+
+          {/* Delete Account Section */}
+          <div className="pt-4">
+            <button
+              onClick={() => setShowDeleteDialog(true)}
+              className="flex items-center gap-2 text-red-600 hover:text-red-700 transition-colors"
+            >
+              <Trash2 className="w-5 h-5" />
+              <span className="text-sm font-normal">Delete your Zomato account</span>
+            </button>
           </div>
         </div>
 
-        {/* Delete Account Section */}
-        <div className="pt-4">
-          <button
-            onClick={() => setShowDeleteDialog(true)}
-            className="flex items-center gap-2 text-red-600 hover:text-red-700 transition-colors"
+        {/* Delete Account Confirmation Dialog */}
+        <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+          <DialogContent className="sm:max-w-md p-4 w-[90%]">
+            <DialogHeader className="text-center">
+              <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-red-100">
+                <span className="text-2xl leading-none text-red-600">!</span>
+              </div>
+              <DialogTitle className="text-base font-semibold text-gray-900 text-center">
+                You are about to delete your Zomato account
+              </DialogTitle>
+              <DialogHeader className="mt-2 text-sm text-gray-600">
+                All information associated with your account will be deleted, and you will lose access to your restaurant permanently.
+                This information cannot be recovered once the account is deleted. Are you sure you want to proceed?
+              </DialogHeader>
+            </DialogHeader>
+            <DialogFooter className="flex flex-col gap-2 sm:flex-col">
+              <Button
+                onClick={handleDeleteAccount}
+                disabled={isDeleting}
+                className="w-full bg-red-600 hover:bg-red-700 text-white font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isDeleting ? "Deleting..." : "Confirm"}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => setShowDeleteDialog(false)}
+                disabled={isDeleting}
+                className="w-full disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Cancel
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Save Button - Fixed at bottom */}
+        <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 px-4 py-4 z-40">
+          <Button
+            onClick={handleSave}
+            disabled={!hasChanges || loading || saving}
+            className={`w-full py-3 ${
+              hasChanges && !loading && !saving
+                ? "bg-black hover:bg-gray-900 text-white" 
+                : "bg-gray-200 text-gray-500 cursor-not-allowed"
+            } transition-colors`}
           >
-            <Trash2 className="w-5 h-5" />
-            <span className="text-sm font-normal">Delete your Zomato account</span>
-          </button>
+            {saving ? "Saving..." : "Save"}
+          </Button>
         </div>
       </div>
 
-      {/* Delete Account Confirmation Dialog */}
-      <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
-        <DialogContent className="sm:max-w-md p-4 w-[90%]">
-          <DialogHeader className="text-center">
-            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-red-100">
-              <span className="text-2xl leading-none text-red-600">!</span>
-            </div>
-            <DialogTitle className="text-base font-semibold text-gray-900 text-center">
-              You are about to delete your Zomato account
-            </DialogTitle>
-            <DialogDescription className="mt-2 text-sm text-gray-600">
-              All information associated with your account will be deleted, and you will lose access to your restaurant permanently.
-              This information cannot be recovered once the account is deleted. Are you sure you want to proceed?
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="flex flex-col gap-2 sm:flex-col">
-            <Button
-              onClick={handleDeleteAccount}
-              disabled={isDeleting}
-              className="w-full bg-red-600 hover:bg-red-700 text-white font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isDeleting ? "Deleting..." : "Confirm"}
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => setShowDeleteDialog(false)}
-              disabled={isDeleting}
-              className="w-full disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Cancel
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Save Button - Fixed at bottom */}
-      <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 px-4 py-4 z-40">
-        <Button
-          onClick={handleSave}
-          disabled={!hasChanges || loading || saving}
-          className={`w-full py-3 ${
-            hasChanges && !loading && !saving
-              ? "bg-black hover:bg-gray-900 text-white" 
-              : "bg-gray-200 text-gray-500 cursor-not-allowed"
-          } transition-colors`}
-        >
-          {saving ? "Saving..." : "Save"}
-        </Button>
-      </div>
-    </div>
+      <ImageSourcePicker
+        isOpen={isPhotoPickerOpen}
+        onClose={() => setIsPhotoPickerOpen(false)}
+        onFileSelect={handlePhotoSelect}
+        title="Update owner photo"
+        description="Choose how to upload your owner profile photo"
+        fileNamePrefix="owner-photo"
+        galleryInputRef={fileInputRef}
+      />
+    </>
   )
 }
 

@@ -809,6 +809,12 @@ export const adminAPI = {
       params: params ?? {},
       contextModule: "admin",
     }),
+  updateRestaurantAddon: (id, body) =>
+    apiClient.patch(
+      `/food/admin/addons/${String(id)}`,
+      body ?? {},
+      { contextModule: "admin" },
+    ),
   approveRestaurantAddon: (id) =>
     apiClient.patch(
       `/food/admin/addons/${String(id)}/approve`,
@@ -1183,26 +1189,9 @@ export const restaurantAPI = {
    * Prefer direct endpoint; fallback to list+filter for backward compatibility.
    */
   getOrderById: async (orderId) => {
-    try {
-      return await apiClient.get(`/food/restaurant/orders/${String(orderId)}`, {
-        contextModule: "restaurant",
-      });
-    } catch (_err) {
-      const res = await restaurantAPI.getOrders({ page: 1, limit: 100 });
-      const orders = res?.data?.data?.orders || [];
-      const match = orders.find(
-        (o) =>
-          String(o._id) === String(orderId) ||
-          String(o.orderId) === String(orderId),
-      );
-      return {
-        ...res,
-        data: {
-          ...res.data,
-          data: { order: match || null },
-        },
-      };
-    }
+    return await apiClient.get(`/food/restaurant/orders/${String(orderId)}`, {
+      contextModule: "restaurant",
+    });
   },
   /** Add-ons (restaurant) - approval handled by admin */
   getAddons: (params = {}) =>
@@ -1686,10 +1675,8 @@ export const deliveryAPI = {
     const isProbablyOrderIdentity = (value) => {
       const raw = String(value || "").trim();
       if (!raw) return false;
-      // Mongo ObjectId OR our display orderId (FOD-xxxxxx)
-      if (/^[a-f0-9]{24}$/i.test(raw)) return true;
-      if (/^FOD-[A-Z0-9]{4,}$/i.test(raw)) return true;
-      return false;
+      // Mongo ObjectId
+      return /^[a-f0-9]{24}$/i.test(raw);
     };
 
     return (orderId) => {
@@ -1951,6 +1938,9 @@ export const userAPI = {
   /** GET /food/user/referrals/stats (Bearer USER) */
   getReferralStats: () =>
     apiClient.get("/food/user/referrals/stats", { contextModule: "user" }),
+  /** GET /food/user/referrals/details (Bearer USER) */
+  getReferralDetails: () =>
+    apiClient.get("/food/user/referrals/details", { contextModule: "user" }),
   /** POST /food/user/wallet/topup/order (Bearer USER). Body: { amount } */
   createWalletTopupOrder: (amount) =>
     apiClient.post(

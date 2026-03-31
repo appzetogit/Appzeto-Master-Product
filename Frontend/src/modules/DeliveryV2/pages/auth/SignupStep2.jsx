@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from "react"
 import { useNavigate } from "react-router-dom"
-import { ArrowLeft, Upload, X, Check } from "lucide-react"
+import { ArrowLeft, Upload, X, Check, Camera, Image as ImageIcon } from "lucide-react"
 import { deliveryAPI } from "@food/api"
 import { toast } from "sonner"
+import { isFlutterBridgeAvailable, openCamera } from "@food/utils/imageUploadUtils"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -68,20 +69,9 @@ export default function SignupStep2() {
     }
     return createEmptyUploadedDocs()
   })
-  const [uploading, setUploading] = useState({
-    profilePhoto: false,
-    aadharPhoto: false,
-    panPhoto: false,
-    drivingLicensePhoto: false
-  })
+  const [activePicker, setActivePicker] = useState(null) // { docType: string, title: string, ref: any }
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [sourcePicker, setSourcePicker] = useState({
-    isOpen: false,
-    title: "",
-    onSelectFile: null,
-    fileNamePrefix: "delivery-document",
-    fallbackInputRef: null
-  })
+  const [uploading, setUploading] = useState({})
 
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: "auto" })
@@ -122,163 +112,8 @@ export default function SignupStep2() {
     return null
   }
 
-  const getExtensionFromMimeType = (mimeType) => {
-    const normalized = String(mimeType || "").toLowerCase()
-    if (normalized.includes("png")) return "png"
-    if (normalized.includes("webp")) return "webp"
-    if (normalized.includes("heic")) return "heic"
-    if (normalized.includes("heif")) return "heif"
-    return "jpg"
-  }
-
-  const convertBase64ToFile = (base64Value, mimeType = "image/jpeg", fileNamePrefix = "delivery-document") => {
-    if (!base64Value || typeof base64Value !== "string") {
-      throw new Error("Invalid base64 image data")
-    }
-
-    let pureBase64 = base64Value
-    if (base64Value.includes(",")) {
-      pureBase64 = base64Value.split(",")[1]
-    }
-
-    const byteCharacters = atob(pureBase64)
-    const byteNumbers = new Array(byteCharacters.length)
-    for (let i = 0; i < byteCharacters.length; i += 1) {
-      byteNumbers[i] = byteCharacters.charCodeAt(i)
-    }
-
-    const byteArray = new Uint8Array(byteNumbers)
-    const normalizedMimeType = mimeType || "image/jpeg"
-    const extension = getExtensionFromMimeType(normalizedMimeType)
-    const fileName = `${fileNamePrefix}-${Date.now()}.${extension}`
-    const blob = new Blob([byteArray], { type: normalizedMimeType })
-    return new File([blob], fileName, { type: normalizedMimeType })
-  }
-
-  const openBrowserCameraFallback = ({ onSelectFile }) => {
-    try {
-      const input = document.createElement("input")
-      input.type = "file"
-      input.accept = "image/*"
-      input.capture = "environment"
-      input.onchange = (event) => {
-        const file = event?.target?.files?.[0] || null
-        if (file) onSelectFile(file)
-      }
-      input.click()
-    } catch (error) {
-      debugError("Browser camera fallback failed:", error)
-    }
-  }
-
-  const openBrowserFileFallback = ({ onSelectFile }) => {
-    try {
-      const input = document.createElement("input")
-      input.type = "file"
-      input.accept = ".jpg,.jpeg,.png,.webp,.heic,.heif,image/jpeg,image/png,image/webp,image/heic,image/heif"
-      input.multiple = false
-      input.onchange = (event) => {
-        const file = event?.target?.files?.[0] || null
-        if (file) onSelectFile(file)
-      }
-      input.click()
-    } catch (error) {
-      debugError("Browser file fallback failed:", error)
-      toast.error("Could not open device files. Please try again.")
-    }
-  }
-
-  const openCameraFromFlutter = async ({ onSelectFile, fileNamePrefix }) => {
-    try {
-      const hasBridge =
-        typeof window !== "undefined" &&
-        window.flutter_inappwebview &&
-        typeof window.flutter_inappwebview.callHandler === "function"
-
-      if (!hasBridge) {
-        openBrowserCameraFallback({ onSelectFile })
-        return
-      }
-
-      const result = await window.flutter_inappwebview.callHandler("openCamera", {
-        source: "camera",
-        accept: "image/*",
-        multiple: false,
-        quality: 0.8
-      })
-
-      if (!result || !result.success) return
-
-      let selectedFile = null
-      if (result.file instanceof File || result.file instanceof Blob) {
-        selectedFile = result.file
-      } else if (result.base64) {
-        selectedFile = convertBase64ToFile(
-          result.base64,
-          result.mimeType || "image/jpeg",
-          fileNamePrefix || "delivery-document"
-        )
-      }
-
-      if (!selectedFile || !String(selectedFile.type || "").startsWith("image/")) {
-        toast.error("Failed to capture image from camera")
-        return
-      }
-
-      onSelectFile(selectedFile)
-    } catch (error) {
-      debugError("openCamera bridge failed:", error)
-      openBrowserCameraFallback({ onSelectFile })
-    }
-  }
-
-  const openImageSourcePicker = ({ title, onSelectFile, fileNamePrefix, fallbackInputRef }) => {
-    setSourcePicker({
-      isOpen: true,
-      title: title || "Select image source",
-      onSelectFile,
-      fileNamePrefix: fileNamePrefix || "delivery-document",
-      fallbackInputRef: fallbackInputRef || null
-    })
-  }
-
-  const closeImageSourcePicker = () => {
-    setSourcePicker((prev) => ({ ...prev, isOpen: false }))
-  }
-
-  const handleOpenUploadOptions = ({ title, docType, onSelectFile }) => {
-    if (isMobileDevice) {
-      openImageSourcePicker({
-        title,
-        fileNamePrefix: docType,
-        fallbackInputRef: {
-          current: fileInputRefs.current[docType]
-        },
-        onSelectFile
-      })
-      return
-    }
-
-    openBrowserFileFallback({ onSelectFile })
-  }
-
-  const handlePickFromDevice = () => {
-    try {
-      openBrowserFileFallback({ onSelectFile: sourcePicker.onSelectFile })
-      closeImageSourcePicker()
-    } catch (error) {
-      debugError("Device file picker open failed:", error)
-      toast.error("Could not open device files. Please try again.")
-    }
-  }
-
-  const handlePickFromCamera = async () => {
-    const pickerConfig = {
-      onSelectFile: sourcePicker.onSelectFile,
-      fileNamePrefix: sourcePicker.fileNamePrefix
-    }
-    closeImageSourcePicker()
-    await openCameraFromFlutter(pickerConfig)
+  const handleOpenUploadOptions = (docType) => {
+    fileInputRefs.current[docType]?.click()
   }
 
   const handleFileSelect = async (docType, file) => {
@@ -296,6 +131,17 @@ export default function SignupStep2() {
     setDocuments((prev) => ({ ...prev, [docType]: file }))
     setUploadedDocs((prev) => ({ ...prev, [docType]: { file: true } }))
     toast.success(`${docType.replace(/([A-Z])/g, " $1").trim()} selected`)
+  }
+
+  const handleTakeCameraPhoto = (docType, label) => {
+    openCamera({
+      onSelectFile: (file) => handleFileSelect(docType, file),
+      fileNamePrefix: `signup-${docType}`
+    })
+  }
+
+  const handlePickFromGallery = (docType) => {
+    fileInputRefs.current[docType]?.click()
   }
 
   const handleRemove = (docType) => {
@@ -464,19 +310,22 @@ export default function SignupStep2() {
             </div>
 
             {!isUploading && (
-              <div className="w-full flex items-center gap-2 pb-4">
+              <div className="w-full grid grid-cols-2 gap-2 pb-4">
                 <button
                   type="button"
-                  onClick={() =>
-                    handleOpenUploadOptions({
-                      title: label,
-                      docType,
-                      onSelectFile: (selectedFile) => handleFileSelect(docType, selectedFile)
-                    })
-                  }
-                  className="w-full text-center px-3 py-2 rounded-md bg-[#00B761] text-white text-sm font-medium cursor-pointer hover:bg-[#00A055] transition-colors"
+                  onClick={() => handleTakeCameraPhoto(docType, label)}
+                  className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-gray-900 text-white text-xs font-bold cursor-pointer hover:bg-black transition-all active:scale-95"
                 >
-                  Upload
+                  <Camera className="w-4 h-4" />
+                  <span>Take Photo</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handlePickFromGallery(docType)}
+                  className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-[#00B761] text-white text-xs font-bold cursor-pointer hover:bg-[#00A055] transition-all active:scale-95"
+                >
+                  <ImageIcon className="w-4 h-4" />
+                  <span>Gallery</span>
                 </button>
               </div>
             )}
@@ -546,36 +395,6 @@ export default function SignupStep2() {
         </form>
       </div>
 
-      {sourcePicker.isOpen && (
-        <div className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center p-4">
-          <div className="w-full max-w-sm bg-white rounded-lg p-4 space-y-3">
-            <h3 className="text-sm font-semibold text-black">{sourcePicker.title || "Select image source"}</h3>
-            {isMobileDevice && (
-              <button
-                type="button"
-                className="w-full py-2.5 rounded-md bg-[#00B761] text-white text-sm font-medium hover:bg-[#00A055] transition-colors"
-                onClick={handlePickFromCamera}
-              >
-                Use Camera
-              </button>
-            )}
-            <button
-              type="button"
-              className="w-full py-2.5 rounded-md border border-gray-300 text-gray-800 text-sm font-medium hover:bg-gray-50 transition-colors"
-              onClick={handlePickFromDevice}
-            >
-              Upload from Device
-            </button>
-            <button
-              type="button"
-              className="w-full py-2.5 rounded-md text-gray-600 text-sm font-medium hover:bg-gray-50 transition-colors"
-              onClick={closeImageSourcePicker}
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

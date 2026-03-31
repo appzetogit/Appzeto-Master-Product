@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom"
+﻿import { Link } from "react-router-dom"
 import { useState } from "react"
 
 import { Heart, Star, Clock, MapPin, ArrowRight, ArrowLeft, Bookmark } from "lucide-react"
@@ -79,7 +79,7 @@ export default function Favorites() {
               <div>
                 <h1 className="text-lg sm:text-xl md:text-2xl font-bold">My Favorites</h1>
                 <p className="text-gray-700 dark:text-gray-300 mt-1 text-sm font-semibold">
-                  {dishFavorites.length || 0} {dishFavorites.length === 1 ? "dish" : "dishes"} � {restaurantFavorites.length || 0} {restaurantFavorites.length === 1 ? "restaurant" : "restaurants"}
+                  {dishFavorites.length || 0} {dishFavorites.length === 1 ? "dish" : "dishes"} • {restaurantFavorites.length || 0} {restaurantFavorites.length === 1 ? "restaurant" : "restaurants"}
                 </p>
               </div>
             </div>
@@ -87,13 +87,13 @@ export default function Favorites() {
         </ScrollReveal>
 
         {/* Tabs */}
-        <div className="flex gap-2 mb-6 border-b">
+        <div className="flex gap-2 mb-6 border-b border-gray-200 dark:border-gray-800">
           <button
             onClick={() => setActiveTab("restaurants")}
             className={`px-4 py-2 font-medium transition-colors ${
               activeTab === "restaurants"
                 ? "border-b-2 border-primary-orange text-primary-orange"
-                : "text-gray-500 hover:text-gray-700"
+                : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
             }`}
           >
             Restaurants ({restaurantFavorites.length})
@@ -103,7 +103,7 @@ export default function Favorites() {
             className={`px-4 py-2 font-medium transition-colors ${
               activeTab === "dishes"
                 ? "border-b-2 border-primary-orange text-primary-orange"
-                : "text-gray-500 hover:text-gray-700"
+                : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
             }`}
           >
             Dishes ({dishFavorites.length})
@@ -206,7 +206,7 @@ export default function Favorites() {
                 const restaurantSlug = dish.restaurantSlug || ""
                 return (
                   <ScrollReveal key={`${dish.id}-${dish.restaurantId}`} delay={index * 0.1}>
-                    <Link to={`/user/restaurants/${restaurantSlug}?dish=${dish.id}`}>
+                    <Link to={`/food/user/restaurants/${restaurantSlug}?dish=${dish.id}`}>
                       <Card className="overflow-hidden h-full cursor-pointer hover:shadow-lg transition-shadow">
                         <div className="h-32 w-full relative overflow-hidden">
                           <img
@@ -253,7 +253,7 @@ export default function Favorites() {
                               <span className="text-muted-foreground font-medium text-xs">{dish.foodType || "N/A"}</span>
                             </div>
                             <div className="text-sm font-bold text-primary-orange">
-                              ₹{Math.round(dish.price || 0)}
+                              {"\u20B9"}{Math.round(dish.price || 0)}
                             </div>
                           </div>
                           <Button className="w-full bg-gradient-to-r bg-primary-orange hover:opacity-90 text-white text-xs py-1.5 h-8">
@@ -273,3 +273,4 @@ export default function Favorites() {
     </AnimatedPage>
   )
 }
+

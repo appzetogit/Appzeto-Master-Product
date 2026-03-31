@@ -11,6 +11,7 @@ import { toast } from "sonner"
 import { locationAPI, userAPI } from "@food/api"
 import { Loader } from '@googlemaps/js-api-loader'
 import AnimatedPage from "@food/components/user/AnimatedPage"
+import useAppBackNavigation from "@food/hooks/useAppBackNavigation"
 
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
@@ -46,6 +47,7 @@ const getAddressIcon = (address) => {
 
 export default function AddressSelectorPage() {
   const navigate = useNavigate()
+  const goBack = useAppBackNavigation()
   const { location, loading, requestLocation } = useGeoLocation()
   const { addresses = [], addAddress, updateAddress, setDefaultAddress, userProfile } = useProfile()
   const [showAddressForm, setShowAddressForm] = useState(false)
@@ -75,18 +77,15 @@ export default function AddressSelectorPage() {
   const [formScrollTop, setFormScrollTop] = useState(0)
   const [keyboardInset, setKeyboardInset] = useState(0)
   const [baseMapHeight, setBaseMapHeight] = useState(320)
-  const [mapCollapseProgress, setMapCollapseProgress] = useState(0)
   const formBodyRef = useRef(null)
   const manualFieldRefs = useRef({})
-  const mapTouchStartYRef = useRef(null)
-  const pageTouchStartYRef = useRef(null)
   
   const ENABLE_LOCATION_REVERSE_GEOCODE = import.meta.env.VITE_ENABLE_LOCATION_REVERSE_GEOCODE !== "false"
   const ENABLE_NOMINATIM_SEARCH = import.meta.env.VITE_ENABLE_NOMINATIM_SEARCH !== "false"
   const getAddressId = (address) => address?.id || address?._id || null
 
   const handleBack = () => {
-    navigate(-1)
+    goBack()
   }
 
   const addressAutocompleteSuggestions = useMemo(() => {
@@ -215,10 +214,18 @@ export default function AddressSelectorPage() {
       toast.loading("Getting location...", { id: "geo" })
       const loc = await requestLocation(true, true)
       if (loc?.latitude) {
-        setMapPosition([loc.latitude, loc.longitude])
+        const newPos = [loc.latitude, loc.longitude]
+        setMapPosition(newPos)
+        
+        // Explicitly pan the map to center the user location
+        if (googleMapRef.current) {
+          googleMapRef.current.panTo({ lat: loc.latitude, lng: loc.longitude })
+          googleMapRef.current.setZoom(17)
+        }
+        
         try { localStorage.setItem("deliveryAddressMode", "current") } catch {}
         toast.success("Location updated", { id: "geo" })
-        handleBack()
+        // Removed handleBack() to prevent unwanted redirection
       }
     } catch (e) {
       toast.error("Failed to get location", { id: "geo" })
@@ -246,7 +253,6 @@ export default function AddressSelectorPage() {
   const scrollFieldIntoView = useCallback((fieldName) => {
     const el = manualFieldRefs.current?.[fieldName]
     if (!el) return
-    setMapCollapseProgress(1)
     setTimeout(() => {
       try {
         const scrollHost = formBodyRef.current
@@ -289,16 +295,39 @@ export default function AddressSelectorPage() {
   const handleMapMoveEnd = async (lat, lng) => {
     if (!ENABLE_LOCATION_REVERSE_GEOCODE) return
     try {
-      const res = await locationAPI.reverseGeocode(lat, lng)
-      if (res?.formattedAddress) {
-        setCurrentAddress(res.formattedAddress)
+      // Use Nominatim for free reverse geocoding on the client side
+      const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}`
+      const response = await fetch(url, { 
+        headers: { 
+          "Accept-Language": "en",
+          "User-Agent": "AppZeto-Food-App" 
+        } 
+      })
+      const json = await response.json()
+      
+      if (json && json.address) {
+        const addr = json.address
+        const formatted = json.display_name
+        
+        // Extract meaningful street/area info
+        const street = [
+          addr.road,
+          addr.suburb,
+          addr.neighbourhood,
+          addr.house_number
+        ].filter(Boolean).slice(0, 2).join(", ") || addr.amenity || addr.industrial || ""
+
+        const city = addr.city || addr.town || addr.village || addr.municipality || addr.county || ""
+        const state = addr.state || ""
+        const postcode = addr.postcode || ""
+
+        setCurrentAddress(formatted)
         setAddressFormData(prev => ({
           ...prev,
-          street: res.formattedAddress || prev.street,
-          city: res.city || prev.city,
-          state: res.state || prev.state,
-          zipCode: res.postalCode || prev.zipCode,
-          additionalDetails: prev.additionalDetails // Don't overwrite what user typed
+          street: street || formatted.split(",")[0] || prev.street,
+          city: city || prev.city,
+          state: state || prev.state,
+          zipCode: postcode || prev.zipCode,
         }))
       }
     } catch (e) {
@@ -350,7 +379,6 @@ export default function AddressSelectorPage() {
 
   useEffect(() => {
     if (!showAddressForm) return
-    setMapCollapseProgress(0)
     setFormScrollTop(0)
   }, [showAddressForm])
 
@@ -370,41 +398,11 @@ export default function AddressSelectorPage() {
     }
   }, [showAddressForm])
 
-  useEffect(() => {
-    if (!showAddressForm) return
-    if (keyboardInset > 0) {
-      setMapCollapseProgress(1)
-    }
-  }, [keyboardInset, showAddressForm])
-
   if (showAddressForm) {
-    const minMapHeight = 120
-    const scrollDrivenProgress = clamp(formScrollTop / 170, 0, 1)
-    const effectiveProgress = Math.max(mapCollapseProgress, scrollDrivenProgress)
-    const mapHeight = Math.round(baseMapHeight - (baseMapHeight - minMapHeight) * effectiveProgress)
-    const applyGlobalDelta = (deltaY) => {
-      if (!Number.isFinite(deltaY) || deltaY === 0) return
-      setMapCollapseProgress((prev) => clamp(prev + (deltaY > 0 ? 0.08 : -0.08), 0, 1))
-      if (formBodyRef.current) {
-        formBodyRef.current.scrollTop = Math.max(0, formBodyRef.current.scrollTop + deltaY)
-      }
-    }
+    const mapHeight = baseMapHeight 
     return (
       <AnimatedPage
         className="fixed inset-0 z-50 bg-white dark:bg-[#0a0a0a] flex flex-col h-screen overflow-hidden"
-        onWheelCapture={(e) => applyGlobalDelta(e.deltaY)}
-        onTouchStartCapture={(e) => {
-          pageTouchStartYRef.current = e.touches?.[0]?.clientY ?? null
-        }}
-        onTouchMoveCapture={(e) => {
-          const curr = e.touches?.[0]?.clientY
-          const start = pageTouchStartYRef.current
-          if (!Number.isFinite(curr) || !Number.isFinite(start)) return
-          const delta = start - curr
-          if (Math.abs(delta) < 3) return
-          applyGlobalDelta(delta)
-          pageTouchStartYRef.current = curr
-        }}
       >
         <div className="flex-shrink-0 bg-white dark:bg-[#1a1a1a] border-b border-gray-100 dark:border-gray-800 px-4 py-3 flex items-center gap-4">
           <Button variant="ghost" size="icon" onClick={handleCancelAddressForm} className="rounded-full">
@@ -414,219 +412,194 @@ export default function AddressSelectorPage() {
         </div>
 
         <div
-          className="flex-shrink-0 relative transition-[height] duration-200"
-          style={{ height: `${mapHeight}px` }}
-          onWheel={(e) => {
-            const delta = e.deltaY
-            if (!Number.isFinite(delta) || delta === 0) return
-            setMapCollapseProgress((prev) => clamp(prev + (delta > 0 ? 0.08 : -0.08), 0, 1))
-          }}
-          onTouchStart={(e) => {
-            mapTouchStartYRef.current = e.touches?.[0]?.clientY ?? null
-          }}
-          onTouchMove={(e) => {
-            const currentY = e.touches?.[0]?.clientY
-            const startY = mapTouchStartYRef.current
-            if (!Number.isFinite(currentY) || !Number.isFinite(startY)) return
-            const deltaY = startY - currentY
-            if (Math.abs(deltaY) < 4) return
-            setMapCollapseProgress((prev) => clamp(prev + (deltaY > 0 ? 0.06 : -0.06), 0, 1))
-            mapTouchStartYRef.current = currentY
-          }}
-          onTouchEnd={() => {
-            mapTouchStartYRef.current = null
-          }}
-        >
-          {/* Autocomplete Search Box Over Map */}
-          <div className="absolute top-4 left-4 right-4 z-20">
-            <div className="relative group shadow-2xl">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <Search className="h-5 w-5 text-gray-400" />
-              </div>
-              <Input
-                value={addressAutocompleteValue}
-                onChange={(e) => setAddressAutocompleteValue(e.target.value)}
-                placeholder="Search area, street, landmark..."
-                className="pl-10 h-12 bg-white/95 dark:bg-[#1a1a1a]/95 backdrop-blur-md border-none rounded-xl shadow-lg focus:ring-2 focus:ring-[#EB590E] transition-all"
-              />
-              {isKeywordSearching && (
-                <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                   <div className="animate-spin rounded-full h-4 w-4 border-2 border-[#EB590E] border-t-transparent" />
-                </div>
-              )}
-
-              {/* Suggestions Dropdown */}
-              {keywordAddressSuggestions.length > 0 && (
-                <div className="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-[#1a1a1a] rounded-xl shadow-2xl border border-gray-100 dark:border-gray-800 overflow-hidden z-30 animate-in fade-in slide-in-from-top-2 duration-200">
-                  <p className="px-4 py-2 text-[10px] font-bold uppercase tracking-wider text-gray-400 bg-gray-50 dark:bg-gray-800/50">Suggestions</p>
-                  {keywordAddressSuggestions.map((s) => (
-                    <button
-                      key={s.id}
-                      onClick={() => {
-                        const { lat, lng, display, address: a } = s
-                        setMapPosition([lat, lng])
-                        if (googleMapRef.current) {
-                          googleMapRef.current.panTo({ lat, lng })
-                          googleMapRef.current.setZoom(17)
-                        }
-                        setAddressAutocompleteValue(display)
-                        
-                        // Pre-fill form fields from suggestion's address details
-                        const city = a.city || a.town || a.village || a.county || ""
-                        const state = a.state || ""
-                        const zipCode = a.postcode || ""
-
-                        setAddressFormData((prev) => ({
-                          ...prev,
-                          street: display || prev.street,
-                          city: city || prev.city,
-                          state: state || prev.state,
-                          zipCode: zipCode || prev.zipCode,
-                        }))
-
-                        setKeywordAddressSuggestions([])
-                      }}
-                      className="w-full px-4 py-3 flex items-start gap-3 hover:bg-orange-50 dark:hover:bg-orange-900/10 transition-colors text-left border-b border-gray-50 dark:border-gray-800 last:border-none"
-                    >
-                      <MapPin className="h-4 w-4 text-gray-400 mt-1 flex-shrink-0" />
-                      <div className="min-w-0">
-                        <p className="text-sm font-semibold text-gray-900 dark:text-white truncate">{s.display}</p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{s.address?.city || s.address?.state}</p>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div ref={mapContainerRef} className="w-full h-full bg-gray-100 dark:bg-gray-800" />
-          
-          {/* FIXED CENTER PIN (Zomato Style) */}
-          <div className="absolute inset-0 pointer-events-none flex items-center justify-center pointer-events-none">
-             <div className="relative mb-8 flex flex-col items-center">
-                {/* Visual Pin Overlay */}
-                <div className="w-10 h-10 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center p-2 mb-[-6px] shadow-sm animate-bounce-short">
-                   <div className="w-6 h-6 rounded-full bg-green-600 flex items-center justify-center border-2 border-white">
-                      <div className="w-2 h-2 rounded-full bg-white animate-pulse" />
-                   </div>
-                </div>
-                {/* Pin Stem/Point */}
-                <div className="w-1.5 h-6 bg-green-600 border-x border-white shadow-xl rounded-b-full shadow-green-900/40" />
-                {/* Shadow underneath */}
-                <div className="w-3 h-1.5 bg-black/20 rounded-full blur-[1px] transform scale-x-150 absolute bottom-[-4px]" />
-             </div>
-          </div>
-
-          {mapLoading && (
-            <div className="absolute inset-0 flex items-center justify-center bg-white/50 backdrop-blur-sm z-10">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#EB590E]" />
-            </div>
-          )}
-          
-          <div className="absolute bottom-4 right-4 z-10">
-            <Button 
-                onClick={handleUseCurrentLocation} 
-                className="bg-white text-black hover:bg-gray-100 shadow-xl border border-gray-200 rounded-full h-12 px-6"
-            >
-              <Navigation className="h-4 w-4 mr-2 text-[#EB590E]" /> Use My Location
-            </Button>
-          </div>
-        </div>
-
-        <div
           ref={formBodyRef}
           onScroll={(e) => {
-            const top = e.currentTarget.scrollTop
-            setFormScrollTop(top)
-            setMapCollapseProgress(clamp(top / 170, 0, 1))
+            setFormScrollTop(e.currentTarget.scrollTop)
           }}
-          className="flex-1 overflow-y-auto p-4 space-y-6"
+          className="flex-1 overflow-y-auto"
           style={{ paddingBottom: `${96 + keyboardInset}px` }}
         >
-          <div className="bg-orange-50/50 dark:bg-orange-900/10 border border-orange-100 dark:border-orange-900/20 rounded-xl p-4 flex gap-3">
-             <MapPin className="h-5 w-5 text-[#EB590E] mt-0.5" />
-             <div className="min-w-0">
-                <p className="text-xs font-bold text-orange-800 dark:text-orange-200 uppercase mb-1">Pinnned Location</p>
-                <p className="text-sm text-gray-700 dark:text-gray-300 line-clamp-2">{currentAddress || "Select a location on map"}</p>
-             </div>
+          {/* Map Section - Parallax enabled */}
+          <div
+            className="flex-shrink-0 relative z-0"
+            style={{ 
+              height: `${mapHeight}px`,
+              transform: `translateY(${formScrollTop * 0.4}px)`,
+              opacity: clamp(1 - (formScrollTop / 500), 0.4, 1)
+            }}
+          >
+            <div className="absolute top-4 left-4 right-4 z-20">
+              <div className="relative group shadow-2xl">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <Search className="h-5 w-5 text-gray-400" />
+                </div>
+                <Input
+                  value={addressAutocompleteValue}
+                  onChange={(e) => setAddressAutocompleteValue(e.target.value)}
+                  placeholder="Search area, street, landmark..."
+                  className="pl-10 h-12 bg-white/95 dark:bg-[#1a1a1a]/95 backdrop-blur-md border-none rounded-xl shadow-lg focus:ring-2 focus:ring-[#EB590E] transition-all"
+                />
+                {isKeywordSearching && (
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                     <div className="animate-spin rounded-full h-4 w-4 border-2 border-[#EB590E] border-t-transparent" />
+                  </div>
+                )}
+
+                {keywordAddressSuggestions.length > 0 && (
+                  <div className="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-[#1a1a1a] rounded-xl shadow-2xl border border-gray-100 dark:border-gray-800 overflow-hidden z-30 animate-in fade-in slide-in-from-top-2 duration-200">
+                    <p className="px-4 py-2 text-[10px] font-bold uppercase tracking-wider text-gray-400 bg-gray-50 dark:bg-gray-800/50">Suggestions</p>
+                    {keywordAddressSuggestions.map((s) => (
+                      <button
+                        key={s.id}
+                        onClick={() => {
+                          const { lat, lng, display, address: a } = s
+                          setMapPosition([lat, lng])
+                          if (googleMapRef.current) {
+                            googleMapRef.current.panTo({ lat, lng })
+                            googleMapRef.current.setZoom(17)
+                          }
+                          setAddressAutocompleteValue(display)
+                          const city = a.city || a.town || a.village || a.county || ""
+                          const state = a.state || ""
+                          const zipCode = a.postcode || ""
+                          setAddressFormData((prev) => ({
+                            ...prev,
+                            street: display || prev.street,
+                            city: city || prev.city,
+                            state: state || prev.state,
+                            zipCode: zipCode || prev.zipCode,
+                          }))
+                          setKeywordAddressSuggestions([])
+                        }}
+                        className="w-full px-4 py-3 flex items-start gap-3 hover:bg-orange-50 dark:hover:bg-orange-900/10 transition-colors text-left border-b border-gray-50 dark:border-gray-800 last:border-none"
+                      >
+                        <MapPin className="h-4 w-4 text-gray-400 mt-1 flex-shrink-0" />
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-gray-900 dark:text-white truncate">{s.display}</p>
+                          <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{s.address?.city || s.address?.state}</p>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div ref={mapContainerRef} className="w-full h-full bg-gray-100 dark:bg-gray-800" />
+            
+            <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
+               <div className="relative mb-8 flex flex-col items-center">
+                  <div className="w-10 h-10 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center p-2 mb-[-6px] shadow-sm animate-bounce-short">
+                     <div className="w-6 h-6 rounded-full bg-green-600 flex items-center justify-center border-2 border-white">
+                        <div className="w-2 h-2 rounded-full bg-white animate-pulse" />
+                     </div>
+                  </div>
+                  <div className="w-1.5 h-6 bg-green-600 border-x border-white shadow-xl rounded-b-full shadow-green-900/40" />
+                  <div className="w-3 h-1.5 bg-black/20 rounded-full blur-[1px] transform scale-x-150 absolute bottom-[-4px]" />
+               </div>
+            </div>
+
+            {mapLoading && (
+              <div className="absolute inset-0 flex items-center justify-center bg-white/50 backdrop-blur-sm z-10">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#EB590E]" />
+              </div>
+            )}
+            
+            <div className="absolute bottom-10 right-4 z-10">
+              <Button 
+                  onClick={handleUseCurrentLocation} 
+                  className="bg-white text-black hover:bg-gray-100 shadow-xl border border-gray-200 rounded-full h-12 px-6"
+              >
+                <Navigation className="h-4 w-4 mr-2 text-[#EB590E]" /> Use My Location
+              </Button>
+            </div>
           </div>
 
-          <div>
-            <Label className="text-sm font-bold mb-2 block">Primary Address (Street / Area / Landmark)</Label>
-            <Input 
-              placeholder="Search or drag to update street/area" 
-              value={addressFormData.street} 
-              onChange={e => setAddressFormData({...addressFormData, street: e.target.value})}
-              onFocus={() => scrollFieldIntoView("street")}
-              ref={(el) => { manualFieldRefs.current.street = el }}
-              className="mb-4 h-12 rounded-xl bg-gray-50 dark:bg-gray-800/50"
-              required
-            />
+          <div className="relative bg-white dark:bg-[#0a0a0a] rounded-t-[32px] -mt-8 z-10 p-4 space-y-6 shadow-[0_-12px_24px_-10px_rgba(0,0,0,0.1)]">
+            <div className="bg-orange-50/50 dark:bg-orange-900/10 border border-orange-100 dark:border-orange-900/20 rounded-xl p-4 flex gap-3">
+               <MapPin className="h-5 w-5 text-[#EB590E] mt-0.5" />
+               <div className="min-w-0">
+                  <p className="text-xs font-bold text-orange-800 dark:text-orange-200 uppercase mb-1">Pinnned Location</p>
+                  <p className="text-sm text-gray-700 dark:text-gray-300 line-clamp-2">{currentAddress || "Select a location on map"}</p>
+               </div>
+            </div>
 
-            <Label className="text-sm font-bold mb-2 block text-orange-600 dark:text-orange-400">Secondary Address (House No. / Flat / Floor)</Label>
-            <Input 
-              placeholder="E.g. Flat 402, 4th Floor, AppZeto Building" 
-              value={addressFormData.additionalDetails} 
-              onChange={e => setAddressFormData({...addressFormData, additionalDetails: e.target.value})}
-              onFocus={() => scrollFieldIntoView("additionalDetails")}
-              ref={(el) => { manualFieldRefs.current.additionalDetails = el }}
-              className="h-12 rounded-xl border-orange-200 dark:border-orange-900/40 focus:ring-orange-500"
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
             <div>
-              <Label className="text-xs mb-1 block">City</Label>
+              <Label className="text-sm font-bold mb-2 block">Primary Address (Street / Area / Landmark)</Label>
               <Input 
-                value={addressFormData.city} 
-                onChange={e => setAddressFormData({...addressFormData, city: e.target.value})} 
-                onFocus={() => scrollFieldIntoView("city")}
-                ref={(el) => { manualFieldRefs.current.city = el }}
-                className="h-12 rounded-xl"
-                required 
+                placeholder="Search or drag to update street/area" 
+                value={addressFormData.street} 
+                onChange={e => setAddressFormData({...addressFormData, street: e.target.value})}
+                onFocus={() => scrollFieldIntoView("street")}
+                ref={(el) => { manualFieldRefs.current.street = el }}
+                className="mb-4 h-12 rounded-xl bg-gray-50 dark:bg-gray-800/50"
+                required
+              />
+
+              <Label className="text-sm font-bold mb-2 block text-orange-600 dark:text-orange-400">Secondary Address (House No. / Flat / Floor)</Label>
+              <Input 
+                placeholder="E.g. Flat 402, 4th Floor, AppZeto Building" 
+                value={addressFormData.additionalDetails} 
+                onChange={e => setAddressFormData({...addressFormData, additionalDetails: e.target.value})}
+                onFocus={() => scrollFieldIntoView("additionalDetails")}
+                ref={(el) => { manualFieldRefs.current.additionalDetails = el }}
+                className="h-12 rounded-xl border-orange-200 dark:border-orange-900/40 focus:ring-orange-500"
               />
             </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label className="text-xs mb-1 block">City</Label>
+                <Input 
+                  value={addressFormData.city} 
+                  onChange={e => setAddressFormData({...addressFormData, city: e.target.value})} 
+                  onFocus={() => scrollFieldIntoView("city")}
+                  ref={(el) => { manualFieldRefs.current.city = el }}
+                  className="h-12 rounded-xl"
+                  required 
+                />
+              </div>
+              <div>
+                <Label className="text-xs mb-1 block">State</Label>
+                <Input 
+                  value={addressFormData.state} 
+                  onChange={e => setAddressFormData({...addressFormData, state: e.target.value})} 
+                  onFocus={() => scrollFieldIntoView("state")}
+                  ref={(el) => { manualFieldRefs.current.state = el }}
+                  className="h-12 rounded-xl"
+                  required 
+                />
+              </div>
+            </div>
+
             <div>
-              <Label className="text-xs mb-1 block">State</Label>
+              <Label className="text-xs mb-1 block">Pincode / ZIP</Label>
               <Input 
-                value={addressFormData.state} 
-                onChange={e => setAddressFormData({...addressFormData, state: e.target.value})} 
-                onFocus={() => scrollFieldIntoView("state")}
-                ref={(el) => { manualFieldRefs.current.state = el }}
+                placeholder="Pincode" 
+                value={addressFormData.zipCode || ""} 
+                onChange={e => setAddressFormData({...addressFormData, zipCode: e.target.value})} 
+                onFocus={() => scrollFieldIntoView("zipCode")}
+                ref={(el) => { manualFieldRefs.current.zipCode = el }}
                 className="h-12 rounded-xl"
-                required 
               />
             </div>
-          </div>
 
-          <div>
-            <Label className="text-xs mb-1 block">Pincode / ZIP</Label>
-            <Input 
-              placeholder="Pincode" 
-              value={addressFormData.zipCode || ""} 
-              onChange={e => setAddressFormData({...addressFormData, zipCode: e.target.value})} 
-              onFocus={() => scrollFieldIntoView("zipCode")}
-              ref={(el) => { manualFieldRefs.current.zipCode = el }}
-              className="h-12 rounded-xl"
-            />
-          </div>
-
-          <div>
-             <Label className="text-sm font-bold mb-2 block">Save address as</Label>
-             <div className="flex gap-2">
-               {["Home", "Work", "Other"].map(l => (
-                 <Button 
-                   key={l}
-                   variant={addressFormData.label === l ? "default" : "outline"}
-                   onClick={() => setAddressFormData({...addressFormData, label: l})}
-                   className="flex-1"
-                   style={addressFormData.label === l ? {backgroundColor: '#EB590E', color: 'white'} : {}}
-                 >
-                   {l}
-                 </Button>
-               ))}
-             </div>
+            <div>
+               <Label className="text-sm font-bold mb-2 block">Save address as</Label>
+               <div className="flex gap-2">
+                 {["Home", "Work", "Other"].map(l => (
+                   <Button 
+                     key={l}
+                     variant={addressFormData.label === l ? "default" : "outline"}
+                     onClick={() => setAddressFormData({...addressFormData, label: l})}
+                     className="flex-1"
+                     style={addressFormData.label === l ? {backgroundColor: '#EB590E', color: 'white'} : {}}
+                   >
+                     {l}
+                   </Button>
+                 ))}
+               </div>
+            </div>
           </div>
         </div>
 

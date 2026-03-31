@@ -351,7 +351,8 @@ const transformOrderForTracking = (apiOrder, previousOrder = null, explicitResta
       name: apiOrder.deliveryPartnerId.name || 'Delivery Partner',
       avatar: null
     } : (previousOrder?.deliveryPartner || null),
-    deliveryPartnerId: apiOrder?.deliveryPartnerId?._id || apiOrder?.deliveryPartnerId || apiOrder?.assignmentInfo?.deliveryPartnerId || previousOrder?.deliveryPartnerId || null,
+    deliveryPartnerId: apiOrder?.deliveryPartnerId?._id || apiOrder?.deliveryPartnerId || apiOrder?.dispatch?.deliveryPartnerId?._id || apiOrder?.dispatch?.deliveryPartnerId || apiOrder?.assignmentInfo?.deliveryPartnerId || null,
+    dispatch: apiOrder?.dispatch || previousOrder?.dispatch || null,
     assignmentInfo: apiOrder?.assignmentInfo || previousOrder?.assignmentInfo || null,
     tracking: apiOrder?.tracking || previousOrder?.tracking || {},
     deliveryState: apiOrder?.deliveryState || previousOrder?.deliveryState || null,
@@ -402,9 +403,9 @@ const transformOrderForTracking = (apiOrder, previousOrder = null, explicitResta
  */
 function mapBackendOrderStatusToUi(raw) {
   const s = String(raw || "").toLowerCase()
-  if (!s) return "placed"
-  if (s === "created" || s === "confirmed") return "placed"
-  if (s === "preparing" || s === "processed" || s === "accepted") return "preparing"
+  if (!s || s === "pending" || s === "created") return "placed"
+  if (s === "confirmed" || s === "accepted") return "confirmed"
+  if (s === "preparing" || s === "processed") return "preparing"
   if (s === "ready" || s === "ready_for_pickup" || s === "reached_pickup" || s === "order_confirmed") return "ready"
   if (s === "picked_up" || s === "out_for_delivery" || s === "en_route_to_delivery") return "on_way"
   if (s === "reached_drop" || s === "at_drop" || s === "at_delivery") return "at_drop"
@@ -423,10 +424,12 @@ function mapOrderToTrackingUiStatus(orderLike) {
   if (statusRaw === "delivered" || statusRaw === "completed") return "delivered"
 
   // Live Ride / Phase-based mapping (Highest priority for precision)
+  const isRiderAccepted = orderLike.dispatch?.status === "accepted" || orderLike.assignmentInfo?.status === "accepted" || orderLike.deliveryPartner?.status === "accepted";
+  
   if (phase === "reached_drop" || phase === "at_drop" || statusRaw === "at_drop") return "at_drop"
   if (phase === "en_route_to_delivery" || statusRaw === "picked_up" || statusRaw === "out_for_delivery") return "on_way"
-  if (phase === "at_pickup") return "at_pickup"
-  if (phase === "en_route_to_pickup") return "assigned"
+  if (phase === "at_pickup" && orderLike.deliveryPartnerId && isRiderAccepted) return "at_pickup"
+  if (phase === "en_route_to_pickup" && orderLike.deliveryPartnerId && isRiderAccepted) return "assigned"
 
   // Fallback to basic status mapping
   return mapBackendOrderStatusToUi(statusRaw)
@@ -1156,49 +1159,64 @@ export default function OrderTracking() {
 
   const statusConfig = {
     placed: {
-      title: "Order placed",
+      title: "Order Placed",
       subtitle: "Waiting for restaurant to accept",
-      color: "bg-green-600"
+      color: "bg-green-600",
+      iconType: 'food'
+    },
+    confirmed: {
+      title: "Order Confirmed",
+      subtitle: "Restaurant has accepted your order",
+      color: "bg-green-600",
+      iconType: 'food'
     },
     preparing: {
       title: "Food is being prepared",
       subtitle: typeof estimatedTime === 'number' ? `Arriving in ${estimatedTime} mins` : "Cooking your meal",
-      color: "bg-green-600"
+      color: "bg-green-600",
+      iconType: 'food'
     },
     assigned: {
       title: "Rider is arriving",
       subtitle: "A delivery partner is arriving at the restaurant",
-      color: "bg-green-600"
+      color: "bg-green-600",
+      iconType: 'rider'
     },
     at_pickup: {
       title: "Rider at restaurant",
       subtitle: "Rider is waiting for your order",
-      color: "bg-green-600"
+      color: "bg-green-600",
+      iconType: 'rider'
     },
     ready: {
       title: "Handover in progress",
       subtitle: "Rider is picking up your order",
-      color: "bg-green-600"
+      color: "bg-green-600",
+      iconType: 'rider'
     },
     on_way: {
       title: "Out for delivery",
       subtitle: typeof estimatedTime === 'number' ? `Arriving in ${estimatedTime} mins` : "Rider is out for delivery",
-      color: "bg-green-600"
+      color: "bg-green-600",
+      iconType: 'rider'
     },
     at_drop: {
       title: "Arrived at location",
       subtitle: "Please come to the door",
-      color: "bg-green-600"
+      color: "bg-green-600",
+      iconType: 'rider'
     },
     delivered: {
       title: "Order delivered",
       subtitle: "Enjoy your meal!",
-      color: "bg-green-600"
+      color: "bg-green-600",
+      iconType: 'delivered'
     },
     cancelled: {
       title: "Order cancelled",
       subtitle: "This order has been cancelled",
-      color: "bg-red-600"
+      color: "bg-red-600",
+      iconType: 'cancelled'
     }
   }
 
@@ -1379,41 +1397,47 @@ export default function OrderTracking() {
           </motion.div>
         )}
 
-        {/* Food Cooking Status - Show until delivery partner accepts pickup */}
-        {(() => {
-          // Check if delivery partner has accepted pickup
-          // Delivery partner accepts when status is 'ready' or 'out_for_delivery' or tracking shows outForDelivery
-          const hasAcceptedPickup = order?.tracking?.outForDelivery?.status === true ||
-            order?.tracking?.out_for_delivery?.status === true ||
-            order?.status === 'out_for_delivery' ||
-            order?.status === 'ready'
-
-          // Show "Food is Cooking" until delivery partner accepts pickup
-          if (!hasAcceptedPickup) {
-            return (
-              <motion.div
-                className="bg-white rounded-xl p-4 shadow-sm"
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.3 }}
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-full bg-orange-100 flex items-center justify-center overflow-visible p-1">
-                    <img
-                      src={circleIcon}
-                      alt="Food cooking"
-                      className="w-full h-full object-contain"
-                    />
-                  </div>
-                  <p className="font-semibold text-gray-900">Food is Cooking</p>
+        {/* Dynamic Status Card */}
+        <motion.div
+          className="bg-white rounded-xl p-4 shadow-sm"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.3 }}
+        >
+          <div className="flex items-center gap-4">
+            <div className={`w-14 h-14 rounded-full flex items-center justify-center overflow-hidden flex-shrink-0 shadow-sm border border-gray-100 ${
+              currentStatus.iconType === 'rider' ? 'bg-blue-50' : 
+              currentStatus.iconType === 'cancelled' ? 'bg-red-50' : 
+              currentStatus.iconType === 'delivered' ? 'bg-green-50' : 
+              'bg-orange-50'
+            }`}>
+              {currentStatus.iconType === 'rider' ? (
+                <div 
+                  dangerouslySetInnerHTML={{ __html: RIDER_BIKE_SVG.replace(/width="\d+"/, 'width="100%"').replace(/height="\d+"/, 'height="100%"') }} 
+                  className="w-full h-full" 
+                />
+              ) : currentStatus.iconType === 'cancelled' ? (
+                <div className="w-full h-full flex items-center justify-center p-2 text-red-500">
+                  <X className="w-full h-full" />
                 </div>
-              </motion.div>
-            )
-          }
-
-          // Don't show card if delivery partner has accepted pickup
-          return null
-        })()}
+              ) : currentStatus.iconType === 'delivered' ? (
+                <div className="w-full h-full flex items-center justify-center p-2 text-green-500">
+                  <Check className="w-full h-full" />
+                </div>
+              ) : (
+                <img
+                  src={circleIcon}
+                  alt={currentStatus.title}
+                  className="w-10 h-10 object-contain"
+                />
+              )}
+            </div>
+            <div className="flex-1">
+              <p className="font-semibold text-gray-900 leading-tight">{currentStatus.title}</p>
+              <p className="text-sm text-gray-500 mt-1 leading-snug">{currentStatus.subtitle}</p>
+            </div>
+          </div>
+        </motion.div>
 
         {/* Delivery Partner Safety */}
         <motion.button

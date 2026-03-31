@@ -7,10 +7,12 @@ import { Card, CardContent } from "@food/components/ui/card"
 import { Button } from "@food/components/ui/button"
 import { Badge } from "@food/components/ui/badge"
 import { useProfile } from "@food/context/ProfileContext"
+import useAppBackNavigation from "@food/hooks/useAppBackNavigation"
 
 export default function CollectionDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const goBack = useAppBackNavigation()
   const { getFavorites, removeFavorite } = useProfile()
   
   // Mock collection data - in real app, fetch from API based on id
@@ -62,7 +64,7 @@ export default function CollectionDetail() {
                 variant="ghost" 
                 size="icon" 
                 className="rounded-full h-8 w-8 sm:h-10 sm:w-10"
-                onClick={() => navigate(-1)}
+                onClick={goBack}
               >
                 <ArrowLeft className="h-4 w-4 sm:h-5 sm:w-5" />
               </Button>
@@ -95,7 +97,7 @@ export default function CollectionDetail() {
                 variant="ghost" 
                 size="icon" 
                 className="rounded-full h-8 w-8 sm:h-10 sm:w-10"
-                onClick={() => navigate(-1)}
+                onClick={goBack}
               >
                 <ArrowLeft className="h-4 w-4 sm:h-5 sm:w-5" />
               </Button>

@@ -20,6 +20,10 @@ import BottomNavbar from "@food/components/restaurant/BottomNavbar"
 import MenuOverlay from "@food/components/restaurant/MenuOverlay"
 import { restaurantAPI } from "@food/api"
 import { findItemInSections, flattenMenuItems, getMenuFromResponse } from "@food/utils/menuItems"
+import { useRef } from "react"
+import { ImageSourcePicker } from "@food/components/ImageSourcePicker"
+import { isFlutterBridgeAvailable } from "@food/utils/imageUploadUtils"
+import { toast } from "sonner"
 
 const defaultFormData = {
   name: "",
@@ -207,8 +211,15 @@ export default function EditFoodPage() {
     }))
   }
 
+  const fileInputRef = useRef(null)
+  const [isPhotoPickerOpen, setIsPhotoPickerOpen] = useState(false)
+
   const handleImageUpload = (field, file) => {
     if (file) {
+      if (file.size > 5 * 1024 * 1024) {
+        toast.error("Image size too large. Max 5MB allowed.")
+        return
+      }
       const reader = new FileReader()
       reader.onloadend = () => {
         setFormData(prev => ({
@@ -217,6 +228,14 @@ export default function EditFoodPage() {
         }))
       }
       reader.readAsDataURL(file)
+    }
+  }
+
+  const handleImageClick = () => {
+    if (isFlutterBridgeAvailable()) {
+      setIsPhotoPickerOpen(true)
+    } else {
+      fileInputRef.current?.click()
     }
   }
 
@@ -312,9 +331,13 @@ export default function EditFoodPage() {
                     alt={formData.name}
                     className="w-32 h-32 md:w-40 md:h-40 rounded-lg object-cover"
                   />
-                  <label className="absolute bottom-0 right-0 bg-[#ff8100] text-white p-2 rounded-full cursor-pointer hover:bg-[#e67300]">
+                  <label 
+                    onClick={handleImageClick}
+                    className="absolute bottom-0 right-0 bg-[#ff8100] text-white p-2 rounded-full cursor-pointer hover:bg-[#e67300]"
+                  >
                     <Upload className="w-4 h-4" />
                     <input
+                      ref={fileInputRef}
                       type="file"
                       accept="image/*"
                       onChange={(e) => handleImageUpload("image", e.target.files[0])}
@@ -748,6 +771,16 @@ export default function EditFoodPage() {
       
       {/* Menu Overlay */}
       <MenuOverlay showMenu={showMenu} setShowMenu={setShowMenu} />
+
+      <ImageSourcePicker
+        isOpen={isPhotoPickerOpen}
+        onClose={() => setIsPhotoPickerOpen(false)}
+        onFileSelect={(file) => handleImageUpload("image", file)}
+        title="Upload Dish Photo"
+        description="Choose how to upload your dish image"
+        fileNamePrefix="dish-photo"
+        galleryInputRef={fileInputRef}
+      />
     </div>
   )
 }
