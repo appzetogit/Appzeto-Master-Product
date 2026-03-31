@@ -1123,6 +1123,7 @@ export default function CategoryPage() {
 
   // Check if should show grayscale (user out of service)
   const shouldShowGrayscale = isOutOfService
+  const isCategoryView = selectedCategory && selectedCategory !== 'all'
 
   return (
     <div className={`min-h-screen bg-white dark:bg-[#0a0a0a] ${shouldShowGrayscale ? 'grayscale opacity-75' : ''}`}>
@@ -1304,7 +1305,7 @@ export default function CategoryPage() {
 
               {/* Small Restaurant Cards - Grid - Show all dishes when category is selected */}
               <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-3 md:gap-4">
-                {(selectedCategory && selectedCategory !== 'all'
+                {(isCategoryView
                   ? filteredRecommended
                   : filteredRecommended.slice(0, 6)
                 ).map((restaurant) => {
@@ -1371,10 +1372,14 @@ export default function CategoryPage() {
                           </div>
                         </div>
 
-                        {/* Restaurant Info - Show category dish name if available, otherwise restaurant name */}
                         <h3 className="font-semibold text-gray-900 dark:text-white text-xs md:text-sm line-clamp-1">
-                          {restaurant.categoryDishName || restaurant.name}
+                          {isCategoryView ? (restaurant.categoryDishName || restaurant.featuredDish || restaurant.name) : restaurant.name}
                         </h3>
+                        {isCategoryView && (
+                          <p className="text-[10px] md:text-xs text-gray-500 dark:text-gray-400 line-clamp-1">
+                            {restaurant.name}
+                          </p>
+                        )}
                         <div className="flex items-center gap-1 text-gray-500 dark:text-gray-400 text-[10px] md:text-xs">
                           <Clock className="h-2.5 w-2.5 md:h-3 md:w-3" />
                           <span>{restaurant.deliveryTime || 'Not available'}</span>
@@ -1455,10 +1460,12 @@ export default function CategoryPage() {
                         )}
 
                         {/* Category Dish Badge - Top Left (shows category dish if available, otherwise featured dish) */}
-                        {(restaurant.categoryDishName || restaurant.featuredDish) && (
+                        {(isCategoryView ? restaurant.categoryDishPrice : (restaurant.categoryDishName || restaurant.featuredDish)) && (
                           <div className="absolute top-3 left-3">
                             <div className="bg-gray-800/80 backdrop-blur-sm text-white px-3 py-1.5 rounded-lg text-xs sm:text-sm md:text-base font-medium">
-                              {restaurant.categoryDishName || restaurant.featuredDish} • ₹{restaurant.categoryDishPrice || restaurant.featuredPrice}
+                              {isCategoryView
+                                ? `₹${restaurant.categoryDishPrice || restaurant.featuredPrice || 0}`
+                                : `${restaurant.categoryDishName || restaurant.featuredDish} • ₹${restaurant.categoryDishPrice || restaurant.featuredPrice}`}
                             </div>
                           </div>
                         )}
@@ -1491,8 +1498,13 @@ export default function CategoryPage() {
                         <div className="flex items-start justify-between gap-2 mb-2 lg:mb-3">
                           <div className="flex-1 min-w-0">
                             <h3 className="text-md md:text-xl lg:text-2xl font-bold text-gray-900 dark:text-white line-clamp-1 lg:line-clamp-2">
-                              {restaurant.name}
+                              {isCategoryView ? (restaurant.categoryDishName || restaurant.featuredDish || restaurant.name) : restaurant.name}
                             </h3>
+                            {isCategoryView && (
+                              <p className="mt-1 text-sm md:text-base text-gray-500 dark:text-gray-400 line-clamp-1">
+                                {restaurant.name}
+                              </p>
+                            )}
                           </div>
                           <div className="flex-shrink-0 bg-green-600 text-white px-2 md:px-3 lg:px-4 py-1 lg:py-1.5 rounded-lg flex items-center gap-1">
                             <span className="text-sm md:text-base lg:text-lg font-bold">{restaurant.rating}</span>
