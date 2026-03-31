@@ -743,6 +743,7 @@ export default function CategoryPage() {
           })
 
           setIsEnrichingMenus(true)
+          const enrichmentRequestId = ++menuEnrichmentRequestRef.current
           void (async () => {
             try {
               const transformedRestaurants = []
