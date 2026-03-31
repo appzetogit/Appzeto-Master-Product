@@ -13,16 +13,19 @@ import { restaurantAPI } from "@food/api"
 import { useCompanyName } from "@food/hooks/useCompanyName"
 
 const DEFAULT_COUNTRY_CODE = "+91"
+const countryCodes = [
+  { code: DEFAULT_COUNTRY_CODE, country: "IN", flag: "India" },
+]
 
 export default function RestaurantLogin() {
   const companyName = useCompanyName()
   const navigate = useNavigate()
-  const DEFAULT_COUNTRY_CODE = "+91"
   const phoneInputRef = useRef(null)
   const [formData, setFormData] = useState(() => {
     const saved = sessionStorage.getItem("restaurantLoginPhone")
     return {
       phone: saved || "",
+      countryCode: DEFAULT_COUNTRY_CODE,
     }
   })
   const [error, setError] = useState("")
@@ -90,11 +93,11 @@ export default function RestaurantLogin() {
   }
 
   const handleSendOTP = async () => {
-    const phoneError = validatePhone(formData.phone)
+    const phoneError = validatePhone(formData.phone, formData.countryCode)
     setError(phoneError)
     if (phoneError) return
 
-    const fullPhone = `${DEFAULT_COUNTRY_CODE} ${formData.phone}`.trim()
+    const fullPhone = `${formData.countryCode} ${formData.phone}`.trim()
 
     try {
       setIsSending(true)
@@ -119,7 +122,7 @@ export default function RestaurantLogin() {
     }
   }
 
-  const isValidPhone = !validatePhone(formData.phone)
+  const isValidPhone = !validatePhone(formData.phone, formData.countryCode)
 
   return (
     <div
