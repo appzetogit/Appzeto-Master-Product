@@ -2176,6 +2176,10 @@ export const orderAPI = {
     apiClient.patch(`/food/orders/${String(orderId)}/cancel`, body ?? {}, {
       contextModule: "user",
     }),
+  updateOrderInstructions: (orderId, instructions) =>
+    apiClient.patch(`/food/orders/${String(orderId)}/instructions`, { instructions }, {
+      contextModule: "user",
+    }),
   submitOrderRatings: (orderId, body = {}) =>
     apiClient.patch(`/food/orders/${String(orderId)}/ratings`, body ?? {}, { contextModule: "user" }),
   /** Submit a complaint for an order (user). */

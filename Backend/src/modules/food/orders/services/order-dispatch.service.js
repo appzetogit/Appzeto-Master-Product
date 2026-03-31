@@ -156,18 +156,11 @@ export async function tryAutoAssign(orderId, options = {}) {
             logger.info(
               `[DeliveryDispatch] Emitting new_order_available to ${roomName} for order ${order._id.toString()} (distanceKm=${p.distanceKm ?? 'n/a'})`,
             );
-            io.to(roomName).emit('new_order_available', {
-              ...payload,
-              pickupDistanceKm: p.distanceKm,
-            });
-            logger.info(
-              `[DeliveryDispatch] Emitting play_notification_sound to ${roomName} for order ${order._id.toString()} (broadcast fallback)`,
-            );
-            io.to(roomName).emit('play_notification_sound', {
-              orderId: payload.orderId,
-              orderMongoId: payload.orderMongoId,
-            });
-          }
+              io.to(roomName).emit('new_order_available', {
+                ...payload,
+                pickupDistanceKm: p.distanceKm,
+              });
+            }
         }
 
         await notifyOwnersSafely(
@@ -200,15 +193,8 @@ export async function tryAutoAssign(orderId, options = {}) {
           logger.info(
             `[DeliveryDispatch] Emitting new_order to ${roomName} for order ${order._id.toString()} (distanceKm=${pPayload.distanceKm ?? 'n/a'})`,
           );
-          io.to(roomName).emit('new_order', pPayload);
-          logger.info(
-            `[DeliveryDispatch] Emitting play_notification_sound to ${roomName} for order ${order._id.toString()}`,
-          );
-          io.to(roomName).emit('play_notification_sound', {
-            orderId: payload.orderId,
-            orderMongoId: payload.orderMongoId,
-          });
-        }
+            io.to(roomName).emit('new_order', pPayload);
+          }
       } catch (err) {
         logger.warn(`Failed to notify partner ${p.partnerId}: ${err.message}`);
       }

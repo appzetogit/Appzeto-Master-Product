@@ -229,16 +229,6 @@ export async function notifyRestaurantNewOrder(orderDoc) {
         `[RestaurantOrders] Emitting new_order to ${rooms.restaurant(orderDoc.restaurantId)} for order ${orderDoc._id?.toString?.() || ''}`,
       );
       io.to(rooms.restaurant(orderDoc.restaurantId)).emit("new_order", payload);
-      logger.info(
-        `[RestaurantOrders] Emitting play_notification_sound to ${rooms.restaurant(orderDoc.restaurantId)} for order ${orderDoc._id?.toString?.() || ''}`,
-      );
-      io.to(rooms.restaurant(orderDoc.restaurantId)).emit(
-        "play_notification_sound",
-        {
-          orderId: payload.orderId,
-          orderMongoId: payload.orderMongoId,
-        },
-      );
     }
 
     await notifyOwnersSafely(

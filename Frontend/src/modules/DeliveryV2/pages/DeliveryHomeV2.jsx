@@ -819,6 +819,19 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
                             </div>
                           </div>
                         </div>
+
+                        {/* Customer Instructions Panel */}
+                        {activeOrder?.note && (
+                          <div className="w-full bg-orange-50 border border-orange-100 rounded-3xl p-5 mb-8 flex gap-4 items-start shadow-sm mx-2">
+                             <div className="w-10 h-10 bg-white rounded-2xl flex items-center justify-center text-orange-500 shadow-sm shrink-0 border border-orange-50">
+                                <Package className="w-5 h-5" />
+                             </div>
+                             <div className="flex-1">
+                                <p className="text-[10px] font-black text-orange-600 uppercase tracking-[0.2em] mb-1.5 opacity-80">Drop Message</p>
+                                <p className="text-sm font-bold text-gray-950 leading-relaxed capitalize">"{activeOrder.note}"</p>
+                             </div>
+                          </div>
+                        )}
                         <ActionSlider label="Slide to Arrive" successLabel="Arrived ✓" disabled={!isWithinRange} onConfirm={reachDrop} color="bg-blue-600" />
                       </div>
                     ) : (

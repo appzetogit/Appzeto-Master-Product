@@ -166,7 +166,7 @@ export async function listOrdersAvailableDelivery(deliveryPartnerId, query) {
     $or: [
       {
         'dispatch.status': 'unassigned',
-        orderStatus: { $in: ['preparing', 'ready_for_pickup'] },
+        orderStatus: { $in: ['created', 'confirmed', 'preparing', 'ready_for_pickup'] },
       },
       {
         'dispatch.deliveryPartnerId': new mongoose.Types.ObjectId(deliveryPartnerId),
@@ -205,7 +205,7 @@ export async function acceptOrderDelivery(orderId, deliveryPartnerId) {
 
   const partnerId = new mongoose.Types.ObjectId(deliveryPartnerId);
   const now = new Date();
-  const acceptedStatuses = ['preparing', 'ready_for_pickup', 'picked_up'];
+  const acceptedStatuses = ['created', 'confirmed', 'preparing', 'ready_for_pickup', 'picked_up'];
   const cancellableStatuses = [
     'cancelled_by_user',
     'cancelled_by_restaurant',
@@ -531,6 +531,21 @@ export async function confirmPickupDelivery(orderId, deliveryPartnerId, billImag
     pickedUpAt: new Date(),
     billImageUrl,
   };
+
+  // Pre-generate handover OTP so user can see it as soon as food is on the way
+  const existingOtp = String(order.deliveryOtp || '').trim();
+  if (!existingOtp) {
+    order.deliveryOtp = generateFourDigitDeliveryOtp();
+    order.deliveryVerification = {
+      ...(order.deliveryVerification?.toObject?.() ||
+        order.deliveryVerification ||
+        {}),
+      dropOtp: { required: true, verified: false },
+    };
+  }
+
+  emitDeliveryDropOtpToUser(order, String(order.deliveryOtp || "").trim());
+
   pushStatusHistory(order, {
     byRole: 'DELIVERY_PARTNER',
     byId: deliveryPartnerId,

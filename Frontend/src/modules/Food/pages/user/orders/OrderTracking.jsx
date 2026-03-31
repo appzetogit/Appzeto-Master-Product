@@ -35,6 +35,7 @@ import { useLocation as useUserLocation } from "@food/hooks/useLocation"
 import DeliveryTrackingMap from "@food/components/user/DeliveryTrackingMap"
 import { orderAPI, restaurantAPI } from "@food/api"
 import { useCompanyName } from "@food/hooks/useCompanyName"
+import { useUserNotifications } from "@food/hooks/useUserNotifications"
 import circleIcon from "@food/assets/circleicon.png"
 import { RESTAURANT_PIN_SVG, CUSTOMER_PIN_SVG, RIDER_BIKE_SVG } from "@food/constants/mapIcons"
 
@@ -348,8 +349,9 @@ const transformOrderForTracking = (apiOrder, previousOrder = null, explicitResta
     // Backend canonical field is orderStatus; keep legacy `status` for UI compatibility.
     status: apiOrder?.orderStatus || apiOrder?.status || previousOrder?.status || 'pending',
     deliveryPartner: apiOrder?.deliveryPartnerId ? {
-      name: apiOrder.deliveryPartnerId.name || 'Delivery Partner',
-      avatar: null
+      name: apiOrder.deliveryPartnerId.name || apiOrder.deliveryPartnerId.fullName || 'Delivery Partner',
+      phone: apiOrder.deliveryPartnerId.phone || apiOrder.deliveryPartnerId.phoneNumber || '',
+      avatar: apiOrder.deliveryPartnerId.avatar || apiOrder.deliveryPartnerId.profilePicture || null
     } : (previousOrder?.deliveryPartner || null),
     deliveryPartnerId: apiOrder?.deliveryPartnerId?._id || apiOrder?.deliveryPartnerId || apiOrder?.dispatch?.deliveryPartnerId?._id || apiOrder?.dispatch?.deliveryPartnerId || apiOrder?.assignmentInfo?.deliveryPartnerId || null,
     dispatch: apiOrder?.dispatch || previousOrder?.dispatch || null,
@@ -359,7 +361,11 @@ const transformOrderForTracking = (apiOrder, previousOrder = null, explicitResta
     createdAt: apiOrder?.createdAt || previousOrder?.createdAt || null,
     totalAmount: apiOrder?.pricing?.total || apiOrder?.totalAmount || previousOrder?.totalAmount || 0,
     deliveryFee: apiOrder?.pricing?.deliveryFee || apiOrder?.deliveryFee || previousOrder?.deliveryFee || 0,
-    gst: apiOrder?.pricing?.gst || apiOrder?.gst || previousOrder?.gst || 0,
+    gst: apiOrder?.pricing?.tax || apiOrder?.pricing?.gst || apiOrder?.gst || apiOrder?.tax || previousOrder?.gst || 0,
+    packagingFee: apiOrder?.pricing?.packagingFee || apiOrder?.packagingFee || 0,
+    platformFee: apiOrder?.pricing?.platformFee || apiOrder?.platformFee || 0,
+    discount: apiOrder?.pricing?.discount || apiOrder?.discount || 0,
+    subtotal: apiOrder?.pricing?.subtotal || apiOrder?.subtotal || 0,
     paymentMethod: apiOrder?.paymentMethod || apiOrder?.payment?.method || previousOrder?.paymentMethod || null,
     payment: apiOrder?.payment || previousOrder?.payment || null,
     // Preserve delivery OTP code received via socket event.
@@ -457,6 +463,8 @@ export default function OrderTracking() {
   const { profile, getDefaultAddress } = useProfile()
   const { location: userLiveLocation } = useUserLocation()
 
+  const { isConnected: isSocketConnected } = useUserNotifications()
+  
   // State for order data
   const [order, setOrder] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -470,6 +478,9 @@ export default function OrderTracking() {
   const [showOrderDetails, setShowOrderDetails] = useState(false)
   const [cancellationReason, setCancellationReason] = useState("")
   const [isCancelling, setIsCancelling] = useState(false)
+  const [isInstructionsModalOpen, setIsInstructionsModalOpen] = useState(false)
+  const [deliveryInstructions, setDeliveryInstructions] = useState("")
+  const [isUpdatingInstructions, setIsUpdatingInstructions] = useState(false)
   const [resolvedLookupId, setResolvedLookupId] = useState("")
   const [timerNow, setTimerNow] = useState(Date.now())
   const handleEtaUpdate = useCallback((newEta) => setEstimatedTime(newEta), [])
@@ -732,7 +743,10 @@ export default function OrderTracking() {
     return `${minutes}:${String(seconds).padStart(2, '0')}`
   }, [editWindowRemainingMs])
 
-  const handleCallRestaurant = () => {
+  const handleCallRestaurant = (e) => {
+    // Prevent event bubbling if necessary
+    if (e && e.stopPropagation) e.stopPropagation();
+
     const rawPhone =
       order?.restaurantPhone ||
       order?.restaurantId?.phone ||
@@ -740,16 +754,59 @@ export default function OrderTracking() {
       order?.restaurantId?.contact?.phone ||
       order?.restaurant?.phone ||
       order?.restaurant?.ownerPhone ||
-      ''
+      order?.restaurantId?.location?.phone ||
+      '';
 
-    const cleanPhone = String(rawPhone).replace(/[^\d+]/g, '')
-    if (!cleanPhone) {
-      toast.error('Restaurant phone number not available')
-      return
+    const cleanPhone = String(rawPhone).replace(/[^\d+]/g, '');
+    
+    if (!cleanPhone || cleanPhone.length < 5) {
+      toast.error('Restaurant phone number not available');
+      return;
     }
 
-    window.location.href = `tel:${cleanPhone}`
-  }
+    debugLog('?? Attempting to call restaurant:', cleanPhone);
+    
+    // Most compatible way to trigger dialer on overall mobile/web environments:
+    // Create a temporary hidden anchor and programmatically click it.
+    try {
+      const link = document.createElement('a');
+      link.href = `tel:${cleanPhone}`;
+      link.setAttribute('target', '_self');
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (err) {
+      debugError('Call failed via link click:', err);
+      // Last-ditch fallback
+      window.location.assign(`tel:${cleanPhone}`);
+    }
+  };
+
+  const handleCallRider = (e) => {
+    if (e && e.stopPropagation) e.stopPropagation();
+    
+    const rawPhone = order?.deliveryPartner?.phone || '';
+    const cleanPhone = String(rawPhone).replace(/[^\d+]/g, '');
+
+    if (!cleanPhone || cleanPhone.length < 5) {
+      toast.error('Rider phone number not available');
+      return;
+    }
+
+    debugLog('?? Attempting to call rider:', cleanPhone);
+    
+    try {
+      const link = document.createElement('a');
+      link.href = `tel:${cleanPhone}`;
+      link.setAttribute('target', '_self');
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (err) {
+      debugError('Call failed via link click:', err);
+      window.location.assign(`tel:${cleanPhone}`);
+    }
+  };
 
   const customerDeliveryOtp = useMemo(() => {
     const codeFromOrder = order?.deliveryVerification?.dropOtp?.code
@@ -767,7 +824,9 @@ export default function OrderTracking() {
 
   // Poll for order updates (especially when delivery partner accepts)
 
-  // Re-run poll if orderId changes. Status changes are handled inside the interval.
+  const pollRef = useRef(null);
+
+  // Main fetch & polling core logic. (Isolated from socket connection stat-changes)
   useEffect(() => {
     if (!orderId) return;
 
@@ -775,109 +834,77 @@ export default function OrderTracking() {
     let requestInProgress = false;
 
     const poll = async (isInitial = false) => {
-      // Don't poll if component unmounted or request already in flight
       if (!isSubscribed || requestInProgress) return;
       if (terminalPollStopRef.current && !isInitial) return;
 
-      // Hard safety throttle: prevent the "150 requests" hammer 
-      // even if the effect itself is re-binding infinitely.
       const now = Date.now();
-      if (isInitial && now - lastPollExecutionRef.current < 1000) {
-        debugLog('?? Throttling initial poll re-entrancy hammer');
-        return;
-      }
+      if (isInitial && now - lastPollExecutionRef.current < 1000) return;
       if (isInitial) lastPollExecutionRef.current = now;
 
-      requestInProgress = true;
-      try {
-        if (isInitial && lookupIdsRef.current.length <= 1) {
-          try {
-            const matchedOrder = await resolveOrderFromList(orderId)
-            if (matchedOrder) {
-              const nextLookupId =
-                normalizeLookupId(matchedOrder?._id) ||
-                normalizeLookupId(matchedOrder?.orderId) ||
-                normalizeLookupId(matchedOrder?.id)
-              
-              if (nextLookupId && nextLookupId !== resolvedLookupId) {
-                setResolvedLookupId(nextLookupId)
-              }
-            }
-          } catch {
-            // Continue with direct detail fetch if list resolution fails.
-          }
-        }
-
-        const response = await fetchOrderDetailsWithFallback({ force: isInitial });
-        if (!isSubscribed) return;
-
-        if (response.data?.success && response.data.data?.order) {
-          const apiOrder = response.data.data.order;
-          
-          setOrder(prev => {
-             // Use functional update to check against last state without depending on 'order' object
-             const transformedOrder = transformOrderForTracking(apiOrder, prev);
-             const ui = mapOrderToTrackingUiStatus(transformedOrder)
-             terminalPollStopRef.current = ui === 'delivered' || ui === 'cancelled'
-             return transformedOrder;
-          });
-        } else if (isInitial) {
-          setError(response.data?.message || 'Order not found');
-        }
-      } catch (err) {
-        const status = err?.response?.status
-        if (status !== 400 && status !== 404) {
-          debugError('Error polling order updates:', err);
-        }
-        if (status === 400 || status === 404) {
-          // Deep-link safety: try resolving by listing user's orders and matching IDs.
-          if (isInitial) {
-            try {
-              const matchedOrder = await resolveOrderFromList(orderId)
-              if (matchedOrder) {
-                const nextLookupId =
-                  normalizeLookupId(matchedOrder?._id) ||
-                  normalizeLookupId(matchedOrder?.orderId) ||
-                  normalizeLookupId(matchedOrder?.id)
-
-                if (nextLookupId) {
-                  setResolvedLookupId(nextLookupId)
-                }
-
-                setOrder((prev) => transformOrderForTracking(matchedOrder, prev))
-                setError(null)
-                terminalPollStopRef.current = false
-                return
-              }
-            } catch (resolveErr) {
-              debugWarn('Order resolution from list failed:', resolveErr)
-            }
-          }
-          // Prevent repeated noisy polling when current route id does not map to a real order.
-          terminalPollStopRef.current = true
-        }
-        if (isInitial) {
-          setError(err.response?.data?.message || 'Failed to connect to server');
-        }
-      } finally {
-        requestInProgress = false;
-        if (isInitial) {
+      // Check context immediately to avoid loaders if data exists locally
+      if (isInitial) {
+        const rawContext = getOrderById(orderId);
+        if (rawContext) {
+          setOrder(transformOrderForTracking(rawContext));
           setLoading(false);
         }
       }
+
+      requestInProgress = true;
+      try {
+        const response = await fetchOrderDetailsWithFallback({ force: isInitial });
+        if (!isSubscribed) return;
+
+        let finalOrderData = null;
+
+        if (response.data?.success && response.data.data?.order) {
+          finalOrderData = response.data.data.order;
+        } else if (isInitial) {
+          const matchedOrder = await resolveOrderFromList(orderId);
+          if (matchedOrder) finalOrderData = matchedOrder;
+        }
+
+        if (finalOrderData) {
+          setOrder(prev => {
+            const transformedOrder = transformOrderForTracking(finalOrderData, prev);
+            const ui = mapOrderToTrackingUiStatus(transformedOrder);
+            terminalPollStopRef.current = ui === 'delivered' || ui === 'cancelled';
+            return transformedOrder;
+          });
+          setError(null);
+          setLoading(false);
+          return;
+        }
+
+        if (isInitial && !order) {
+          setError(response.data?.message || 'Order not found');
+          terminalPollStopRef.current = true;
+        }
+      } catch (err) {
+        if (isInitial && !order) {
+          try {
+            const matchedOrder = await resolveOrderFromList(orderId);
+            if (matchedOrder) {
+              if (!isSubscribed) return;
+              setOrder(prev => transformOrderForTracking(matchedOrder, prev));
+              setError(null);
+              setLoading(false);
+              return;
+            }
+          } catch {}
+          if (!isSubscribed) return;
+          setError(err.response?.data?.message || 'Failed to fetch order details');
+          terminalPollStopRef.current = true;
+        }
+      } finally {
+        requestInProgress = false;
+        if (isInitial && isSubscribed) setLoading(false);
+      }
     };
 
-    terminalPollStopRef.current = false
+    pollRef.current = poll;
+    terminalPollStopRef.current = false;
 
-    // Same order: one in-flight + short client cache in orderAPI — avoid hammering the server.
-    const tick = () => {
-      if (terminalPollStopRef.current) return
-      poll(false)
-    }
-    const interval = setInterval(tick, 5000);
-
-    // Guard initial poll to run EXACTLY once for the current orderId, 
-    // protecting against frequent re-renders from location hooks.
     if (isInitialPollRequestedRef.current !== orderId) {
       isInitialPollRequestedRef.current = orderId;
       poll(true);
@@ -885,31 +912,25 @@ export default function OrderTracking() {
 
     return () => {
       isSubscribed = false;
-      clearInterval(interval);
-    }
+    };
   }, [orderId, fetchOrderDetailsWithFallback, resolveOrderFromList]);
 
-
-  // Fetch order: show context immediately if present.
-  // We rely on the unified polling effect above for the actual network fetch.
+  // Interval Manager (dynamically adapts based on socket connection state independently)
   useEffect(() => {
-    const rawContext = getOrderById(orderId)
-    if (rawContext) {
-      const contextOrder = { ...rawContext }
-      contextOrder.mongoId =
-        contextOrder.mongoId ||
-        contextOrder._id ||
-        (typeof contextOrder.id === "string" && /^[a-f0-9]{24}$/i.test(contextOrder.id)
-          ? contextOrder.id
-          : null)
-      contextOrder.orderId =
-        contextOrder.orderId ||
-        (typeof contextOrder.id === "string" && contextOrder.id.startsWith("ORD-") ? contextOrder.id : null)
-      
-      setOrder(contextOrder)
-      setLoading(false)
-    }
-  }, [orderId, getOrderById])
+    if (!orderId) return;
+
+    const tick = () => {
+      if (terminalPollStopRef.current) return;
+      if (document.hidden) return;
+      // Delegate to the latest instance of our polling function capturing current state
+      if (pollRef.current) pollRef.current(false);
+    };
+    
+    const pollInterval = (isSocketConnected || window.orderSocketConnected) ? 12000 : 5000;
+    const interval = setInterval(tick, pollInterval);
+
+    return () => clearInterval(interval);
+  }, [orderId, isSocketConnected]);
 
   useEffect(() => {
     if (!order) return
@@ -1047,6 +1068,29 @@ export default function OrderTracking() {
       toast.error(error.response?.data?.message || 'Failed to cancel order');
     } finally {
       setIsCancelling(false);
+    }
+  };
+
+  const handleUpdateInstructions = async () => {
+    try {
+      setIsUpdatingInstructions(true);
+      const response = await orderAPI.updateOrderInstructions(resolvedLookupId || orderId, deliveryInstructions);
+      if (response.data?.success) {
+        toast.success("Delivery instructions updated");
+        setIsInstructionsModalOpen(false);
+        const updatedOrder = response.data.data?.order;
+        if (updatedOrder) {
+          setOrder(prev => transformOrderForTracking(updatedOrder, prev));
+        } else {
+          setOrder(prev => ({ ...prev, note: deliveryInstructions }));
+        }
+      } else {
+        toast.error(response.data?.message || "Failed to update instructions");
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.message || "Failed to update instructions");
+    } finally {
+      setIsUpdatingInstructions(false);
     }
   };
 
@@ -1353,7 +1397,7 @@ export default function OrderTracking() {
       {/* Scrollable Content */}
       <div className="max-w-4xl mx-auto px-4 md:px-6 lg:px-8 py-4 md:py-6 space-y-4 md:space-y-6 pb-24 md:pb-32">
         {/* 1-minute cancellation window after admin acceptance */}
-        {isAdminAccepted && (
+        {isAdminAccepted && isEditWindowOpen && (
           <motion.div
             className="bg-white rounded-xl p-4 shadow-sm border border-orange-100"
             initial={{ opacity: 0, y: 20 }}
@@ -1438,6 +1482,49 @@ export default function OrderTracking() {
             </div>
           </div>
         </motion.div>
+
+        {/* Delivery Partner Info */}
+        {order?.deliveryPartnerId && (
+          <motion.div
+            className="bg-white rounded-xl shadow-sm overflow-hidden"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.55 }}
+          >
+            <div className="flex items-center gap-3 p-4 border-b border-dashed border-gray-200">
+              <div className="w-12 h-12 rounded-full bg-blue-50 overflow-hidden flex items-center justify-center flex-shrink-0 border border-blue-100 p-1">
+                {order.deliveryPartner?.avatar ? (
+                  <img src={order.deliveryPartner.avatar} alt="Rider" className="w-full h-full object-cover" />
+                ) : (
+                  <div 
+                    dangerouslySetInnerHTML={{ __html: RIDER_BIKE_SVG.replace(/width="\d+"/, 'width="100%"').replace(/height="\d+"/, 'height="100%"') }} 
+                    className="w-full h-full p-1" 
+                  />
+                )}
+              </div>
+              <div className="flex-1">
+                <p className="font-semibold text-gray-900">{order.deliveryPartner?.name || 'Delivery Partner'}</p>
+                <p className="text-sm text-gray-500">Your delivery partner is arriving</p>
+              </div>
+              <motion.button
+                className="w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center"
+                onClick={handleCallRider}
+                whileTap={{ scale: 0.9 }}
+              >
+                <Phone className="w-5 h-5 text-blue-600" />
+              </motion.button>
+            </div>
+            {order?.note && (
+              <div className="bg-blue-50/50 p-3 mx-4 mb-4 rounded-lg flex items-start gap-2 border border-blue-100">
+                <MessageSquare className="w-4 h-4 text-blue-500 mt-0.5 flex-shrink-0" />
+                <div className="flex-1">
+                  <p className="text-[10px] font-bold text-blue-600 uppercase tracking-wider mb-0.5">Instruction for Rider</p>
+                  <p className="text-xs text-gray-700 leading-relaxed font-medium">"{order.note}"</p>
+                </div>
+              </div>
+            )}
+          </motion.div>
+        )}
 
         {/* Delivery Partner Safety */}
         <motion.button
@@ -1536,8 +1623,12 @@ export default function OrderTracking() {
           />
           <SectionItem
             icon={MessageSquare}
-            title="Add delivery instructions"
-            subtitle=""
+            title={order?.note ? "Edit delivery instructions" : "Add delivery instructions"}
+            subtitle={order?.note ? order.note.substring(0, 35) + (order.note.length > 35 ? "..." : "") : ""}
+            onClick={() => {
+              setDeliveryInstructions(order?.note || "");
+              setIsInstructionsModalOpen(true);
+            }}
           />
         </motion.div>
 
@@ -1589,29 +1680,21 @@ export default function OrderTracking() {
           </div>
         </motion.div>
 
-        {/* Help Section */}
-        <motion.div
-          className="bg-white rounded-xl shadow-sm overflow-hidden"
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.8 }}
-        >
-          {!isAdminAccepted || isEditWindowOpen ? (
+        {!isAdminAccepted && (
+          <motion.div
+            className="bg-white rounded-xl shadow-sm overflow-hidden"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.8 }}
+          >
             <SectionItem
               icon={CircleSlash}
               title="Cancel order"
               subtitle=""
               onClick={handleCancelOrder}
             />
-          ) : (
-            <SectionItem
-              icon={CircleSlash}
-              title="Cancel order"
-              subtitle="Cancellation window ended"
-              onClick={handleCancelOrder}
-            />
-          )}
-        </motion.div>
+          </motion.div>
+        )}
 
       </div>
 
@@ -1700,6 +1783,19 @@ export default function OrderTracking() {
               </div>
             </div>
 
+            {/* Delivery Instructions Section */}
+            {order?.note && (
+              <div className="bg-orange-50/50 rounded-xl p-4 border border-orange-100 flex gap-3">
+                <MessageSquare className="w-5 h-5 text-orange-500 shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-xs text-orange-600 font-bold uppercase tracking-wider mb-1">Delivery Instructions</p>
+                  <p className="text-sm text-gray-800 leading-relaxed font-medium capitalize">
+                    {order.note}
+                  </p>
+                </div>
+              </div>
+            )}
+
             {/* Items Section */}
             <div>
               <p className="text-sm font-medium text-gray-500 uppercase tracking-wider mb-3">Order Items</p>
@@ -1724,20 +1820,43 @@ export default function OrderTracking() {
             {/* Bill Summary */}
             <div className="bg-gray-50 rounded-xl p-4 space-y-3">
               <p className="text-sm font-bold text-gray-900 uppercase tracking-wider mb-1">Bill Summary</p>
+              
               <div className="flex justify-between items-center text-sm">
                 <span className="text-gray-600">Item Total</span>
-                <span className="text-gray-900 font-medium">
-                  ₹{(Number(order?.totalAmount || 0) - Number(order?.deliveryFee || 0) - Number(order?.gst || 0)).toFixed(2)}
-                </span>
+                <span className="text-gray-900 font-medium">₹{Number(order?.subtotal || 0).toFixed(2)}</span>
               </div>
+
+              {Number(order?.packagingFee) > 0 && (
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-gray-600">Packaging Charges</span>
+                  <span className="text-gray-900 font-medium">₹{Number(order.packagingFee).toFixed(2)}</span>
+                </div>
+              )}
+
+              {Number(order?.platformFee) > 0 && (
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-gray-600">Platform Fee</span>
+                  <span className="text-gray-900 font-medium">₹{Number(order.platformFee).toFixed(2)}</span>
+                </div>
+              )}
+
               <div className="flex justify-between items-center text-sm">
                 <span className="text-gray-600">Delivery Fee</span>
                 <span className="text-gray-900 font-medium">₹{Number(order?.deliveryFee || 0).toFixed(2)}</span>
               </div>
+
               <div className="flex justify-between items-center text-sm">
-                <span className="text-gray-600">Taxes & Charges</span>
+                <span className="text-gray-600">Taxes & Charges (GST)</span>
                 <span className="text-gray-900 font-medium">₹{Number(order?.gst || 0).toFixed(2)}</span>
               </div>
+
+              {Number(order?.discount) > 0 && (
+                <div className="flex justify-between items-center text-sm text-green-600 font-medium">
+                  <span>Discount Applied</span>
+                  <span>-₹{Number(order.discount).toFixed(2)}</span>
+                </div>
+              )}
+
               <div className="pt-2 border-t border-gray-200 flex justify-between items-center">
                 <span className="text-base font-bold text-gray-900">Total Amount</span>
                 <span className="text-lg font-bold text-gray-900">₹{Number(order?.totalAmount || 0).toFixed(2)}</span>
@@ -1764,6 +1883,35 @@ export default function OrderTracking() {
               className="w-full bg-gray-900 text-white font-bold h-12 rounded-xl"
             >
               Okay
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delivery Instructions Modal */}
+      <Dialog open={isInstructionsModalOpen} onOpenChange={setIsInstructionsModalOpen}>
+        <DialogContent className="sm:max-w-md w-[95vw] rounded-3xl p-6 border-0 shadow-2xl bg-white max-h-[90vh] overflow-y-auto z-[200]">
+          <DialogHeader className="mb-2">
+            <DialogTitle className="text-xl font-bold bg-gradient-to-r from-orange-600 to-orange-400 bg-clip-text text-transparent">
+              Delivery Instructions
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-gray-500">
+              Add instructions for the delivery partner to help them find your address or know where to leave your order.
+            </p>
+            <Textarea
+              value={deliveryInstructions}
+              onChange={(e) => setDeliveryInstructions(e.target.value)}
+              placeholder="E.g. Ring the doorbell, leave at the front desk..."
+              className="min-h-[120px] resize-none border-gray-200 focus:ring-orange-500 rounded-xl bg-gray-50 text-base"
+            />
+            <Button 
+              onClick={handleUpdateInstructions} 
+              disabled={isUpdatingInstructions}
+              className="w-full bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-bold h-12 rounded-xl border-none"
+            >
+              {isUpdatingInstructions ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : "Save Instructions"}
             </Button>
           </div>
         </DialogContent>

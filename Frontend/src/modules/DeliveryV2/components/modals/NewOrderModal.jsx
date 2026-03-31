@@ -25,15 +25,21 @@ export const NewOrderModal = ({ order, onAccept, onReject, onMinimize }) => {
   const { distanceKm, etaMins } = useMemo(() => {
     if (!order) return { distanceKm: null, etaMins: null };
 
-    // A. Use provided data if available
-    if (order.pickupDistanceKm) return { 
-      distanceKm: Number(order.pickupDistanceKm).toFixed(1), 
-      etaMins: order.estimatedTime || order.duration || 15 
-    };
+    // A. Use provided data if available (Direct distance from socket)
+    const rawDist = order.pickupDistanceKm || order.distanceKm;
+    const rawEta = order.estimatedTime || order.duration || order.eta;
+    
+    if (rawDist != null) {
+      return { 
+        distanceKm: Number(rawDist).toFixed(1), 
+        etaMins: rawEta && rawEta > 0 ? Math.ceil(rawEta) : Math.ceil((rawDist * 1000) / 416) + 5
+      };
+    }
 
-    // B. Calculate from locations
-    const resLat = parseFloat(order.restaurant_lat || order.restaurantLat || order.latitude || (order.restaurantId?.location?.latitude));
-    const resLng = parseFloat(order.restaurant_lng || order.restaurantLng || order.longitude || (order.restaurantId?.location?.longitude));
+    // B. Calculate from locations (Local calculation fallback)
+    const rest = order.restaurantLocation || order.restaurantId?.location || {};
+    const resLat = parseFloat(order.restaurant_lat || order.restaurantLat || rest.latitude || rest.lat);
+    const resLng = parseFloat(order.restaurant_lng || order.restaurantLng || rest.longitude || rest.lng);
 
     if (riderLocation && !isNaN(resLat) && !isNaN(resLng)) {
       const distM = getHaversineDistance(

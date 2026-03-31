@@ -22,6 +22,12 @@ const OWNER_TOKEN_FIELDS = {
     web: 'fcmTokens',
     mobile: 'fcmTokenMobile'
 };
+const OWNER_APP_PREFIXES = {
+    USER: '👤 [User]',
+    RESTAURANT: '🏪 [Shop]',
+    DELIVERY_PARTNER: '🛵 [Rider]',
+    ADMIN: '🛡️ [Admin]'
+};
 
 let cachedAccessToken = null;
 let cachedAccessTokenExpiryMs = 0;
@@ -143,17 +149,19 @@ const buildMessagePayload = (payload = {}, token) => {
     const image =
         sanitizeString(payload.icon || payload.notification?.image || payload.notification?.icon || data.image || data.imageUrl);
 
-    const message = {
-        token,
-        notification
-    };
+    // If payload.dataOnly is true, we omit the 'notification' block.
+    // This prevents FCM from auto-displaying while allowing app code to show a 'Local Notification'.
+    const message = { token };
+
+    if (!payload.dataOnly) {
+        message.notification = notification;
+        if (image) {
+            message.notification.image = image;
+        }
+    }
 
     if (Object.keys(data).length > 0) {
         message.data = data;
-    }
-
-    if (image) {
-        message.notification.image = image;
     }
 
     message.android = {
@@ -343,13 +351,36 @@ export const sendPushNotification = async (tokens, payload = {}) => {
 };
 
 export const sendNotificationToOwner = async ({ ownerType, ownerId, payload, platform } = {}) => {
+    // 💡 Clone the payload to avoid side-effects (e.g. adding multiple prefixes to the same object during broadcasting)
+    const enrichedPayload = { ...payload };
+
+    // 🏷️ Add Highlighter Prefix to the Title
+    if (enrichedPayload && !enrichedPayload.skipHighlighter) {
+        const typeKey = String(ownerType || '').toUpperCase();
+        const prefix = OWNER_APP_PREFIXES[typeKey] || '';
+        
+        if (prefix) {
+            // Get original title from any potential field
+            let originalTitle = enrichedPayload.title || enrichedPayload.notification?.title || 'New notification';
+            
+            // Safety: Ensure we don't ADD the prefix if it's already there (defensive check)
+            if (!originalTitle.includes(prefix)) {
+                enrichedPayload.title = `${prefix} ${originalTitle}`.trim();
+            } else {
+                enrichedPayload.title = originalTitle;
+            }
+        }
+    }
+
     const tokens = await listOwnerTokens({ ownerType, ownerId, platform });
     if (!tokens.length) {
         return { successCount: 0, failureCount: 0, results: [] };
     }
     try {
-        const response = await sendPushNotification(tokens, payload);
+        console.log(`[FCM] Sending to ${ownerType}:${ownerId}. Title: "${enrichedPayload.title || 'Data Only'}"`);
+        const response = await sendPushNotification(tokens, enrichedPayload);
         const invalidTokens = (response.results || [])
+
             .filter((item) => !item.ok && item.remove)
             .map((item) => item.token)
             .filter(Boolean);
@@ -377,9 +408,14 @@ export const sendNotificationToOwner = async ({ ownerType, ownerId, payload, pla
 };
 
 export const sendNotificationToOwners = async (targets = [], payload = {}) => {
+    // 🔍 Tip #6: Deduplicate targets by ownerType:ownerId before sending
+    // This prevents duplicate notifications if the same person is listed twice (e.g. as USER and partner)
+    const uniqueTargets = Array.isArray(targets) 
+        ? [...new Map(targets.filter(t => t?.ownerType && t?.ownerId).map(t => [`${t.ownerType}:${t.ownerId}`, t])).values()]
+        : [];
+
     const results = [];
-    for (const target of targets) {
-        if (!target?.ownerType || !target?.ownerId) continue;
+    for (const target of uniqueTargets) {
         results.push(
             await sendNotificationToOwner({
                 ownerType: target.ownerType,

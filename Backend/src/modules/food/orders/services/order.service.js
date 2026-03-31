@@ -786,10 +786,10 @@ export async function getOrderById(
   const order = await FoodOrder.findOne(identity)
     .populate(
       "restaurantId",
-      "restaurantName profileImage area city location rating totalRatings",
+      "restaurantName ownerPhone profileImage area city location rating totalRatings primaryContactNumber",
     )
-    .populate("dispatch.deliveryPartnerId", "name phone rating totalRatings")
-    .populate("userId", "name phone email")
+    .populate("dispatch.deliveryPartnerId", "name fullName phone phoneNumber rating totalRatings profileImage avatar")
+    .populate("userId", "name fullName phone email")
     .select("+deliveryOtp")
     .lean();
   if (!order) throw new NotFoundError("Order not found");
@@ -823,7 +823,7 @@ export async function getOrderById(
         verified: Boolean(drop.verified),
       },
     };
-    if (drop.required && !drop.verified && secret) {
+    if (!drop.verified && secret) {
       out.handoverOtp = secret;
     }
     return out;
@@ -842,9 +842,13 @@ export async function getDropOtpUser(orderId, userId) {
   if (!order) throw new NotFoundError("Order not found");
 
   const phase = order.deliveryState?.currentPhase;
-  if (phase !== "at_drop") {
+  const status = order.orderStatus;
+  const eligiblePhases = ["at_drop", "en_route_to_delivery"];
+  const isEligible = eligiblePhases.includes(phase) || status === "picked_up";
+
+  if (!isEligible) {
     throw new ValidationError(
-      "Rider has not reached your location yet. Wait for the rider to arrive to see the OTP."
+      "Rider is still at the restaurant. Wait for them to pick up your order to see the OTP."
     );
   }
 
@@ -910,9 +914,9 @@ export async function resyncState(userId, role) {
 
     if (order) {
       const out = normalizeOrderForClient(order);
-      // Re-add handover OTP if in drop phase for resync convenience
+      // Re-add handover OTP if order is picked up
       if (
-        order.deliveryState?.currentPhase === "at_drop" &&
+        (order.deliveryState?.currentPhase === "at_drop" || order.orderStatus === "picked_up") &&
         !order.deliveryVerification?.dropOtp?.verified &&
         order.deliveryOtp
       ) {
@@ -1144,6 +1148,26 @@ export async function submitOrderRatings(orderId, userId, dto) {
         restaurantRating: dto.restaurantRating,
         deliveryPartnerRating: hasDeliveryPartner ? dto.deliveryPartnerRating : null
     });
+}
+
+export async function updateOrderInstructions(orderId, userId, instructions) {
+  const identity = buildOrderIdentityFilter(orderId);
+  if (!identity) throw new ValidationError("Order id required");
+
+  const order = await FoodOrder.findOne({
+    ...identity,
+    userId: new mongoose.Types.ObjectId(userId),
+  });
+  if (!order) throw new NotFoundError("Order not found");
+  
+  const allowedStatuses = ['created', 'confirmed', 'preparing'];
+  if (!allowedStatuses.includes(order.orderStatus)) {
+    throw new ValidationError("Instructions can no longer be updated for this order");
+  }
+
+  order.note = String(instructions || "").trim();
+  await order.save();
+  return order;
 }
 
 // ----- Restaurant -----
