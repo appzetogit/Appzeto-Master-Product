@@ -34,6 +34,8 @@ const filterOptions = [
 
 // Mock data removed - using backend data only
 
+const CATEGORY_PAGE_FILTERS_STORAGE_KEY = "food-category-page-filters-v1"
+
 
 
 export default function CategoryPage() {
@@ -47,7 +49,6 @@ export default function CategoryPage() {
   const [activeFilters, setActiveFilters] = useState(new Set())
   const [favorites, setFavorites] = useState(new Set())
   const [sortBy, setSortBy] = useState(null)
-  const [selectedCuisine, setSelectedCuisine] = useState(null)
   const [isFilterOpen, setIsFilterOpen] = useState(false)
   const [activeFilterTab, setActiveFilterTab] = useState('sort')
   const [activeScrollSection, setActiveScrollSection] = useState('sort')
@@ -58,6 +59,7 @@ export default function CategoryPage() {
   const menuEnrichmentRequestRef = useRef(0)
   const approvedFoodsCacheRef = useRef(null)
   const approvedFoodsInFlightRef = useRef(null)
+  const hasRestoredCategoryFiltersRef = useRef(false)
 
   // State for categories from admin
   const [categories, setCategories] = useState([])
@@ -397,6 +399,166 @@ export default function CategoryPage() {
     } catch {
       return absolutePath
     }
+  }
+
+  const currentFilterStorageKey = useMemo(
+    () => slugify(selectedCategory || category || "all") || "all",
+    [selectedCategory, category]
+  )
+
+  const parseFirstNumber = (value) => {
+    if (typeof value === "number" && Number.isFinite(value)) return value
+    const match = String(value || "").match(/(\d+(?:\.\d+)?)/)
+    return match ? Number(match[1]) : null
+  }
+
+  const getComparableDeliveryTime = (row) => parseFirstNumber(row?.deliveryTime)
+
+  const getComparableDistance = (row) => {
+    const raw = String(row?.distance || "").trim().toLowerCase()
+    if (!raw) return null
+
+    const parsed = parseFirstNumber(raw)
+    if (parsed == null) return null
+    if (raw.includes("m") && !raw.includes("km")) {
+      return parsed / 1000
+    }
+    return parsed
+  }
+
+  const getComparablePrice = (row) => {
+    const raw = row?.categoryDishPrice ?? row?.featuredPrice ?? null
+    const parsed = typeof raw === "number" ? raw : parseFirstNumber(raw)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+
+  const getComparableRating = (row) => {
+    const parsed = typeof row?.rating === "number" ? row.rating : parseFirstNumber(row?.rating)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+
+  const matchesOfferText = (value, pattern) => pattern.test(String(value || ""))
+
+  const applyFiltersAndSorting = (rows) => {
+    let nextRows = Array.isArray(rows) ? [...rows] : []
+
+    if (activeFilters.has('under-30-mins')) {
+      nextRows = nextRows.filter((row) => {
+        const time = getComparableDeliveryTime(row)
+        return time != null && time <= 30
+      })
+    }
+
+    if (activeFilters.has('delivery-under-45')) {
+      nextRows = nextRows.filter((row) => {
+        const time = getComparableDeliveryTime(row)
+        return time != null && time <= 45
+      })
+    }
+
+    if (activeFilters.has('rating-35-plus')) {
+      nextRows = nextRows.filter((row) => {
+        const rating = getComparableRating(row)
+        return rating != null && rating >= 3.5
+      })
+    }
+
+    if (activeFilters.has('rating-4-plus')) {
+      nextRows = nextRows.filter((row) => {
+        const rating = getComparableRating(row)
+        return rating != null && rating >= 4.0
+      })
+    }
+
+    if (activeFilters.has('rating-45-plus')) {
+      nextRows = nextRows.filter((row) => {
+        const rating = getComparableRating(row)
+        return rating != null && rating >= 4.5
+      })
+    }
+
+    if (activeFilters.has('distance-under-1km')) {
+      nextRows = nextRows.filter((row) => {
+        const distance = getComparableDistance(row)
+        return distance != null && distance <= 1
+      })
+    }
+
+    if (activeFilters.has('distance-under-2km')) {
+      nextRows = nextRows.filter((row) => {
+        const distance = getComparableDistance(row)
+        return distance != null && distance <= 2
+      })
+    }
+
+    if (activeFilters.has('price-under-200')) {
+      nextRows = nextRows.filter((row) => {
+        const price = getComparablePrice(row)
+        return price != null && price <= 200
+      })
+    }
+
+    if (activeFilters.has('under-250')) {
+      nextRows = nextRows.filter((row) => {
+        const price = getComparablePrice(row)
+        return price != null && price <= 250
+      })
+    }
+
+    if (activeFilters.has('price-under-500')) {
+      nextRows = nextRows.filter((row) => {
+        const price = getComparablePrice(row)
+        return price != null && price <= 500
+      })
+    }
+
+    if (activeFilters.has('flat-50-off')) {
+      nextRows = nextRows.filter((row) => matchesOfferText(row?.offer, /50\s*%/i))
+    }
+
+    if (activeFilters.has('price-match')) {
+      nextRows = nextRows.filter((row) =>
+        matchesOfferText(row?.offer, /price\s*match/i) ||
+        matchesOfferText(row?.priceRange, /price\s*match/i) ||
+        matchesOfferText(row?.categoryDish?.description, /price\s*match/i)
+      )
+    }
+
+    if (deferredSearchQuery.trim()) {
+      const query = deferredSearchQuery.toLowerCase()
+      nextRows = nextRows.filter((row) =>
+        row.name?.toLowerCase().includes(query) ||
+        row.cuisine?.toLowerCase().includes(query) ||
+        row.featuredDish?.toLowerCase().includes(query) ||
+        row.categoryDishName?.toLowerCase().includes(query)
+      )
+    }
+
+    if (sortBy) {
+      nextRows.sort((left, right) => {
+        if (sortBy === 'price-low' || sortBy === 'price-high') {
+          const leftPrice = getComparablePrice(left)
+          const rightPrice = getComparablePrice(right)
+          if (leftPrice == null && rightPrice == null) return 0
+          if (leftPrice == null) return 1
+          if (rightPrice == null) return -1
+          return sortBy === 'price-low' ? leftPrice - rightPrice : rightPrice - leftPrice
+        }
+
+        if (sortBy === 'rating-high' || sortBy === 'rating-low') {
+          const leftRating = getComparableRating(left)
+          const rightRating = getComparableRating(right)
+          if (leftRating == null && rightRating == null) return 0
+          if (leftRating == null) return 1
+          if (rightRating == null) return -1
+          return sortBy === 'rating-high' ? rightRating - leftRating : leftRating - rightRating
+        }
+
+        return 0
+      })
+    }
+
+    return uniqueByRestaurant(nextRows)
   }
 
   // Fetch categories from admin API
@@ -879,6 +1041,46 @@ export default function CategoryPage() {
   }, [category, categories])
 
   useEffect(() => {
+    if (typeof window === "undefined" || !currentFilterStorageKey) return
+
+    hasRestoredCategoryFiltersRef.current = false
+
+    try {
+      const raw = window.localStorage.getItem(CATEGORY_PAGE_FILTERS_STORAGE_KEY)
+      if (!raw) return
+
+      const stored = JSON.parse(raw)
+      const categoryState = stored?.[currentFilterStorageKey]
+      if (!categoryState || typeof categoryState !== "object") return
+
+      setSortBy(categoryState.sortBy || null)
+      setActiveFilters(new Set(Array.isArray(categoryState.activeFilters) ? categoryState.activeFilters : []))
+    } catch {
+      setSortBy(null)
+      setActiveFilters(new Set())
+    } finally {
+      hasRestoredCategoryFiltersRef.current = true
+    }
+  }, [currentFilterStorageKey])
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !currentFilterStorageKey) return
+    if (!hasRestoredCategoryFiltersRef.current) return
+
+    try {
+      const raw = window.localStorage.getItem(CATEGORY_PAGE_FILTERS_STORAGE_KEY)
+      const stored = raw ? JSON.parse(raw) : {}
+      stored[currentFilterStorageKey] = {
+        sortBy,
+        activeFilters: Array.from(activeFilters),
+      }
+      window.localStorage.setItem(CATEGORY_PAGE_FILTERS_STORAGE_KEY, JSON.stringify(stored))
+    } catch {
+      // Ignore storage failures and keep in-memory filters working.
+    }
+  }, [currentFilterStorageKey, sortBy, activeFilters])
+
+  useEffect(() => {
     const rail = categoryScrollRef.current
     if (!rail) return
 
@@ -998,34 +1200,8 @@ export default function CategoryPage() {
       }
     }
 
-    // Apply filters
-    if (activeFilters.has('under-30-mins')) {
-      filtered = filtered.filter(r => {
-        if (!r.deliveryTime) return false
-        const timeMatch = r.deliveryTime.match(/(\d+)/)
-        return timeMatch && parseInt(timeMatch[1]) <= 30
-      })
-    }
-    if (activeFilters.has('rating-4-plus')) {
-      filtered = filtered.filter(r => r.rating && r.rating >= 4.0)
-    }
-    if (activeFilters.has('flat-50-off')) {
-      filtered = filtered.filter(r => r.offer && r.offer.includes('50%'))
-    }
-
-    // Filter by search
-    if (deferredSearchQuery.trim()) {
-      const query = deferredSearchQuery.toLowerCase()
-      filtered = filtered.filter(r =>
-        r.name?.toLowerCase().includes(query) ||
-        r.cuisine?.toLowerCase().includes(query) ||
-        r.featuredDish?.toLowerCase().includes(query) ||
-        r.categoryDishName?.toLowerCase().includes(query)
-      )
-    }
-
-    return uniqueByRestaurant(filtered)
-  }, [selectedCategory, activeFilters, deferredSearchQuery, restaurantsData, categoryKeywords, vegMode, approvedFoodsData])
+    return applyFiltersAndSorting(filtered)
+  }, [selectedCategory, activeFilters, deferredSearchQuery, restaurantsData, categoryKeywords, vegMode, approvedFoodsData, sortBy])
 
   const filteredAllRestaurants = useMemo(() => {
     const sourceData = restaurantsData.length > 0 ? restaurantsData : []
@@ -1074,37 +1250,8 @@ export default function CategoryPage() {
       }
     }
 
-    // Apply filters
-    if (activeFilters.has('under-30-mins')) {
-      filtered = filtered.filter(r => {
-        if (!r.deliveryTime) return false
-        const timeMatch = r.deliveryTime.match(/(\d+)/)
-        return timeMatch && parseInt(timeMatch[1]) <= 30
-      })
-    }
-    if (activeFilters.has('rating-4-plus')) {
-      filtered = filtered.filter(r => r.rating && r.rating >= 4.0)
-    }
-    if (activeFilters.has('under-250')) {
-      filtered = filtered.filter(r => r.featuredPrice && r.featuredPrice <= 250)
-    }
-    if (activeFilters.has('flat-50-off')) {
-      filtered = filtered.filter(r => r.offer && r.offer.includes('50%'))
-    }
-
-    // Filter by search
-    if (deferredSearchQuery.trim()) {
-      const query = deferredSearchQuery.toLowerCase()
-      filtered = filtered.filter(r =>
-        r.name?.toLowerCase().includes(query) ||
-        r.cuisine?.toLowerCase().includes(query) ||
-        r.featuredDish?.toLowerCase().includes(query) ||
-        r.categoryDishName?.toLowerCase().includes(query)
-      )
-    }
-
-    return uniqueByRestaurant(filtered)
-  }, [selectedCategory, activeFilters, deferredSearchQuery, restaurantsData, categoryKeywords, vegMode, approvedFoodsData])
+    return applyFiltersAndSorting(filtered)
+  }, [selectedCategory, activeFilters, deferredSearchQuery, restaurantsData, categoryKeywords, vegMode, approvedFoodsData, sortBy])
 
   const showRestaurantSkeleton = useDelayedLoading(
     isLoadingFilterResults || loadingRestaurants || (isEnrichingMenus && selectedCategory !== 'all' && filteredRecommended.length === 0),
@@ -1561,9 +1708,8 @@ export default function CategoryPage() {
                     setActiveFilters(new Set())
                     setSearchQuery("")
                     setSortBy(null)
-                    setSelectedCuisine(null)
                     // Trigger a gentle refresh to ensure data freshness
-                    const enrichmentRequestId = ++menuEnrichmentRequestRef.current
+                    menuEnrichmentRequestRef.current += 1
                     setIsEnrichingMenus(false)
                     setTimeout(() => setIsLoadingFilterResults(false), 500)
                   }}
@@ -1598,7 +1744,6 @@ export default function CategoryPage() {
                         setIsLoadingFilterResults(true)
                         setActiveFilters(new Set())
                         setSortBy(null)
-                        setSelectedCuisine(null)
                         setTimeout(() => setIsLoadingFilterResults(false), 500)
                       }}
                       className="text-[#EB590E] font-medium text-sm md:text-base hover:underline"
@@ -1617,7 +1762,6 @@ export default function CategoryPage() {
                         { id: 'rating', label: 'Rating', icon: Star },
                         { id: 'distance', label: 'Distance', icon: MapPin },
                         { id: 'price', label: 'Dish Price', icon: IndianRupee },
-                        { id: 'cuisine', label: 'Cuisine', icon: UtensilsCrossed },
                         { id: 'offers', label: 'Offers', icon: BadgePercent },
                         { id: 'trust', label: 'Trust', icon: ShieldCheck },
                       ].map((tab) => {
@@ -1820,31 +1964,6 @@ export default function CategoryPage() {
                         </div>
                       </div>
 
-                      {/* Cuisine Tab */}
-                      <div
-                        ref={el => filterSectionRefs.current['cuisine'] = el}
-                        data-section-id="cuisine"
-                        className="space-y-4 mb-8"
-                      >
-                        <h3 className="text-lg md:text-xl font-semibold text-gray-900 dark:text-white mb-4">Cuisine</h3>
-                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 md:gap-4">
-                          {['Chinese', 'American', 'Japanese', 'Italian', 'Mexican', 'Indian', 'Asian', 'Seafood', 'Desserts', 'Cafe', 'Healthy'].map((cuisine) => (
-                            <button
-                              key={cuisine}
-                              onClick={() => setSelectedCuisine(selectedCuisine === cuisine ? null : cuisine)}
-                              className={`px-4 md:px-5 py-3 md:py-4 rounded-xl border text-center transition-colors ${selectedCuisine === cuisine
-                                ? 'border-[#EB590E] bg-[#FFF2EB] dark:bg-[#EB590E]/20'
-                                : 'border-gray-200 dark:border-gray-700 hover:border-[#EB590E]'
-                                }`}
-                            >
-                              <span className={`text-sm md:text-base font-medium ${selectedCuisine === cuisine ? 'text-[#EB590E]' : 'text-gray-700 dark:text-gray-300'}`}>
-                                {cuisine}
-                              </span>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-
                       {/* Offers Tab */}
                       <div
                         ref={el => filterSectionRefs.current['offers'] = el}
@@ -1910,12 +2029,12 @@ export default function CategoryPage() {
                           setIsLoadingFilterResults(false)
                         }, 500)
                       }}
-                      className={`flex-1 py-3 md:py-4 font-semibold rounded-xl transition-colors text-sm md:text-base ${activeFilters.size > 0 || sortBy || selectedCuisine
+                      className={`flex-1 py-3 md:py-4 font-semibold rounded-xl transition-colors text-sm md:text-base ${activeFilters.size > 0 || sortBy
                         ? 'bg-[#EB590E] text-white hover:bg-[#D94F0C]'
                         : 'bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400'
                         }`}
                     >
-                      {activeFilters.size > 0 || sortBy || selectedCuisine
+                      {activeFilters.size > 0 || sortBy
                         ? 'Show results'
                         : 'Show results'}
                     </button>
