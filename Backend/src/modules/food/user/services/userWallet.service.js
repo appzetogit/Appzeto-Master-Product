@@ -142,3 +142,49 @@ export const verifyWalletTopupPayment = async (userId, payload) => {
     return { wallet: await getUserWallet(userId) };
 };
 
+export const deductWalletBalance = async (userId, amountInr, description = 'Order payment', metadata = {}) => {
+    const amount = Number(amountInr);
+    if (!Number.isFinite(amount) || amount <= 0) {
+        throw new ValidationError('Invalid deduction amount');
+    }
+
+    const wallet = await ensureWallet(userId);
+    if (wallet.balance < amount) {
+        throw new ValidationError('Insufficient wallet balance');
+    }
+
+    wallet.transactions.unshift({
+        type: 'deduction',
+        amount,
+        status: 'Completed',
+        description,
+        metadata: { source: 'order_payment', ...(metadata || {}) }
+    });
+
+    wallet.balance = Number(wallet.balance) - amount;
+    await wallet.save();
+
+    return { wallet: await getUserWallet(userId) };
+};
+
+export const refundWalletBalance = async (userId, amountInr, description = 'Order refund', metadata = {}) => {
+    const amount = Number(amountInr);
+    if (!Number.isFinite(amount) || amount <= 0) {
+        return { wallet: await getUserWallet(userId) };
+    }
+
+    const wallet = await ensureWallet(userId);
+    wallet.transactions.unshift({
+        type: 'refund',
+        amount,
+        status: 'Completed',
+        description,
+        metadata: { source: 'order_refund', ...(metadata || {}) }
+    });
+
+    wallet.balance = Number(wallet.balance) + amount;
+    await wallet.save();
+
+    return { wallet: await getUserWallet(userId) };
+};
+

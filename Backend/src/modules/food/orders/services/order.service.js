@@ -34,6 +34,7 @@ import { addOrderJob } from '../../../../queues/producers/order.producer.js';
 import { fetchPolyline } from '../utils/googleMaps.js';
 import { getFirebaseDB } from '../../../../config/firebase.js';
 import * as foodTransactionService from './foodTransaction.service.js';
+import * as userWalletService from '../../user/services/userWallet.service.js';
 
 
 
@@ -823,6 +824,18 @@ export async function createOrder(userId, dto) {
 
   await order.save();
 
+  if (isWallet) {
+    try {
+      await userWalletService.deductWalletBalance(userId, order.pricing.total, `Payment for order #${order._id}`, { orderId: order._id });
+    } catch (err) {
+      // If wallet deduction fails (e.g. insufficient balance), we should not have saved the order or we should delete/cancel it.
+      // But since we already saved it, let's at least throw the error so the user knows.
+      // Ideally this should be in a transaction.
+      await FoodOrder.deleteOne({ _id: order._id });
+      throw err;
+    }
+  }
+
   await foodTransactionService.createInitialTransaction(order);
 
   if (paymentMethod === "razorpay" && order.payment?.razorpay?.orderId) {
@@ -1399,6 +1412,23 @@ export async function cancelOrder(orderId, userId, reason) {
       console.error(`Refund processing error for Order ${orderId}:`, err);
       order.payment.refund = { status: "failed", amount: order.pricing.total };
     }
+  } else if (
+    order.payment.status === "paid" &&
+    order.payment.method === "wallet" &&
+    (!order.payment.refund || order.payment.refund.status !== "processed")
+  ) {
+    try {
+      await userWalletService.refundWalletBalance(userId, order.pricing.total, `Refund for cancelled order #${order._id}`, { orderId: order._id });
+      order.payment.status = "refunded";
+      order.payment.refund = {
+        status: "processed",
+        amount: order.pricing.total,
+        processedAt: new Date()
+      };
+    } catch (err) {
+      console.error(`Wallet refund processing error for Order ${orderId}:`, err);
+      order.payment.refund = { status: "failed", amount: order.pricing.total };
+    }
   }
 
   await order.save();
@@ -1765,6 +1795,26 @@ export async function updateOrderStatusRestaurant(
         }
       } catch (err) {
         console.error(`Automated refund failed for Order ${order._id.toString()} (Restaurant Cancel):`, err);
+        order.payment.refund = { status: "failed", amount: order.pricing.total };
+      }
+      // Re-save order with updated payment status
+      await order.save();
+    } else if (
+      String(orderStatus).includes("cancel") &&
+      order.payment.status === "paid" &&
+      order.payment.method === "wallet" &&
+      (!order.payment.refund || order.payment.refund.status !== "processed")
+    ) {
+      try {
+        await userWalletService.refundWalletBalance(order.userId, order.pricing.total, `Refund for order #${order._id} cancelled by restaurant`, { orderId: order._id });
+        order.payment.status = "refunded";
+        order.payment.refund = {
+          status: "processed",
+          amount: order.pricing.total,
+          processedAt: new Date()
+        };
+      } catch (err) {
+        console.error(`Wallet refund processing error for Order ${order._id.toString()}:`, err);
         order.payment.refund = { status: "failed", amount: order.pricing.total };
       }
       // Re-save order with updated payment status
