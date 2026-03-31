@@ -9,6 +9,7 @@ import { firebaseAuth, ensureFirebaseInitialized } from "@food/firebase"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
+const USER_SESSION_PREFERENCE_KEYS = ["userVegMode", "food-under-250-filters"]
 
 
 export default function Logout() {
@@ -71,6 +72,7 @@ export default function Logout() {
       localStorage.removeItem("user_authenticated")
       localStorage.removeItem("user_user")
       localStorage.removeItem("cart")
+      USER_SESSION_PREFERENCE_KEYS.forEach((key) => localStorage.removeItem(key))
 
       // Clear sessionStorage
       sessionStorage.removeItem("userAuthData")
@@ -91,6 +93,7 @@ export default function Logout() {
       localStorage.removeItem("user_authenticated")
       localStorage.removeItem("user_user")
       localStorage.removeItem("cart")
+      USER_SESSION_PREFERENCE_KEYS.forEach((key) => localStorage.removeItem(key))
       sessionStorage.removeItem("userAuthData")
       window.dispatchEvent(new Event("userAuthChanged"))
 

@@ -6,6 +6,7 @@ const debugError = (...args) => {}
 
 
 const ProfileContext = createContext(null)
+const USER_SESSION_PREFERENCE_KEYS = ["userVegMode", "food-under-250-filters"]
 
 export function ProfileProvider({ children }) {
   const getAddressId = (address) => address?.id || address?._id || null
@@ -132,6 +133,15 @@ export function ProfileProvider({ children }) {
                              localStorage.getItem("user_accessToken")
       
       if (!isAuthenticated) {
+        setUserProfile(null)
+        setAddresses([])
+        setPaymentMethods([])
+        setFavorites([])
+        setDishFavorites([])
+        setVegMode(false)
+        USER_SESSION_PREFERENCE_KEYS.forEach((key) => {
+          localStorage.removeItem(key)
+        })
         setLoading(false)
         return
       }
