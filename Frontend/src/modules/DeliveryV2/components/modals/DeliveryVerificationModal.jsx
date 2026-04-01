@@ -331,7 +331,13 @@ const PaymentModal = ({ order, otpString, onComplete, onClose }) => {
 
 export const DeliveryVerificationModal = ({ order, onComplete, onClose }) => {
   const alreadyVerified = !!order?.deliveryVerification?.dropOtp?.verified;
-  const paymentMethod = (order?.paymentMethod || order?.payment?.method || 'cod').toLowerCase();
+  const paymentMethod = (
+    order?.paymentMethod ||
+    order?.payment?.method ||
+    order?.transaction?.payment?.method ||
+    order?.transaction?.paymentMethod ||
+    'cod'
+  ).toLowerCase();
   const isCod = ['cash', 'cod', 'cash_on_delivery', 'razorpay_qr'].includes(paymentMethod);
 
   // Determine initial step: skip OTP if already verified
