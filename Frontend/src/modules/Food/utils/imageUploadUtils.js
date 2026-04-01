@@ -56,7 +56,12 @@ const openTransientImageInput = ({
 /**
  * Utility to convert base64 image data from Flutter bridge into a File object
  */
-export const convertBase64ToFile = (base64Value, mimeType = "image/jpeg", fileNamePrefix = "upload") => {
+export const convertBase64ToFile = (
+  base64Value,
+  mimeType = "image/jpeg",
+  fileNamePrefix = "upload",
+  originalFileName = "",
+) => {
   if (!base64Value || typeof base64Value !== "string") {
     throw new Error("Invalid base64 image data")
   }
@@ -74,10 +79,17 @@ export const convertBase64ToFile = (base64Value, mimeType = "image/jpeg", fileNa
     }
 
     const byteArray = new Uint8Array(byteNumbers)
-    const extension = mimeType.includes("png") ? "png" : 
-                     mimeType.includes("webp") ? "webp" : "jpg"
+    const normalizedFileName = String(originalFileName || "").trim()
+    const extension = normalizedFileName.includes(".")
+      ? normalizedFileName.split(".").pop()
+      : mimeType.includes("png")
+        ? "png"
+        : mimeType.includes("webp")
+          ? "webp"
+          : "jpg"
     const blob = new Blob([byteArray], { type: mimeType })
-    return new File([blob], `${fileNamePrefix}-${Date.now()}.${extension}`, { type: mimeType })
+    const fileName = normalizedFileName || `${fileNamePrefix}-${Date.now()}.${extension}`
+    return new File([blob], fileName, { type: mimeType })
   } catch (error) {
     console.error("Base64 conversion failed:", error)
     throw new Error("Failed to process image data")
@@ -128,14 +140,20 @@ export const openCamera = async ({ onSelectFile, fileNamePrefix = "camera-photo"
       quality: quality,
     })
 
-    if (!result || !result.success) return
+    const isSuccess = result?.success === true || Boolean(result?.base64 || result?.base64String || result?.data?.base64)
+    if (!result || !isSuccess) return
 
     let selectedFile = null
-    if (result.base64) {
+    const base64Value = result?.base64 || result?.base64String || result?.data?.base64
+    const mimeType = result?.mimeType || result?.type || result?.data?.mimeType || "image/jpeg"
+    const originalFileName = result?.fileName || result?.name || result?.data?.fileName || ""
+
+    if (base64Value) {
       selectedFile = convertBase64ToFile(
-        result.base64,
-        result.mimeType || "image/jpeg",
-        fileNamePrefix
+        base64Value,
+        mimeType,
+        fileNamePrefix,
+        originalFileName,
       )
     } else if (result.file instanceof File || result.file instanceof Blob) {
       selectedFile = result.file
