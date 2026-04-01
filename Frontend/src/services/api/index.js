@@ -15,6 +15,14 @@ const stub = () =>
     config: {},
   });
 
+/** Search API - unified search for user app */
+export const searchAPI = {
+  unifiedSearch: (params = {}) =>
+    apiClient.get("/food/search/unified", { params }),
+  getAdminCategories: (params = {}) =>
+    apiClient.get("/food/search/categories/admin", { params }),
+};
+
 const createStubAPI = () =>
   new Proxy(
     {},
@@ -478,25 +486,11 @@ export const adminAPI = {
     apiClient.get(`/food/admin/orders/${String(orderId)}`, {
       contextModule: "admin",
     }),
-  assignDeliveryPartner: (orderId, deliveryPartnerId) =>
-    apiClient.patch(
-      `/food/admin/orders/${String(orderId)}/assign-delivery`,
-      { deliveryPartnerId: String(deliveryPartnerId) },
-      { contextModule: "admin" },
-    ),
   deleteOrder: (orderId) =>
     apiClient.delete(`/food/admin/orders/${String(orderId)}`, {
       contextModule: "admin",
     }),
   /** Dispatch settings – auto vs manual assign (global) */
-  getDispatchSettings: () =>
-    apiClient.get("/food/admin/settings/dispatch", { contextModule: "admin" }),
-  updateDispatchSettings: (dispatchMode) =>
-    apiClient.patch(
-      "/food/admin/settings/dispatch",
-      { dispatchMode },
-      { contextModule: "admin" },
-    ),
   /** Create restaurant (admin). Single API: POST /food/admin/restaurants. Body: JSON with image URLs. */
   createRestaurant: (body) =>
     apiClient.post("/food/admin/restaurants", body ?? {}, {
@@ -2174,6 +2168,10 @@ export const orderAPI = {
   })(),
   cancelOrder: (orderId, body = {}) =>
     apiClient.patch(`/food/orders/${String(orderId)}/cancel`, body ?? {}, {
+      contextModule: "user",
+    }),
+  updateOrderInstructions: (orderId, instructions) =>
+    apiClient.patch(`/food/orders/${String(orderId)}/instructions`, { instructions }, {
       contextModule: "user",
     }),
   submitOrderRatings: (orderId, body = {}) =>

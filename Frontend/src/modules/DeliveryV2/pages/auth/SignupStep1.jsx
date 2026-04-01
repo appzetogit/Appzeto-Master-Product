@@ -2,6 +2,7 @@ import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
 import { ArrowLeft } from "lucide-react"
 import { toast } from "sonner"
+import useDeliveryBackNavigation from "../../hooks/useDeliveryBackNavigation"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -9,6 +10,7 @@ const debugError = (...args) => {}
 
 export default function SignupStep1() {
   const navigate = useNavigate()
+  const goBack = useDeliveryBackNavigation()
   const [formData, setFormData] = useState(() => {
     const saved = sessionStorage.getItem("deliverySignupDetails")
     const base = {
@@ -23,6 +25,7 @@ export default function SignupStep1() {
       vehicleType: "bike",
       vehicleName: "",
       vehicleNumber: "",
+      drivingLicenseNumber: "",
       panNumber: "",
       aadharNumber: ""
     }
@@ -41,8 +44,14 @@ export default function SignupStep1() {
   const sanitizeLocationValue = (value) =>
     value.replace(/[^A-Za-z\s.-]/g, "").replace(/\s{2,}/g, " ")
 
+  const sanitizeNameValue = (value) =>
+    value.replace(/[^A-Za-z\s]/g, "").replace(/\s{2,}/g, " ")
+
   const isValidLocationValue = (value) =>
     /^[A-Za-z][A-Za-z\s.-]*[A-Za-z.]$/.test(value.trim())
+
+  const isValidNameValue = (value) =>
+    /^[A-Za-z][A-Za-z\s]*[A-Za-z]$/.test(value.trim())
 
   const isValidEmailValue = (value) => {
     const normalizedValue = value.trim()
@@ -72,9 +81,21 @@ export default function SignupStep1() {
     const { name, value } = e.target
     let updatedValue = value
 
-    // Auto-uppercase for Vehicle and PAN numbers
-    if (name === "vehicleNumber" || name === "panNumber") {
+    // Auto-uppercase for Vehicle, DL and PAN numbers
+    if (name === "vehicleNumber" || name === "panNumber" || name === "drivingLicenseNumber") {
       updatedValue = value.toUpperCase()
+    }
+
+    if (name === "name") {
+      updatedValue = sanitizeNameValue(value)
+    }
+
+    if (name === "vehicleNumber") {
+      updatedValue = updatedValue.slice(0, 10)
+    }
+
+    if (name === "drivingLicenseNumber") {
+      updatedValue = updatedValue.replace(/[^A-Z0-9]/g, "").slice(0, 16)
     }
 
     // Restrict Aadhaar to numeric only
@@ -108,6 +129,8 @@ export default function SignupStep1() {
 
     if (!formData.name.trim()) {
       newErrors.name = "Name is required"
+    } else if (!isValidNameValue(formData.name)) {
+      newErrors.name = "Name can contain letters only"
     }
 
     if (formData.email && !isValidEmailValue(formData.email)) {
@@ -134,6 +157,12 @@ export default function SignupStep1() {
       newErrors.vehicleNumber = "Vehicle number is required"
     } else if (!/^[A-Z]{2}[0-9]{1,2}[A-Z]{1,2}[0-9]{4}$/.test(formData.vehicleNumber)) {
       newErrors.vehicleNumber = "Invalid Indian vehicle number format (e.g., MH12AB1234)"
+    }
+
+    if (!formData.drivingLicenseNumber.trim()) {
+      newErrors.drivingLicenseNumber = "Driving license number is required"
+    } else if (!/^[A-Z]{2}[0-9]{2}[0-9]{4}[0-9]{7}$/.test(formData.drivingLicenseNumber)) {
+      newErrors.drivingLicenseNumber = "Invalid DL format (e.g., MH1220110012345)"
     }
 
     if (!formData.panNumber.trim()) {
@@ -175,6 +204,7 @@ export default function SignupStep1() {
         vehicleType: formData.vehicleType || "bike",
         vehicleName: formData.vehicleName?.trim() || "",
         vehicleNumber: formData.vehicleNumber.trim(),
+        drivingLicenseNumber: formData.drivingLicenseNumber.trim().toUpperCase(),
         panNumber: formData.panNumber.trim().toUpperCase(),
         aadharNumber: formData.aadharNumber.replace(/\s/g, "")
       }
@@ -194,7 +224,7 @@ export default function SignupStep1() {
       {/* Header */}
       <div className="bg-white px-4 py-3 flex items-center gap-4 border-b border-gray-200">
         <button
-          onClick={() => navigate(-1)}
+          onClick={goBack}
           className="p-2 hover:bg-gray-100 rounded-full transition-colors"
         >
           <ArrowLeft className="w-5 h-5" />
@@ -220,6 +250,7 @@ export default function SignupStep1() {
               name="name"
               value={formData.name}
               onChange={handleChange}
+              inputMode="text"
               className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 ${errors.name ? "border-red-500" : "border-gray-300"
                 }`}
               placeholder="Enter your full name"
@@ -342,11 +373,30 @@ export default function SignupStep1() {
               name="vehicleNumber"
               value={formData.vehicleNumber}
               onChange={handleChange}
+              maxLength={10}
               className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 ${errors.vehicleNumber ? "border-red-500" : "border-gray-300"
                 }`}
               placeholder="e.g., MH12AB1234"
             />
             {errors.vehicleNumber && <p className="text-red-500 text-sm mt-1">{errors.vehicleNumber}</p>}
+          </div>
+
+          {/* Driving License Number */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Driving License Number <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              name="drivingLicenseNumber"
+              value={formData.drivingLicenseNumber}
+              onChange={handleChange}
+              maxLength={16}
+              className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 uppercase ${errors.drivingLicenseNumber ? "border-red-500" : "border-gray-300"
+                }`}
+              placeholder="e.g., MH1220110012345"
+            />
+            {errors.drivingLicenseNumber && <p className="text-red-500 text-sm mt-1">{errors.drivingLicenseNumber}</p>}
           </div>
 
           {/* PAN Number */}

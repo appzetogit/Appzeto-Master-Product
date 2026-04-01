@@ -9,6 +9,7 @@ import { getIO, rooms } from '../../../../config/socket.js';
 import { addOrderJob } from '../../../../queues/producers/order.producer.js';
 import {
   buildDeliverySocketPayload,
+  buildOrderIdentityFilter,
   haversineKm,
   notifyOwnerSafely,
   notifyOwnersSafely,
@@ -93,20 +94,16 @@ async function listNearbyOnlineDeliveryPartners(
 }
 
 export async function getDispatchSettings() {
-  let doc = await FoodSettings.findOne({ key: "dispatch" }).lean();
-  if (!doc) {
-    await FoodSettings.create({ key: "dispatch", dispatchMode: "manual" });
-    doc = await FoodSettings.findOne({ key: "dispatch" }).lean();
-  }
-  return { dispatchMode: doc?.dispatchMode || "manual" };
+  return { dispatchMode: "auto" };
 }
 
 export async function updateDispatchSettings(dispatchMode, adminId) {
+  // Always set to auto
   await FoodSettings.findOneAndUpdate(
     { key: "dispatch" },
     {
       $set: {
-        dispatchMode,
+        dispatchMode: "auto",
         updatedBy: { role: "ADMIN", adminId, at: new Date() },
       },
     },
@@ -156,18 +153,11 @@ export async function tryAutoAssign(orderId, options = {}) {
             logger.info(
               `[DeliveryDispatch] Emitting new_order_available to ${roomName} for order ${order._id.toString()} (distanceKm=${p.distanceKm ?? 'n/a'})`,
             );
-            io.to(roomName).emit('new_order_available', {
-              ...payload,
-              pickupDistanceKm: p.distanceKm,
-            });
-            logger.info(
-              `[DeliveryDispatch] Emitting play_notification_sound to ${roomName} for order ${order._id.toString()} (broadcast fallback)`,
-            );
-            io.to(roomName).emit('play_notification_sound', {
-              orderId: payload.orderId,
-              orderMongoId: payload.orderMongoId,
-            });
-          }
+              io.to(roomName).emit('new_order_available', {
+                ...payload,
+                pickupDistanceKm: p.distanceKm,
+              });
+            }
         }
 
         await notifyOwnersSafely(
@@ -200,30 +190,22 @@ export async function tryAutoAssign(orderId, options = {}) {
           logger.info(
             `[DeliveryDispatch] Emitting new_order to ${roomName} for order ${order._id.toString()} (distanceKm=${pPayload.distanceKm ?? 'n/a'})`,
           );
-          io.to(roomName).emit('new_order', pPayload);
-          logger.info(
-            `[DeliveryDispatch] Emitting play_notification_sound to ${roomName} for order ${order._id.toString()}`,
-          );
-          io.to(roomName).emit('play_notification_sound', {
-            orderId: payload.orderId,
-            orderMongoId: payload.orderMongoId,
-          });
-        }
+            io.to(roomName).emit('new_order', pPayload);
+          }
       } catch (err) {
         logger.warn(`Failed to notify partner ${p.partnerId}: ${err.message}`);
       }
     }
 
-    const best = eligible[0];
-    order.dispatch.status = 'assigned';
-    order.dispatch.deliveryPartnerId = best.partnerId;
-    order.dispatch.assignedAt = new Date();
-    order.dispatch.offeredTo.push({
-      partnerId: best.partnerId,
+    const offeredToEntries = eligible.map(p => ({
+      partnerId: p.partnerId,
       at: new Date(),
-      action: 'offered',
-    });
+      action: 'offered'
+    }));
 
+    order.dispatch.status = 'unassigned';
+    order.dispatch.deliveryPartnerId = null;
+    order.dispatch.offeredTo.push(...offeredToEntries);
     await order.save();
 
     try {
@@ -281,8 +263,9 @@ export async function processDispatchTimeout(orderId, partnerId) {
 }
 
 export async function resendDeliveryNotificationRestaurant(orderId, restaurantId) {
+  const identity = buildOrderIdentityFilter(orderId);
   const order = await FoodOrder.findOne({
-    _id: new mongoose.Types.ObjectId(orderId),
+    ...identity,
     restaurantId: new mongoose.Types.ObjectId(restaurantId),
   });
 

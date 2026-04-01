@@ -98,7 +98,7 @@ const paymentSchema = new mongoose.Schema(
 
 const dispatchSchema = new mongoose.Schema(
     {
-        modeAtCreation: { type: String, enum: ['auto', 'manual'], default: 'manual' },
+        modeAtCreation: { type: String, enum: ['auto'], default: 'auto' },
         status: {
             type: String,
             enum: ['unassigned', 'assigned', 'accepted', 'rejected', 'cancelled'],
@@ -182,7 +182,19 @@ const deliveryVerificationSchema = new mongoose.Schema(
 
 const orderSchema = new mongoose.Schema(
     {
-
+        order_id: {
+            type: String,
+            unique: true,
+            sparse: true,
+            index: true
+        },
+        /** Compatibility alias: satisfies rogue unique index 'orderId_1' found in legacy deployments. */
+        orderId: {
+            type: String,
+            unique: true,
+            sparse: true,
+            index: true
+        },
         userId: {
             type: mongoose.Schema.Types.ObjectId,
             ref: 'FoodUser',
@@ -294,12 +306,25 @@ orderSchema.index({ 'dispatch.deliveryPartnerId': 1, 'dispatch.status': 1, updat
 orderSchema.index({ 'payment.status': 1, createdAt: -1 });
 orderSchema.index({ 'payment.method': 1, createdAt: -1 });
 
+orderSchema.pre('save', async function (next) {
+    if (!this.order_id) {
+        const timestamp = Date.now().toString().slice(-4);
+        const random = Math.floor(100 + Math.random() * 900);
+        this.order_id = `FOD-${timestamp}${random}`;
+    }
+    // Synchronize camelCase alias to satisfy unique index 'orderId_1'
+    if (this.order_id) {
+        this.orderId = this.order_id;
+    }
+    next();
+});
+
 export const FoodOrder = mongoose.model('FoodOrder', orderSchema);
 
 const settingsSchema = new mongoose.Schema(
     {
         key: { type: String, required: true, unique: true, trim: true },
-        dispatchMode: { type: String, enum: ['auto', 'manual'], default: 'manual' },
+        dispatchMode: { type: String, enum: ['auto'], default: 'auto' },
         updatedBy: {
             role: { type: String },
             adminId: { type: mongoose.Schema.Types.ObjectId },

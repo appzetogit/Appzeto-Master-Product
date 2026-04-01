@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { 
   ArrowLeft, ChevronDown, Loader2, Gift, X, 
   CheckCircle2, Clock, Search, History
@@ -7,6 +6,7 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 import { deliveryAPI } from '@food/api';
 import { toast } from 'sonner';
+import useDeliveryBackNavigation from '../hooks/useDeliveryBackNavigation';
 
 /**
  * HistoryV2 - EXACT 1:1 Match with User Screenshot.
@@ -15,7 +15,7 @@ import { toast } from 'sonner';
  * Font: Poppins
  */
 export const HistoryV2 = () => {
-  const navigate = useNavigate();
+  const goBack = useDeliveryBackNavigation();
   const [activeTab, setActiveTab] = useState("daily");
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [selectedTripType, setSelectedTripType] = useState("ALL TRIPS");
@@ -116,17 +116,17 @@ export const HistoryV2 = () => {
   return (
     <div className="min-h-screen bg-white font-poppins pb-32">
        {/* 1. Header (Premium V2 Styled) */}
-       <div className="bg-white border-b border-gray-100 px-6 py-5 flex items-center justify-between sticky top-0 z-[100]">
+       <div className="bg-[#121212] border-b border-white/10 px-6 py-3 flex items-center justify-between sticky top-0 z-[100] backdrop-blur-2xl">
           <div className="flex items-center gap-4">
-            <button onClick={() => navigate(-1)} className="w-10 h-10 rounded-full bg-gray-50 flex items-center justify-center text-gray-900 border border-gray-100 active:scale-90 transition-all">
+            <button onClick={goBack} className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-white border border-white/10 active:scale-90 transition-all">
                <ArrowLeft className="w-5 h-5" />
             </button>
             <div>
-               <h1 className="text-xl font-black text-gray-950 uppercase tracking-tighter">Trip History</h1>
-               <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-0.5">Your delivery milestones</p>
+               <h1 className="text-xl font-black text-white uppercase tracking-tighter">Trip History</h1>
+               <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mt-0.5">Your delivery milestones</p>
             </div>
           </div>
-          <button onClick={() => setShowBonusModal(true)} className="w-10 h-10 rounded-xl bg-green-50 flex items-center justify-center text-[#10B981] border border-green-100 relative active:scale-90 transition-all">
+          <button onClick={() => setShowBonusModal(true)} className="w-10 h-10 rounded-xl bg-green-500/10 flex items-center justify-center text-[#10B981] border border-green-500/20 relative active:scale-90 transition-all">
              <Gift className="w-5 h-5" />
              {bonusTransactions.length > 0 && (
                 <span className="absolute -top-1 -right-1 w-5 h-5 bg-[#10B981] text-white text-[10px] font-bold rounded-full flex items-center justify-center border-2 border-white shadow-sm">
@@ -137,7 +137,7 @@ export const HistoryV2 = () => {
        </div>
 
        {/* 2. Selection Tabs (Matched to Image) */}
-       <div className="bg-white px-4 flex items-center gap-8 sticky top-[61px] z-[90]">
+       <div className="bg-white px-4 flex items-center gap-8 sticky top-[61px] z-[90] border-b border-gray-100">
           {['daily', 'weekly', 'monthly'].map((tab) => (
              <button
                key={tab}

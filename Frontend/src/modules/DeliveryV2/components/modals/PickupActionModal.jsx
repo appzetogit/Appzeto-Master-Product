@@ -215,6 +215,17 @@ export const PickupActionModal = ({
             </div>
           )}
 
+          {/* Delivery Instructions (User Note) */}
+          {order?.note && (
+            <div className="bg-orange-50 border border-orange-100 rounded-2xl p-4 flex gap-3 items-start">
+              <ChefHat className="w-5 h-5 text-orange-500 mt-0.5 shrink-0" />
+              <div>
+                <p className="text-[10px] font-bold text-orange-600 uppercase tracking-widest mb-1.5">User Instructions</p>
+                <p className="text-sm font-bold text-gray-800 leading-snug">"{order.note}"</p>
+              </div>
+            </div>
+          )}
+
           {/* Collapsible Order Summary */}
           <button 
             onClick={() => setShowItems(!showItems)}

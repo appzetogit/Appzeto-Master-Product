@@ -11,6 +11,7 @@ import { toast } from "sonner"
 import { openCamera, isFlutterBridgeAvailable } from "@food/utils/imageUploadUtils"
 import { deliveryAPI } from "@food/api"
 import { motion, AnimatePresence } from "framer-motion"
+import useDeliveryBackNavigation from "../../hooks/useDeliveryBackNavigation"
 
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
@@ -21,6 +22,7 @@ const debugError = (...args) => {}
  */
 export const ProfileDetailsV2 = () => {
   const navigate = useNavigate()
+  const goBack = useDeliveryBackNavigation()
   const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(true)
   const [vehicleNumber, setVehicleNumber] = useState("")
@@ -49,11 +51,13 @@ export const ProfileDetailsV2 = () => {
   const [isUpdatingBankDetails, setIsUpdatingBankDetails] = useState(false)
   const [isUploadingImage, setIsUploadingImage] = useState(false)
   const fileInputRef = useRef(null)
+  const profileCameraInputRef = useRef(null)
   const [uploadTarget, setUploadTarget] = useState(null) // 'profilePhoto' only for instant picker
   const [showDeletePopup, setShowDeletePopup] = useState(false)
   const [isDeletingImage, setIsDeletingImage] = useState(false)
   const [activePicker, setActivePicker] = useState(null) // { target: 'profilePhoto' | 'upiQrCode', ref: any, title: string }
   const drivingLicenseInputRef = useRef(null)
+  const upiQrCameraInputRef = useRef(null)
 
   // Fetch profile data
   useEffect(() => {
@@ -143,11 +147,52 @@ export const ProfileDetailsV2 = () => {
     ).trim()
   }
 
-  const ratingValue = Number(profile?.metrics?.rating)
-  const ratingCount = Number(profile?.metrics?.ratingCount || 0)
-  const ratingDisplay = Number.isFinite(ratingValue) ? `${ratingValue.toFixed(1)} (${ratingCount})` : "-"
+  const getDrivingLicenseNumber = () =>
+    String(
+      profile?.documents?.drivingLicense?.number ||
+      profile?.documents?.drivingLicense?.idNumber ||
+      profile?.documents?.drivingLicense?.documentNumber ||
+      profile?.drivingLicenseNumber ||
+      profile?.documents?.drivingLicenseNumber ||
+      "",
+    ).trim()
+
+  const parseNumericValue = (...values) => {
+    for (const value of values) {
+      const numeric = Number(value)
+      if (Number.isFinite(numeric) && numeric > 0) {
+        return numeric
+      }
+    }
+    return null
+  }
+
+  const ratingValue = parseNumericValue(
+    profile?.metrics?.rating,
+    profile?.ratings?.average,
+    profile?.averageRating,
+    profile?.rating,
+    profile?.stats?.averageRating,
+    profile?.analytics?.averageRating,
+  )
+
+  const ratingCount = Number(
+    profile?.metrics?.ratingCount ||
+    profile?.ratings?.count ||
+    profile?.totalRatings ||
+    profile?.reviewCount ||
+    profile?.reviewsCount ||
+    profile?.stats?.totalRatings ||
+    profile?.analytics?.totalRatings ||
+    0,
+  )
+
+  const ratingDisplay = ratingValue
+    ? `${ratingValue.toFixed(1)}${ratingCount > 0 ? ` (${ratingCount})` : ""}`
+    : "-"
+
   const getRiderLevel = () => {
-    if (!Number.isFinite(ratingValue) || ratingCount <= 0) return "New Rider"
+    if (!Number.isFinite(ratingValue) || ratingValue <= 0 || ratingCount <= 0) return "New Rider"
     if (ratingValue >= 4.8 && ratingCount >= 100) return "Champion"
     if (ratingValue >= 4.6 && ratingCount >= 50) return "Elite"
     if (ratingValue >= 4.3 && ratingCount >= 20) return "Pro"
@@ -176,13 +221,32 @@ export const ProfileDetailsV2 = () => {
   }
 
   const handleTakeCameraPhoto = (target) => {
-    openCamera({
-      onSelectFile: (file) => {
-        if (target === "profilePhoto") uploadProfileFile(file)
-        else if (target === "upiQrCode") uploadUpiQrFile(file)
-      },
-      fileNamePrefix: `profile-${target}`
-    })
+    if (isFlutterBridgeAvailable()) {
+      openCamera({
+        onSelectFile: (file) => {
+          if (target === "profilePhoto") {
+            setUploadTarget("profilePhoto")
+            uploadProfileFile(file)
+            return
+          }
+
+          if (target === "upiQrCode") {
+            uploadUpiQrFile(file)
+          }
+        },
+        fileNamePrefix: `profile-${target}`,
+      })
+      return
+    }
+
+    if (target === "profilePhoto") {
+      profileCameraInputRef.current?.click()
+      return
+    }
+
+    if (target === "upiQrCode") {
+      upiQrCameraInputRef.current?.click()
+    }
   }
 
   const handlePickFromGallery = (target, ref) => {
@@ -220,6 +284,15 @@ export const ProfileDetailsV2 = () => {
     if (fileInputRef.current) fileInputRef.current.value = ""
   }
 
+  const handleProfileCameraSelected = async (e) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      setUploadTarget("profilePhoto")
+      await uploadProfileFile(file)
+    }
+    if (profileCameraInputRef.current) profileCameraInputRef.current.value = ""
+  }
+
   const handleDeletePhoto = async () => {
     try {
       setIsDeletingImage(true)
@@ -241,10 +314,32 @@ export const ProfileDetailsV2 = () => {
 
   const handleUpiQrSelected = (e) => {
     const file = e.target.files?.[0]
-    if (file) {
-      setUpiQrFile(file)
-      setUpiQrPreview(URL.createObjectURL(file))
+    if (file) uploadUpiQrFile(file)
+    if (upiQrInputRef.current) upiQrInputRef.current.value = ""
+  }
+
+  const handleUpiQrCameraSelected = (e) => {
+    const file = e.target.files?.[0]
+    if (file) uploadUpiQrFile(file)
+    if (upiQrCameraInputRef.current) upiQrCameraInputRef.current.value = ""
+  }
+
+  const uploadUpiQrFile = (file) => {
+    if (!file) return
+
+    if (!String(file.type || "").startsWith("image/")) {
+      toast.error("Please select an image file")
+      return
     }
+
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("Image size should be less than 5MB")
+      return
+    }
+
+    setUpiQrFile(file)
+    setUpiQrPreview(URL.createObjectURL(file))
+    toast.success("UPI QR selected")
   }
 
   const submitBankDetails = async () => {
@@ -343,7 +438,7 @@ export const ProfileDetailsV2 = () => {
       {/* ─── HEADER ─── */}
       <div className="fixed top-0 inset-x-0 h-16 bg-white/80 backdrop-blur-xl border-b border-gray-100 z-50 px-4 flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <button onClick={() => navigate(-1)} className="p-2 hover:bg-gray-100 rounded-xl transition-all active:scale-90">
+          <button onClick={goBack} className="p-2 hover:bg-gray-100 rounded-xl transition-all active:scale-90">
             <ArrowLeft className="w-5 h-5 text-gray-700" />
           </button>
           <h1 className="text-lg font-black text-black uppercase tracking-tight leading-none">Profile</h1>
@@ -545,7 +640,7 @@ export const ProfileDetailsV2 = () => {
              {[
                { icon: FileText, label: "Aadhar Card", doc: profile?.documents?.aadhar },
                { icon: FileText, label: "PAN Card", doc: profile?.documents?.pan },
-               { icon: Truck, label: "Driving License", doc: profile?.documents?.drivingLicense }
+               { icon: Truck, label: "Driving License", doc: profile?.documents?.drivingLicense, number: getDrivingLicenseNumber() }
              ].map((item, i) => (
                <div key={i} className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm flex items-center justify-between">
                   <div className="flex items-center gap-4">
@@ -554,7 +649,7 @@ export const ProfileDetailsV2 = () => {
                         <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{item.label}</p>
                         <p className="text-xs font-bold text-gray-600">{getDocumentVerificationLabel(item.doc)}</p>
                         <p className="text-[11px] font-semibold text-gray-500 mt-0.5">
-                          {getDocumentNumber(item.doc) || "Number not added"}
+                          {item.number || getDocumentNumber(item.doc) || "Number not added"}
                         </p>
                      </div>
                   </div>
@@ -579,6 +674,15 @@ export const ProfileDetailsV2 = () => {
         className="hidden" 
         onChange={handleFileSelected} 
         style={{ display: 'none' }}
+      />
+      <input
+        ref={profileCameraInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={handleProfileCameraSelected}
+        style={{ display: "none" }}
       />
 
       {/* ─── MODALS ─── */}
@@ -790,6 +894,7 @@ export const ProfileDetailsV2 = () => {
                   </div>
                 )}
                 <input ref={upiQrInputRef} type="file" accept="image/*" className="hidden" onChange={handleUpiQrSelected} />
+                <input ref={upiQrCameraInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleUpiQrCameraSelected} />
                 <p className="text-[9px] text-purple-400 font-medium">Upload your UPI QR code from Google Pay, PhonePe, etc. to receive easy payouts.</p>
              </div>
           </div>

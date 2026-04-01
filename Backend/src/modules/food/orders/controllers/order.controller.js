@@ -113,6 +113,18 @@ export async function submitOrderRatingsController(req, res, next) {
     }
 }
 
+export async function updateOrderInstructionsController(req, res, next) {
+    try {
+        const userId = req.user?.userId;
+        const orderId = req.params.orderId;
+        const instructions = req.body.instructions;
+        const order = await orderService.updateOrderInstructions(orderId, userId, instructions);
+        return sendResponse(res, 200, 'Instructions updated successfully', { order });
+    } catch (err) {
+        next(err);
+    }
+}
+
 export async function getDispatchSettingsController(req, res, next) {
     try {
         const result = await orderService.getDispatchSettings();
