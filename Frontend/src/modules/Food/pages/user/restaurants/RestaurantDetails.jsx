@@ -1132,7 +1132,8 @@ function RestaurantDetailsContent() {
       restaurantId: validRestaurantId, // Use validated restaurantId
       description: item.description,
       originalPrice: item.originalPrice,
-      isVeg: item.isVeg !== false // Add isVeg property
+      isVeg: item.isVeg !== false, // Add isVeg property
+      preparationTime: item.preparationTime // Add preparationTime property
     }
 
     // Get source position for animation from event target
@@ -1229,15 +1230,10 @@ function RestaurantDetailsContent() {
     return name === "recommended for you" || name === "result for your search"
   }
 
-  // Menu categories - dynamically generated from restaurant menu sections
-  const menuCategories = (restaurant?.menuSections && Array.isArray(restaurant.menuSections))
-    ? restaurant.menuSections.map((section, index) => {
-      // Handle section name - check for valid non-empty string
-      let sectionTitle = section?.name || section?.title || "Unnamed Section"
+  const isRecommendedItem = (item) => {
+    return item.isRecommended === true && typeof item.isRecommended === "boolean"
+  }
 
-      const itemCount = section?.items?.length || 0
-      const subsectionCount = section?.subsections?.reduce((sum, sub) => sum + (sub?.items?.length || 0), 0) || 0
-      const totalCount = itemCount + subsectionCount
   const getSectionDisplayName = (section) => {
     if (isRecommendedSection(section)) {
       return "Recommended for you"
