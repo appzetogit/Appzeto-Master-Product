@@ -14,6 +14,9 @@ import { config } from './config/env.js';
 
 const app = express();
 
+// Trust first proxy (essential for express-rate-limit if behind a proxy)
+app.set('trust proxy', 1);
+
 // Request ID tracing (before other middlewares so all logs can use it)
 app.use(requestIdMiddleware);
 
