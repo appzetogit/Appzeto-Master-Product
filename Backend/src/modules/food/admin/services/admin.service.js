@@ -386,12 +386,36 @@ export async function getDashboardStats(query = {}) {
                             $cond: [{ $in: ['$orderStatus', PENDING_ORDER_STATUSES] }, 1, 0]
                         }
                     },
-                    revenueTotal: { $sum: { $ifNull: ['$pricing.total', 0] } },
-                    commissionTotal: { $sum: { $ifNull: ['$pricing.restaurantCommission', 0] } },
-                    platformFeeTotal: { $sum: { $ifNull: ['$pricing.platformFee', 0] } },
-                    deliveryFeeTotal: { $sum: { $ifNull: ['$pricing.deliveryFee', 0] } },
-                    gstTotal: { $sum: { $ifNull: ['$pricing.tax', 0] } },
-                    adminNetProfit: { $sum: { $ifNull: ['$platformProfit', 0] } }
+                    revenueTotal: { 
+                        $sum: { 
+                            $cond: [{ $eq: ['$orderStatus', 'delivered'] }, { $ifNull: ['$pricing.total', 0] }, 0] 
+                        } 
+                    },
+                    commissionTotal: { 
+                        $sum: { 
+                            $cond: [{ $eq: ['$orderStatus', 'delivered'] }, { $ifNull: ['$pricing.restaurantCommission', 0] }, 0] 
+                        } 
+                    },
+                    platformFeeTotal: { 
+                        $sum: { 
+                            $cond: [{ $eq: ['$orderStatus', 'delivered'] }, { $ifNull: ['$pricing.platformFee', 0] }, 0] 
+                        } 
+                    },
+                    deliveryFeeTotal: { 
+                        $sum: { 
+                            $cond: [{ $eq: ['$orderStatus', 'delivered'] }, { $ifNull: ['$pricing.deliveryFee', 0] }, 0] 
+                        } 
+                    },
+                    gstTotal: { 
+                        $sum: { 
+                            $cond: [{ $eq: ['$orderStatus', 'delivered'] }, { $ifNull: ['$pricing.tax', 0] }, 0] 
+                        } 
+                    },
+                    adminNetProfit: { 
+                        $sum: { 
+                            $cond: [{ $eq: ['$orderStatus', 'delivered'] }, { $ifNull: ['$platformProfit', 0] }, 0] 
+                        } 
+                    }
                 }
             }
         ]),
@@ -412,12 +436,17 @@ export async function getDashboardStats(query = {}) {
                         month: { $month: '$createdAt' }
                     },
                     orders: { $sum: 1 },
-                    revenue: { $sum: { $ifNull: ['$pricing.total', 0] } },
+                    revenue: { 
+                        $sum: { 
+                            $cond: [{ $eq: ['$orderStatus', 'delivered'] }, { $ifNull: ['$pricing.total', 0] }, 0] 
+                        } 
+                    },
                     commission: {
                         $sum: {
-                            $ifNull: [
-                                '$platformProfit',
-                                { $ifNull: ['$pricing.platformFee', 0] }
+                            $cond: [
+                                { $eq: ['$orderStatus', 'delivered'] },
+                                { $ifNull: ['$platformProfit', { $ifNull: ['$pricing.platformFee', 0] }] },
+                                0
                             ]
                         }
                     }

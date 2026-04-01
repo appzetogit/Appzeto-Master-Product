@@ -789,9 +789,36 @@ function RestaurantDetailsContent() {
                   })) || []
                 })))
 
-                const finalMenuSections = hasPreviousOrderForRestaurant
-                  ? [{ name: "Recommended for you", items: recommendedItems, subsections: [] }, ...menuSections]
-                  : menuSections
+                // Dynamically inject the specifically searched dish at the very top if targetDishId is present
+                let searchedDishSection = null
+                if (targetDishId) {
+                  const allItemsInMenu = []
+                  menuSections.forEach(s => {
+                    if (s.items) allItemsInMenu.push(...s.items)
+                    if (s.subsections) {
+                      s.subsections.forEach(ss => {
+                        if (ss.items) allItemsInMenu.push(...ss.items)
+                      })
+                    }
+                  })
+                  const matchedItem = allItemsInMenu.find(item => String(item.id || item._id || "").trim() === targetDishId)
+                  if (matchedItem) {
+                    searchedDishSection = { 
+                      name: "Result for your search", 
+                      items: [matchedItem], 
+                      subsections: [],
+                      isSearchResult: true 
+                    }
+                  }
+                }
+
+                let finalMenuSections = [...menuSections]
+                if (hasPreviousOrderForRestaurant) {
+                  finalMenuSections = [{ name: "Recommended for you", items: recommendedItems, subsections: [] }, ...finalMenuSections]
+                }
+                if (searchedDishSection) {
+                  finalMenuSections = [searchedDishSection, ...finalMenuSections]
+                }
 
                 setRestaurant(prev => ({
                   ...prev,
@@ -1192,21 +1219,16 @@ function RestaurantDetailsContent() {
 
   const isRecommendedSection = (section) => {
     const sectionName = section?.name || section?.title || ""
-    return typeof sectionName === "string" && sectionName.trim().toLowerCase() === "recommended for you"
+    if (typeof sectionName !== "string") return false
+    const name = sectionName.trim().toLowerCase()
+    return name === "recommended for you" || name === "result for your search"
   }
 
   // Menu categories - dynamically generated from restaurant menu sections
   const menuCategories = (restaurant?.menuSections && Array.isArray(restaurant.menuSections))
     ? restaurant.menuSections.map((section, index) => {
       // Handle section name - check for valid non-empty string
-      let sectionTitle = "Unnamed Section"
-      if (isRecommendedSection(section)) {
-        sectionTitle = "Recommended for you"
-      } else if (section?.name && typeof section.name === 'string' && section.name.trim()) {
-        sectionTitle = section.name.trim()
-      } else if (section?.title && typeof section.title === 'string' && section.title.trim()) {
-        sectionTitle = section.title.trim()
-      }
+      let sectionTitle = section?.name || section?.title || "Unnamed Section"
 
       const itemCount = section?.items?.length || 0
       const subsectionCount = section?.subsections?.reduce((sum, sub) => sum + (sub?.items?.length || 0), 0) || 0
