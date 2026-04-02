@@ -32,6 +32,7 @@ const INVENTORY_RECOMMENDED_KEY = "restaurant_inventory_recommended_map"
 const ADDON_FORM_STORAGE_KEY = "restaurant_addon_form_data"
 const INVENTORY_ACTIVE_TAB_KEY = "restaurant_inventory_active_tab"
 const INVENTORY_ADDON_FORM_KEY = "restaurant_inventory_addon_form"
+const INVENTORY_STOCK_RULES_KEY = "restaurant_inventory_stock_rules_v1"
 
 const MENU_FILTER_OPTIONS = [
   { value: "all", label: "All" },
@@ -72,6 +73,155 @@ const getApprovalDisplayMeta = (approvalStatus) => {
     label: "Approved",
     className: "bg-emerald-50 text-emerald-700 border border-emerald-200",
   }
+}
+
+const normalizeDayName = (value) =>
+  String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\./g, "")
+
+const parseRestaurantTimeToParts = (value) => {
+  const raw = String(value || "").trim()
+  if (!raw) return { hours: 9, minutes: 0 }
+
+  const hhmmMatch = raw.match(/^(\d{1,2}):(\d{2})$/)
+  if (hhmmMatch) {
+    return {
+      hours: Math.max(0, Math.min(23, Number(hhmmMatch[1]))),
+      minutes: Math.max(0, Math.min(59, Number(hhmmMatch[2]))),
+    }
+  }
+
+  const meridiemMatch = raw.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)$/i)
+  if (meridiemMatch) {
+    let hours = Number(meridiemMatch[1])
+    const minutes = Number(meridiemMatch[2] || 0)
+    const period = meridiemMatch[3].toLowerCase()
+    if (period === "pm" && hours !== 12) hours += 12
+    if (period === "am" && hours === 12) hours = 0
+    return {
+      hours: Math.max(0, Math.min(23, hours)),
+      minutes: Math.max(0, Math.min(59, minutes)),
+    }
+  }
+
+  return { hours: 9, minutes: 0 }
+}
+
+const buildSpecificTimeResumeAt = (hours) => {
+  const totalHours = Math.max(1, Number(hours) || 1)
+  const date = new Date()
+  date.setHours(date.getHours() + totalHours)
+  return date.toISOString()
+}
+
+const buildCustomResumeAt = (selectedDate, selectedTime) => {
+  if (!selectedDate || !selectedTime) return null
+
+  const date = new Date(selectedDate)
+  if (Number.isNaN(date.getTime())) return null
+
+  let hours = Number(selectedTime.hour || 0)
+  const minutes = Number(selectedTime.minute || 0)
+  const period = String(selectedTime.period || "am").toLowerCase()
+
+  if (period === "pm" && hours !== 12) hours += 12
+  if (period === "am" && hours === 12) hours = 0
+
+  date.setHours(hours, minutes, 0, 0)
+  return date.toISOString()
+}
+
+const buildNextBusinessDayResumeAt = (restaurantProfile) => {
+  const now = new Date()
+  const openDays = Array.isArray(restaurantProfile?.openDays)
+    ? restaurantProfile.openDays.map(normalizeDayName).filter(Boolean)
+    : []
+  const openingTime = parseRestaurantTimeToParts(
+    restaurantProfile?.openingTime || "09:00",
+  )
+
+  for (let offset = 1; offset <= 7; offset += 1) {
+    const candidate = new Date(now)
+    candidate.setDate(now.getDate() + offset)
+    const dayName = normalizeDayName(
+      candidate.toLocaleDateString("en-US", { weekday: "long" }),
+    )
+
+    if (openDays.length > 0 && !openDays.includes(dayName)) continue
+
+    candidate.setHours(openingTime.hours, openingTime.minutes, 0, 0)
+    return candidate.toISOString()
+  }
+
+  const fallback = new Date(now)
+  fallback.setDate(now.getDate() + 1)
+  fallback.setHours(openingTime.hours, openingTime.minutes, 0, 0)
+  return fallback.toISOString()
+}
+
+const buildStockRule = ({
+  selectedOption,
+  hours,
+  selectedDate,
+  selectedTime,
+  restaurantProfile,
+}) => {
+  const createdAt = new Date().toISOString()
+
+  if (selectedOption === "manual") {
+    return { mode: "manual", createdAt, resumeAt: null }
+  }
+
+  if (selectedOption === "next-business-day") {
+    return {
+      mode: "next-business-day",
+      createdAt,
+      resumeAt: buildNextBusinessDayResumeAt(restaurantProfile),
+    }
+  }
+
+  if (selectedOption === "custom-date-time") {
+    const resumeAt = buildCustomResumeAt(selectedDate, selectedTime)
+    return {
+      mode: "custom-date-time",
+      createdAt,
+      resumeAt,
+    }
+  }
+
+  return {
+    mode: "specific-time",
+    createdAt,
+    durationHours: Math.max(1, Number(hours) || 1),
+    resumeAt: buildSpecificTimeResumeAt(hours),
+  }
+}
+
+const getRuleStatusLabel = (rule) => {
+  if (!rule) return "No time set. Turn item in stock manually."
+  if (rule.mode === "manual") {
+    return "Manual off. Turn item in stock manually."
+  }
+
+  const resumeAt = new Date(rule.resumeAt || "")
+  if (Number.isNaN(resumeAt.getTime())) {
+    return "Out of stock"
+  }
+
+  const formatted = resumeAt.toLocaleString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  })
+
+  if (rule.mode === "specific-time") return `Out of stock until ${formatted}`
+  if (rule.mode === "next-business-day") return `Back next business day at ${formatted}`
+  if (rule.mode === "custom-date-time") return `Out of stock until ${formatted}`
+  return "Out of stock"
 }
 
 // Time Picker Wheel Component (copied from DaySlots.jsx)
@@ -626,6 +776,18 @@ export default function Inventory() {
   const [selectedTime, setSelectedTime] = useState({ hour: "2", minute: "30", period: "pm" })
   const [showCalendar, setShowCalendar] = useState(false)
   const [showTimePicker, setShowTimePicker] = useState(false)
+  const [restaurantProfile, setRestaurantProfile] = useState(null)
+  const [stockRules, setStockRules] = useState(() => {
+    try {
+      if (typeof window === "undefined") return {}
+      const raw = localStorage.getItem(INVENTORY_STOCK_RULES_KEY)
+      const parsed = raw ? JSON.parse(raw) : {}
+      return parsed && typeof parsed === "object" ? parsed : {}
+    } catch (error) {
+      debugWarn("Failed to load stock rules:", error)
+      return {}
+    }
+  })
 
   const categoryRefs = useRef({})
   const addonImageInputRef = useRef(null)
@@ -668,6 +830,24 @@ export default function Inventory() {
 
   // Content container ref
   const contentContainerRef = useRef(null)
+
+  useEffect(() => {
+    const fetchRestaurantProfile = async () => {
+      try {
+        const response = await restaurantAPI.getCurrentRestaurant()
+        const profile =
+          response?.data?.data?.restaurant ||
+          response?.data?.restaurant ||
+          response?.data?.data ||
+          null
+        setRestaurantProfile(profile)
+      } catch (error) {
+        debugWarn("Failed to load restaurant profile for stock rules:", error)
+      }
+    }
+
+    fetchRestaurantProfile()
+  }, [])
 
   // Fetch menu items from API and convert to inventory format
   useEffect(() => {
@@ -764,9 +944,35 @@ export default function Inventory() {
               order: section.order !== undefined ? section.order : sectionIndex,
             }
           })
+
+          const nowMs = Date.now()
+          const withStockRules = convertedCategories.map((category) => {
+            const ruledItems = (category.items || []).map((item) => {
+              const rule = stockRules?.[String(item.id)] || null
+              const isActiveRule =
+                rule &&
+                (rule.mode === "manual" ||
+                  (rule.resumeAt && new Date(rule.resumeAt).getTime() > nowMs))
+
+              if (!isActiveRule) return item
+              return {
+                ...item,
+                inStock: false,
+                isAvailable: false,
+                stockRule: rule,
+              }
+            })
+
+            return {
+              ...category,
+              items: ruledItems,
+              itemCount: ruledItems.length,
+              inStock: ruledItems.length > 0 ? ruledItems.every((item) => item.inStock) : true,
+            }
+          })
           
-          setCategories(convertedCategories)
-          setExpandedCategories(convertedCategories.map(c => c.id))
+          setCategories(withStockRules)
+          setExpandedCategories(withStockRules.map(c => c.id))
         } else {
           // Empty menu - start fresh
           setCategories([])
@@ -1049,6 +1255,80 @@ export default function Inventory() {
     }
   }, [categories])
 
+  useEffect(() => {
+    try {
+      if (typeof window === "undefined") return
+      localStorage.setItem(INVENTORY_STOCK_RULES_KEY, JSON.stringify(stockRules))
+    } catch (error) {
+      debugWarn("Failed to save stock rules:", error)
+    }
+  }, [stockRules])
+
+  useEffect(() => {
+    if (!stockRules || Object.keys(stockRules).length === 0) return
+
+    const runExpiryCheck = async () => {
+      const nowMs = Date.now()
+      const expiredItemIds = Object.entries(stockRules)
+        .filter(([, rule]) => rule?.mode !== "manual")
+        .filter(([, rule]) => {
+          const resumeAtMs = new Date(rule?.resumeAt || "").getTime()
+          return Number.isFinite(resumeAtMs) && resumeAtMs <= nowMs
+        })
+        .map(([itemId]) => itemId)
+
+      if (expiredItemIds.length === 0) return
+
+      const affectedByCategory = new Map()
+      setCategories((prev) =>
+        prev.map((category) => {
+          let changed = false
+          const updatedItems = (category.items || []).map((item) => {
+            if (!expiredItemIds.includes(String(item.id))) return item
+            changed = true
+            affectedByCategory.set(String(item.id), category.id)
+            return {
+              ...item,
+              inStock: true,
+              isAvailable: true,
+              stockRule: null,
+            }
+          })
+
+          if (!changed) return category
+          return {
+            ...category,
+            items: updatedItems,
+            inStock: updatedItems.every((item) => item.inStock),
+          }
+        }),
+      )
+
+      setStockRules((prev) => {
+        const next = { ...prev }
+        expiredItemIds.forEach((itemId) => {
+          delete next[itemId]
+        })
+        return next
+      })
+
+      await Promise.all(
+        expiredItemIds.map(async (itemId) => {
+          try {
+            const categoryId = affectedByCategory.get(String(itemId))
+            await updateAvailabilityAPI(categoryId, itemId, true)
+          } catch (error) {
+            debugWarn("Failed to auto-enable scheduled inventory item:", error)
+          }
+        }),
+      )
+    }
+
+    runExpiryCheck()
+    const intervalId = setInterval(runExpiryCheck, 15000)
+    return () => clearInterval(intervalId)
+  }, [stockRules])
+
   // Calculate total items
   const totalItems = useMemo(
     () => categories.reduce((sum, cat) => sum + (cat.itemCount || (cat.items?.length || 0)), 0),
@@ -1225,9 +1505,22 @@ export default function Inventory() {
     }
   }
 
+  const getTargetItemIds = (type, categoryId, itemId) => {
+    const category = categories.find((entry) => entry.id === categoryId)
+    const items = Array.isArray(category?.items) ? category.items : []
+
+    if (type === "category") {
+      return items.map((item) => String(item.id)).filter(Boolean)
+    }
+
+    return itemId ? [String(itemId)] : []
+  }
+
   // Handle toggle click
   const handleToggleChange = async (type, categoryId, itemId, nextChecked) => {
     if (nextChecked) {
+      const targetItemIds = getTargetItemIds(type, categoryId, itemId)
+
       // Turning ON - apply immediately without popup
       setCategories(prev =>
         prev.map(category => {
@@ -1235,7 +1528,12 @@ export default function Inventory() {
           const items = category.items || []
 
           if (type === "category") {
-            const updatedItems = items.map(item => ({ ...item, inStock: true }))
+            const updatedItems = items.map(item => ({
+              ...item,
+              inStock: true,
+              isAvailable: true,
+              stockRule: null,
+            }))
             return {
               ...category,
               inStock: true,
@@ -1244,7 +1542,9 @@ export default function Inventory() {
           }
 
           const updatedItems = items.map(item =>
-            item.id === itemId ? { ...item, inStock: true } : item
+            item.id === itemId
+              ? { ...item, inStock: true, isAvailable: true, stockRule: null }
+              : item
           )
           // Don't automatically update category inStock when item is toggled
           // Category toggle should be independent
@@ -1254,6 +1554,14 @@ export default function Inventory() {
           }
         })
       )
+
+      setStockRules((prev) => {
+        const next = { ...prev }
+        targetItemIds.forEach((id) => {
+          delete next[id]
+        })
+        return next
+      })
 
       // Update menu API
       if (type === "category") {
@@ -1283,6 +1591,26 @@ export default function Inventory() {
     }
 
     const { type, categoryId, itemId } = toggleTarget
+    const targetItemIds = getTargetItemIds(type, categoryId, itemId)
+    const nextRule = buildStockRule({
+      selectedOption,
+      hours,
+      selectedDate,
+      selectedTime,
+      restaurantProfile,
+    })
+
+    if (selectedOption === "custom-date-time") {
+      if (!nextRule.resumeAt) {
+        toast.error("Please select a valid custom date and time")
+        return
+      }
+
+      if (new Date(nextRule.resumeAt).getTime() <= Date.now()) {
+        toast.error("Custom date & time must be in the future")
+        return
+      }
+    }
 
     // Apply OFF state for item or category
     setCategories(prev =>
@@ -1291,7 +1619,12 @@ export default function Inventory() {
         const items = category.items || []
 
         if (type === "category") {
-          const updatedItems = items.map(item => ({ ...item, inStock: false }))
+          const updatedItems = items.map(item => ({
+            ...item,
+            inStock: false,
+            isAvailable: false,
+            stockRule: nextRule,
+          }))
           return {
             ...category,
             inStock: false,
@@ -1300,7 +1633,9 @@ export default function Inventory() {
         }
 
         const updatedItems = items.map(item =>
-          item.id === itemId ? { ...item, inStock: false } : item
+          item.id === itemId
+            ? { ...item, inStock: false, isAvailable: false, stockRule: nextRule }
+            : item
         )
         // Don't automatically update category inStock when item is toggled
         // Category toggle should be independent
@@ -1310,6 +1645,14 @@ export default function Inventory() {
         }
       })
     )
+
+    setStockRules((prev) => {
+      const next = { ...prev }
+      targetItemIds.forEach((id) => {
+        next[id] = nextRule
+      })
+      return next
+    })
 
     // Update menu API
     if (type === "category") {
@@ -2012,7 +2355,7 @@ export default function Inventory() {
                                   <p className={`mt-1 text-xs font-medium ${
                                     item.inStock ? "text-green-600" : "text-rose-600"
                                   }`}>
-                                    {item.inStock ? "In stock" : "No time set. Turn item in stock manually."}
+                                    {item.inStock ? "In stock" : getRuleStatusLabel(item.stockRule)}
                                   </p>
                                   {item.approvalStatus === "rejected" && item.rejectionReason ? (
                                     <p className="mt-1 line-clamp-2 text-[11px] font-medium text-red-600">
