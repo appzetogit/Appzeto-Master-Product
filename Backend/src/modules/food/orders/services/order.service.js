@@ -233,10 +233,12 @@ export async function calculateOrder(userId, dto) {
 // ----- Create order -----
 export async function createOrder(userId, dto) {
   const restaurant = await FoodRestaurant.findById(dto.restaurantId)
-    .select("status restaurantName zoneId location")
+    .select("status restaurantName zoneId location isAcceptingOrders")
     .lean();
   if (!restaurant) throw new ValidationError("Restaurant not found");
   if (restaurant.status !== "approved")
+    throw new ValidationError("Restaurant not accepting orders");
+  if (restaurant.isAcceptingOrders === false)
     throw new ValidationError("Restaurant not accepting orders");
 
 

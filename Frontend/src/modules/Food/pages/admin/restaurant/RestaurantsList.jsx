@@ -103,9 +103,7 @@ export default function RestaurantsList() {
     ownerPhone: "",
     primaryContactNumber: "",
     email: "",
-    cuisinesText: "",
     estimatedDeliveryTime: "",
-    offer: "",
     openingTime: "",
     closingTime: "",
     isActive: true,
@@ -550,24 +548,17 @@ export default function RestaurantsList() {
     setRestaurantDetails(null)
 
     try {
-      // First, use original data if available (has all details)
-      if (restaurant.originalData) {
-        debugLog("Using original restaurant data:", restaurant.originalData)
-        setRestaurantDetails(restaurant.originalData)
-        setLoadingDetails(false)
-        return
-      }
-
-      // Always fetch full details from Admin API (single source of truth)
+      // Always fetch full details from Admin API so the modal matches the
+      // original joining-request data instead of the compact list payload.
       const restaurantId = restaurant._id || restaurant.id || restaurant.restaurantId
       if (!restaurantId || !adminAPI.getRestaurantById) {
-        setRestaurantDetails(restaurant)
+        setRestaurantDetails(restaurant.originalData || restaurant)
         return
       }
 
       const response = await adminAPI.getRestaurantById(restaurantId)
       if (!response?.data?.success) {
-        setRestaurantDetails(restaurant)
+        setRestaurantDetails(restaurant.originalData || restaurant)
         return
       }
 
@@ -577,11 +568,11 @@ export default function RestaurantsList() {
         return
       }
 
-      setRestaurantDetails(restaurant)
+      setRestaurantDetails(restaurant.originalData || restaurant)
     } catch (err) {
       debugError("Error fetching restaurant details:", err)
       // Use the restaurant data we already have
-      setRestaurantDetails(restaurant)
+      setRestaurantDetails(restaurant.originalData || restaurant)
     } finally {
       setLoadingDetails(false)
     }
@@ -714,14 +705,27 @@ export default function RestaurantsList() {
         ownerPhone: "",
         primaryContactNumber: "",
         email: "",
-        cuisinesText: "",
         estimatedDeliveryTime: "",
-        offer: "",
         openingTime: "",
         closingTime: "",
         isActive: true,
       }
     }
+
+    const openingTimeValue =
+      restaurant.openingTime ||
+      restaurant.deliveryTimings?.openingTime ||
+      restaurant.onboarding?.step2?.deliveryTimings?.openingTime ||
+      ""
+    const closingTimeValue =
+      restaurant.closingTime ||
+      restaurant.deliveryTimings?.closingTime ||
+      restaurant.onboarding?.step2?.deliveryTimings?.closingTime ||
+      ""
+    const estimatedDeliveryTimeValue =
+      restaurant.estimatedDeliveryTime ||
+      restaurant.onboarding?.step4?.estimatedDeliveryTime ||
+      ""
 
     return {
       name: restaurant.restaurantName || restaurant.name || "",
@@ -734,11 +738,9 @@ export default function RestaurantsList() {
       ownerPhone: restaurant.ownerPhone || restaurant.phone || "",
       primaryContactNumber: restaurant.primaryContactNumber || restaurant.ownerPhone || "",
       email: restaurant.email || restaurant.ownerEmail || "",
-      cuisinesText: Array.isArray(restaurant.cuisines) ? restaurant.cuisines.join(", ") : (restaurant.cuisines || ""),
-      estimatedDeliveryTime: restaurant.estimatedDeliveryTime || "",
-      offer: restaurant.offer || "",
-      openingTime: restaurant.openingTime || restaurant.deliveryTimings?.openingTime || "",
-      closingTime: restaurant.closingTime || restaurant.deliveryTimings?.closingTime || "",
+      estimatedDeliveryTime: estimatedDeliveryTimeValue,
+      openingTime: openingTimeValue,
+      closingTime: closingTimeValue,
       isActive: restaurant.isActive !== false,
     }
   }
@@ -748,7 +750,7 @@ export default function RestaurantsList() {
     setDetailsForm(buildDetailsFormFromRestaurant(source))
     setProfileImageFile(null)
     setProfileImagePreview(source?.profileImage?.url || source?.logo || "")
-    setIsEditingLocation(false)
+    setIsEditingLocation(true)
     setIsEditingDetails(true)
   }
 
@@ -799,12 +801,7 @@ export default function RestaurantsList() {
         ownerPhone: detailsForm.ownerPhone.trim(),
         primaryContactNumber: detailsForm.primaryContactNumber.trim(),
         email: detailsForm.email.trim(),
-        cuisines: detailsForm.cuisinesText
-          .split(",")
-          .map((item) => item.trim())
-          .filter(Boolean),
         estimatedDeliveryTime: detailsForm.estimatedDeliveryTime.trim(),
-        offer: detailsForm.offer.trim(),
         openingTime: normalizedOpeningTime,
         closingTime: normalizedClosingTime,
         isActive: detailsForm.isActive,
@@ -1426,10 +1423,6 @@ export default function RestaurantsList() {
                       <label className="block text-xs text-slate-500 mb-1">Primary Contact</label>
                       <input type="text" value={detailsForm.primaryContactNumber} onChange={(e) => setDetailsForm((prev) => ({ ...prev, primaryContactNumber: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm" />
                     </div>
-                    <div className="md:col-span-2">
-                      <label className="block text-xs text-slate-500 mb-1">Cuisines (comma separated)</label>
-                      <input type="text" value={detailsForm.cuisinesText} onChange={(e) => setDetailsForm((prev) => ({ ...prev, cuisinesText: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm" />
-                    </div>
                     <div>
                       <label className="block text-xs text-slate-500 mb-1">Opening Time</label>
                       <input type="text" value={detailsForm.openingTime} onChange={(e) => setDetailsForm((prev) => ({ ...prev, openingTime: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm" />
@@ -1441,10 +1434,6 @@ export default function RestaurantsList() {
                     <div>
                       <label className="block text-xs text-slate-500 mb-1">Estimated Delivery Time</label>
                       <input type="text" value={detailsForm.estimatedDeliveryTime} onChange={(e) => setDetailsForm((prev) => ({ ...prev, estimatedDeliveryTime: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm" />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-slate-500 mb-1">Offer</label>
-                      <input type="text" value={detailsForm.offer} onChange={(e) => setDetailsForm((prev) => ({ ...prev, offer: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm" />
                     </div>
                     <div className="md:col-span-2 flex items-center gap-3">
                       <input
@@ -1467,7 +1456,6 @@ export default function RestaurantsList() {
                 const profileImgUrl = typeof r?.profileImage === "string" ? r.profileImage : (r?.profileImage?.url || r?.logo || r?.restaurantImage)
                 const hasFlatAddress = r?.addressLine1 || r?.area || r?.city || r?.state || r?.pincode
                 const flatAddress = [r?.addressLine1, r?.addressLine2, r?.area, r?.city, r?.state, r?.pincode, r?.landmark].filter(Boolean).join(", ")
-                const hasFlatDocs = r?.panNumber || r?.panImage || r?.fssaiNumber || r?.accountNumber
                 const menuImages = Array.isArray(r?.menuImages) ? r.menuImages.filter(Boolean) : []
                 const cuisinesList =
                   (Array.isArray(r?.cuisines) && r.cuisines.length ? r.cuisines : null) ||
@@ -1484,6 +1472,37 @@ export default function RestaurantsList() {
                 const featuredDishVal = r?.featuredDish || r?.onboarding?.step4?.featuredDish || ""
                 const featuredPriceVal = r?.featuredPrice ?? r?.onboarding?.step4?.featuredPrice
                 const diningSettingsVal = r?.diningSettings || r?.onboarding?.step4?.diningSettings || null
+                const panDocumentUrl = typeof r?.panImage === "string" ? r.panImage : (r?.panImage?.url || r?.onboarding?.step3?.pan?.image?.url || "")
+                const gstDocumentUrl = typeof r?.gstImage === "string" ? r.gstImage : (r?.gstImage?.url || r?.onboarding?.step3?.gst?.image?.url || "")
+                const fssaiDocumentUrl = typeof r?.fssaiImage === "string" ? r.fssaiImage : (r?.fssaiImage?.url || r?.onboarding?.step3?.fssai?.image?.url || "")
+                const hasPanSection = Boolean(r?.panNumber || r?.nameOnPan || panDocumentUrl || r?.onboarding?.step3?.pan?.panNumber || r?.onboarding?.step3?.pan?.nameOnPan)
+                const hasGstSection = Boolean(
+                  r?.gstNumber ||
+                  r?.gstLegalName ||
+                  r?.gstAddress ||
+                  gstDocumentUrl ||
+                  r?.onboarding?.step3?.gst?.gstNumber ||
+                  r?.onboarding?.step3?.gst?.legalName ||
+                  r?.onboarding?.step3?.gst?.address
+                )
+                const hasFssaiSection = Boolean(
+                  r?.fssaiNumber ||
+                  r?.fssaiExpiry ||
+                  fssaiDocumentUrl ||
+                  r?.onboarding?.step3?.fssai?.registrationNumber ||
+                  r?.onboarding?.step3?.fssai?.expiryDate
+                )
+                const hasBankSection = Boolean(
+                  r?.accountNumber ||
+                  r?.ifscCode ||
+                  r?.accountHolderName ||
+                  r?.accountType ||
+                  r?.onboarding?.step3?.bank?.accountNumber ||
+                  r?.onboarding?.step3?.bank?.ifscCode ||
+                  r?.onboarding?.step3?.bank?.accountHolderName ||
+                  r?.onboarding?.step3?.bank?.accountType
+                )
+                const hasRegistrationDocuments = hasPanSection || hasGstSection || hasFssaiSection || hasBankSection
                 return (
                 <div className="space-y-10">
                   {/* Restaurant Basic Info */}
@@ -1577,26 +1596,12 @@ export default function RestaurantsList() {
                     <div>
                       <div className="flex items-center justify-between mb-4">
                         <h4 className="text-lg font-semibold text-slate-900">Location & Contact</h4>
-                        {!isEditingLocation ? (
-                          <button
-                            onClick={() => {
-                              const restaurantId = selectedRestaurant?._id || selectedRestaurant?.id || restaurantDetails?._id || restaurantDetails?.id
-                              if (!restaurantId) return
-                              navigate(`/admin/food/restaurants/edit/${restaurantId}`)
-                            }}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-700 text-xs font-semibold hover:bg-indigo-100 transition-colors"
-                          >
+                        {isEditingLocation ? (
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-700 text-xs font-semibold">
                             <Settings className="w-3.5 h-3.5" />
-                            Edit Restaurant
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => setIsEditingLocation(false)}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-slate-700 text-xs font-semibold hover:bg-slate-50 transition-colors"
-                          >
-                            Cancel
-                          </button>
-                        )}
+                            Editable Below
+                          </span>
+                        ) : null}
                       </div>
                       <div className="space-y-3">
                         {!isEditingLocation && (r?.location || hasFlatAddress) && (
@@ -1802,12 +1807,12 @@ export default function RestaurantsList() {
                   )}
 
                   {/* Registration Documents - flat (PAN, GST, FSSAI, Bank) or onboarding.step3 */}
-                  {(hasFlatDocs || r?.onboarding?.step3) && (
+                  {hasRegistrationDocuments && (
                     <div className="pt-6 border-t border-slate-200">
                       <h4 className="text-lg font-semibold text-slate-900 mb-4">Registration Documents</h4>
                       <div className="space-y-6">
                         {/* PAN – flat or onboarding.step3 */}
-                        {(r.panNumber || r.panImage || r?.onboarding?.step3?.pan) && (
+                        {hasPanSection && (
                           <div className="bg-slate-50 rounded-lg p-4">
                             <h5 className="font-semibold text-slate-900 mb-3 flex items-center gap-2">
                               <FileText className="w-4 h-4" />
@@ -1826,10 +1831,10 @@ export default function RestaurantsList() {
                                   <p className="font-medium text-slate-900">{r.nameOnPan || r.onboarding?.step3?.pan?.nameOnPan}</p>
                                 </div>
                               )}
-                              {(typeof r.panImage === "string" ? r.panImage : r?.panImage?.url || r?.onboarding?.step3?.pan?.image?.url) && (
+                              {panDocumentUrl && (
                                 <div className="md:col-span-2">
                                   <p className="text-xs text-slate-500 mb-2">PAN Document</p>
-                                  <a href={typeof r.panImage === "string" ? r.panImage : (r.panImage?.url || r.onboarding?.step3?.pan?.image?.url)} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-700">
+                                  <a href={panDocumentUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-700">
                                     <ImageIcon className="w-4 h-4" />
                                     <span>View PAN Document</span>
                                     <ExternalLink className="w-3 h-3" />
@@ -1841,19 +1846,21 @@ export default function RestaurantsList() {
                         )}
 
                         {/* GST – flat or onboarding.step3 */}
-                        {(r.gstRegistered != null || r.gstNumber || r?.onboarding?.step3?.gst) && (
+                        {hasGstSection && (
                           <div className="bg-slate-50 rounded-lg p-4">
                             <h5 className="font-semibold text-slate-900 mb-3 flex items-center gap-2">
                               <FileText className="w-4 h-4" />
                               GST Details
                             </h5>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                              <div>
-                                <p className="text-xs text-slate-500 mb-1">GST Registered</p>
-                                <p className="font-medium text-slate-900">
-                                  {r.gstRegistered != null ? (r.gstRegistered ? "Yes" : "No") : (r?.onboarding?.step3?.gst?.isRegistered ? "Yes" : "No")}
-                                </p>
-                              </div>
+                              {(r.gstRegistered != null || r?.onboarding?.step3?.gst?.isRegistered != null) && (
+                                <div>
+                                  <p className="text-xs text-slate-500 mb-1">GST Registered</p>
+                                  <p className="font-medium text-slate-900">
+                                    {r.gstRegistered != null ? (r.gstRegistered ? "Yes" : "No") : (r?.onboarding?.step3?.gst?.isRegistered ? "Yes" : "No")}
+                                  </p>
+                                </div>
+                              )}
                               {(r.gstNumber || r?.onboarding?.step3?.gst?.gstNumber) && (
                                 <div>
                                   <p className="text-xs text-slate-500 mb-1">GST Number</p>
@@ -1872,10 +1879,10 @@ export default function RestaurantsList() {
                                   <p className="font-medium text-slate-900">{r.gstAddress || r.onboarding?.step3?.gst?.address}</p>
                                 </div>
                               )}
-                              {(typeof r.gstImage === "string" ? r.gstImage : r?.gstImage?.url || r?.onboarding?.step3?.gst?.image?.url) && (
+                              {gstDocumentUrl && (
                                 <div className="md:col-span-2">
                                   <p className="text-xs text-slate-500 mb-2">GST Document</p>
-                                  <a href={typeof r.gstImage === "string" ? r.gstImage : (r.gstImage?.url || r.onboarding?.step3?.gst?.image?.url)} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-700">
+                                  <a href={gstDocumentUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-700">
                                     <ImageIcon className="w-4 h-4" />
                                     <span>View GST Document</span>
                                     <ExternalLink className="w-3 h-3" />
@@ -1887,7 +1894,7 @@ export default function RestaurantsList() {
                         )}
 
                         {/* FSSAI – flat or onboarding.step3 */}
-                        {(r.fssaiNumber || r.fssaiExpiry || r?.onboarding?.step3?.fssai) && (
+                        {hasFssaiSection && (
                           <div className="bg-slate-50 rounded-lg p-4">
                             <h5 className="font-semibold text-slate-900 mb-3 flex items-center gap-2">
                               <FileText className="w-4 h-4" />
@@ -1908,10 +1915,10 @@ export default function RestaurantsList() {
                                   </p>
                                 </div>
                               )}
-                              {(typeof r.fssaiImage === "string" ? r.fssaiImage : r?.fssaiImage?.url || r?.onboarding?.step3?.fssai?.image?.url) && (
+                              {fssaiDocumentUrl && (
                                 <div className="md:col-span-2">
                                   <p className="text-xs text-slate-500 mb-2">FSSAI Document</p>
-                                  <a href={typeof r.fssaiImage === "string" ? r.fssaiImage : (r.fssaiImage?.url || r.onboarding?.step3?.fssai?.image?.url)} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-700">
+                                  <a href={fssaiDocumentUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-700">
                                     <ImageIcon className="w-4 h-4" />
                                     <span>View FSSAI Document</span>
                                     <ExternalLink className="w-3 h-3" />
@@ -1923,7 +1930,7 @@ export default function RestaurantsList() {
                         )}
 
                         {/* Bank – flat or onboarding.step3 */}
-                        {(r.accountNumber || r.ifscCode || r?.onboarding?.step3?.bank) && (
+                        {hasBankSection && (
                           <div className="bg-slate-50 rounded-lg p-4">
                             <h5 className="font-semibold text-slate-900 mb-3 flex items-center gap-2">
                               <CreditCard className="w-4 h-4" />

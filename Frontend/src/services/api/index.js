@@ -1859,6 +1859,14 @@ export const deliveryAPI = {
     apiClient.post("/food/delivery/wallet/withdraw", body ?? {}, {
       contextModule: "delivery"
     }),
+  createDepositOrder: (amount) =>
+    apiClient.post("/food/delivery/wallet/deposit/order", { amount }, {
+      contextModule: "delivery"
+    }),
+  verifyDepositPayment: (body) =>
+    apiClient.post("/food/delivery/wallet/deposit/verify", body ?? {}, {
+      contextModule: "delivery"
+    }),
   /** Wallet transactions - from wallet response (no separate backend endpoint) */
   getWalletTransactions: (params) =>
     apiClient
