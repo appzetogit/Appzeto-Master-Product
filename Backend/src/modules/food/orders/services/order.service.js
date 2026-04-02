@@ -359,6 +359,8 @@ export async function createOrder(userId, dto) {
     deliveryAddress,
     customerName: dto.customerName || deliveryAddress.fullName || "",
     customerPhone: dto.customerPhone || deliveryAddress.phone || "",
+    pricing: normalizedPricing,
+    payment,
     orderStatus: "created",
     dispatch: { modeAtCreation: dispatchMode, status: "unassigned" },
     statusHistory: [
