@@ -1512,14 +1512,6 @@ export default function Home() {
                 ...extractImages(restaurant.coverImage),
               ];
 
-              // Fallback to menu images when cover images are absent.
-              const fallbackImages = extractImages(restaurant.menuImages);
-
-              // Some early records only have onboarding step2 media.
-              const onboardingMenuImages = extractImages(
-                restaurant.onboarding?.step2?.menuImageUrls,
-              );
-
               const profileImageCandidates = [
                 ...buildRestaurantImageCandidates(restaurant.profileImage),
                 ...buildRestaurantImageCandidates(
@@ -1530,14 +1522,20 @@ export default function Home() {
               ];
               const profileImageUrl = profileImageCandidates[0] || "";
 
-              // Prefer uploaded restaurant gallery first, then fall back to older image fields.
+              const menuFallbackImages =
+                coverImages.length === 0 && profileImageCandidates.length === 0
+                  ? [
+                      ...extractImages(restaurant.menuImages),
+                      ...extractImages(restaurant.onboarding?.step2?.menuImageUrls),
+                    ]
+                  : [];
+
               const allImages = Array.from(
                 new Set(
                   [
                     ...coverImages,
-                    ...fallbackImages,
-                    ...onboardingMenuImages,
                     ...profileImageCandidates,
+                    ...menuFallbackImages,
                   ].filter(Boolean),
                 ),
               );

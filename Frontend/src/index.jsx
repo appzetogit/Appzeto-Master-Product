@@ -5,6 +5,8 @@ import App from './app/App.jsx'
 import { isModuleAuthenticated } from './modules/Food/utils/auth.js'
 import './shared/styles/global.css'
 
+const NATIVE_LAST_ROUTE_KEY = 'native_last_route'
+
 // ─── Quick-spicy Food Module Initialization ───────────────────────────────────
 
 // Load food module business settings (favicon, title) — non-critical
@@ -40,12 +42,16 @@ function resolveNativeInitialRoute() {
 
   const rawPathname = String(window.location?.pathname || '')
   const pathname = rawPathname.replace(/\/index\.html$/i, '') || '/'
+  const storedRoute = String(localStorage.getItem(NATIVE_LAST_ROUTE_KEY) || '').trim()
 
   if (pathname.startsWith('/food/')) return pathname
   if (pathname.startsWith('/restaurant')) return `/food${pathname}`
   if (pathname.startsWith('/delivery')) return `/food${pathname}`
   if (pathname.startsWith('/user')) return `/food${pathname}`
   if (pathname.startsWith('/admin')) return pathname
+  if (storedRoute.startsWith('/food/') || storedRoute.startsWith('/admin')) {
+    return storedRoute
+  }
 
   if (isModuleAuthenticated('restaurant')) return '/food/restaurant'
   if (isModuleAuthenticated('delivery')) return '/food/delivery'
