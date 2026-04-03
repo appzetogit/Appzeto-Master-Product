@@ -113,6 +113,9 @@ export async function updateDispatchSettings(dispatchMode, adminId) {
 }
 
 export async function tryAutoAssign(orderId, options = {}) {
+  const attempt = options.attempt || 1;
+  const lockTimeout = 55000; // 55 seconds lock interval
+
   const order = await FoodOrder.findOneAndUpdate(
     {
       _id: new mongoose.Types.ObjectId(orderId),
@@ -121,7 +124,7 @@ export async function tryAutoAssign(orderId, options = {}) {
         {
           'dispatch.status': 'assigned',
           'dispatch.acceptedAt': { $exists: false },
-          'dispatch.assignedAt': { $lt: new Date(Date.now() - 55000) }
+          'dispatch.assignedAt': { $lt: new Date(Date.now() - lockTimeout) }
         }
       ],
       'dispatch.dispatchingAt': { $exists: false }
@@ -133,67 +136,100 @@ export async function tryAutoAssign(orderId, options = {}) {
   ).populate(['restaurantId', 'userId']);
 
   if (!order) {
-    logger.info(`tryAutoAssign: Skip for ${orderId} (already dispatching or accepted).`);
+    logger.info(`tryAutoAssign: Skip for ${orderId} (already dispatching, accepted, or multi-attempt lock active).`);
     return null;
   }
 
   try {
     const offeredIds = (order.dispatch?.offeredTo || []).map(o => o.partnerId.toString());
-    const searchOptions = { maxKm: 30, limit: 10 };
+    
+    // RADIUS EXPANSION LOGIC
+    // Attempt 1: 15km, Attempt 2: 25km, Attempt 3: 40km, Attempt 4+: 60km
+    let maxKm = 15;
+    if (attempt === 2) maxKm = 25;
+    if (attempt === 3) maxKm = 40;
+    if (attempt >= 4) maxKm = 60;
+
+    const searchOptions = { maxKm, limit: 15 };
     const { partners } = await listNearbyOnlineDeliveryPartners(order.restaurantId, searchOptions);
+    
+    // TIERED ALERT LOGIC
+    // Phase 2: Broadcast to all (Attempt 3+)
+    // Phase 3: Admin Alert (Attempt 5+ or roughly 5 mins)
+    const isPhase2 = attempt >= 3;
+    const isPhase3 = attempt >= 6; // ~6 minutes (60s * 6)
+
+    if (isPhase3) {
+      logger.error(`[CRITICAL] Order ${order._id} unassigned for ${attempt} mins. Triggering Admin Alert (Phase 3).`);
+      // Notify Admin via Push (Web/Mobile)
+      try {
+        await notifyOwnersSafely(
+          [{ ownerType: 'ADMIN', ownerId: 'GLOBAL' }], // Use GLOBAL or specific admin group if defined
+          {
+            title: 'Unassigned Order Crisis!',
+            body: `Order #${order.order_id || order._id} has not been picked up for 5+ minutes. Manual intervention required!`,
+            data: { type: 'admin_alert_unassigned', orderId: order._id.toString() }
+          }
+        );
+      } catch (err) {
+        logger.warn(`Admin notification failed: ${err.message}`);
+      }
+    }
+
     const eligible = partners.filter(p => !offeredIds.includes(p.partnerId.toString()));
 
     if (eligible.length === 0) {
-      try {
-        const io = getIO();
-        if (io) {
-          const payload = buildDeliverySocketPayload(order, order.restaurantId);
-          for (const p of partners) {
-            const roomName = rooms.delivery(p.partnerId);
-            logger.info(
-              `[DeliveryDispatch] Emitting new_order_available to ${roomName} for order ${order._id.toString()} (distanceKm=${p.distanceKm ?? 'n/a'})`,
-            );
-              io.to(roomName).emit('new_order_available', {
-                ...payload,
-                pickupDistanceKm: p.distanceKm,
-              });
-            }
+      logger.info(`tryAutoAssign: No NEW eligible partners in ${maxKm}km for order ${order._id}. Restarting hunt...`);
+      
+      // If we ran out of new eligible partners, we might want to re-offer to everyone (Phase 2 style)
+      const io = getIO();
+      if (io && partners.length > 0) {
+        const payload = buildDeliverySocketPayload(order, order.restaurantId);
+        for (const p of partners) {
+          const roomName = rooms.delivery(p.partnerId);
+          io.to(roomName).emit('new_order_available', { ...payload, pickupDistanceKm: p.distanceKm });
         }
-
-        await notifyOwnersSafely(
-          partners.slice(0, 10).map(p => ({ ownerType: 'DELIVERY_PARTNER', ownerId: p.partnerId })),
-          {
-            title: 'New delivery order available',
-            body: `Order #${order._id.toString()} is available near you.`,
-            data: {
-              type: 'new_order_available',
-              orderId: order._id.toString(),
-              orderMongoId: order._id.toString(),
-              link: '/delivery',
-            },
-          },
-        );
-      } catch (err) {
-        logger.warn(`Broadcast failed for order ${order._id.toString()}: ${err.message}`);
       }
+
+      // Re-queue itself to keep trying
+      await addOrderJob({
+        action: 'DISPATCH_TIMEOUT_CHECK',
+        orderMongoId: order._id.toString(),
+        orderId: order._id.toString(),
+        attempt: attempt + 1
+      }, { delay: 30000 }); // Retry faster (30s) if no one found
+
       return order;
     }
 
-    const payload = buildDeliverySocketPayload(order, order.restaurantId);
     const io = getIO();
+    const payload = buildDeliverySocketPayload(order, order.restaurantId);
 
-    for (const p of eligible) {
+    if (isPhase2) {
+      // PHASE 2 BROADCAST: Notify everyone remaining
+      logger.info(`[Phase 2] Broadcasting order ${order._id} to ${eligible.length} riders.`);
+      for (const p of eligible) {
+        const roomName = rooms.delivery(p.partnerId);
+        if (io) io.to(roomName).emit('new_order', { ...payload, pickupDistanceKm: p.distanceKm });
+      }
+    } else {
+      // PHASE 1: Target best rider only
+      const p = eligible[0];
       const roomName = rooms.delivery(p.partnerId);
+      logger.info(`[Phase 1] Offering order ${order._id} to best rider ${p.partnerId} (${p.distanceKm}km)`);
+      if (io) io.to(roomName).emit('new_order', { ...payload, pickupDistanceKm: p.distanceKm });
+      
       try {
-        if (io) {
-          const pPayload = { ...payload, distanceKm: p.distanceKm === 999 ? null : p.distanceKm };
-          logger.info(
-            `[DeliveryDispatch] Emitting new_order to ${roomName} for order ${order._id.toString()} (distanceKm=${pPayload.distanceKm ?? 'n/a'})`,
-          );
-            io.to(roomName).emit('new_order', pPayload);
-          }
+        await notifyOwnerSafely(
+          { ownerType: 'DELIVERY_PARTNER', ownerId: p.partnerId },
+          {
+            title: 'New order assigned!',
+            body: `You have 60 seconds to accept Order #${order.order_id || order._id}.`,
+            data: { type: 'new_order', orderId: order._id.toString() },
+          },
+        );
       } catch (err) {
-        logger.warn(`Failed to notify partner ${p.partnerId}: ${err.message}`);
+        logger.warn(`Push notification failed for partner ${p.partnerId}: ${err.message}`);
       }
     }
 
@@ -208,29 +244,12 @@ export async function tryAutoAssign(orderId, options = {}) {
     order.dispatch.offeredTo.push(...offeredToEntries);
     await order.save();
 
-    try {
-      await notifyOwnerSafely(
-        { ownerType: 'DELIVERY_PARTNER', ownerId: best.partnerId },
-        {
-          title: 'New order assigned!',
-          body: `You have 60 seconds to accept Order #${order._id.toString()}.`,
-          data: {
-            type: 'new_order',
-            orderId: order._id.toString(),
-            orderMongoId: order._id.toString(),
-            link: '/delivery',
-          },
-        },
-      );
-    } catch (err) {
-      logger.warn(`Failed to notify best partner ${best.partnerId}: ${err.message}`);
-    }
-
+    // Re-check in 60s
     await addOrderJob({
       action: 'DISPATCH_TIMEOUT_CHECK',
       orderMongoId: order._id.toString(),
       orderId: order._id.toString(),
-      partnerId: best.partnerId.toString(),
+      attempt: attempt + 1
     }, { delay: 60000 });
 
     return order;
@@ -241,6 +260,7 @@ export async function tryAutoAssign(orderId, options = {}) {
   }
 }
 
+
 export async function processDispatchTimeout(orderId, partnerId) {
   const order = await FoodOrder.findById(orderId);
   if (!order) return;
@@ -250,6 +270,7 @@ export async function processDispatchTimeout(orderId, partnerId) {
     !order.dispatch?.acceptedAt;
 
   if (stillAssigned) {
+    logger.info(`Dispatch timeout for partner ${partnerId} on order ${orderId}. Re-trying hunt...`);
     const offer = order.dispatch.offeredTo.find(
       o => String(o.partnerId) === String(partnerId) && o.action === 'offered'
     );
@@ -258,9 +279,16 @@ export async function processDispatchTimeout(orderId, partnerId) {
     order.dispatch.status = 'unassigned';
     order.dispatch.deliveryPartnerId = null;
     await order.save();
-    await tryAutoAssign(orderId);
+    
+    const attempt = (order.dispatch?.offeredTo?.length || 0) + 1;
+    await tryAutoAssign(orderId, { attempt });
+  } else if (order.dispatch?.status === 'unassigned') {
+    // If it's already unassigned (e.g. from a previous timeout), just keep hunting
+    const attempt = (order.dispatch?.offeredTo?.length || 0) + 1;
+    await tryAutoAssign(orderId, { attempt });
   }
 }
+
 
 export async function resendDeliveryNotificationRestaurant(orderId, restaurantId) {
   const identity = buildOrderIdentityFilter(orderId);

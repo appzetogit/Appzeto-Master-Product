@@ -46,7 +46,7 @@ export const PickupActionModal = ({
       if (res?.data?.success && res?.data?.data) {
         setBillImageUrl(res.data.data.url || res.data.data.secure_url);
         setBillImageUploaded(true);
-        toast.success('Bill image uploaded!');
+        // toast.success('Bill image uploaded!');
       } else {
         throw new Error('Upload failed');
       }

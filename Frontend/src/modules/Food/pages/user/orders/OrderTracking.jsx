@@ -86,7 +86,7 @@ const AnimatedCheckmark = ({ delay = 0 }) => (
 )
 
 // Real Delivery Map Component with User Live Location
-const DeliveryMap = ({ orderId, order, isVisible, fallbackCustomerCoords = null, userLiveCoords = null, userLocationAccuracy = null, onEtaUpdate = null }) => {
+const DeliveryMap = React.memo(({ orderId, order, isVisible, fallbackCustomerCoords = null, userLiveCoords = null, userLocationAccuracy = null, onEtaUpdate = null }) => {
   const toPointFromGeoJSON = (coords) => {
     if (!Array.isArray(coords) || coords.length < 2) return null;
     const lng = Number(coords[0]);
@@ -95,58 +95,37 @@ const DeliveryMap = ({ orderId, order, isVisible, fallbackCustomerCoords = null,
     return { lat, lng };
   };
 
-  // Get coordinates from order payload (actual saved locations)
-  const getRestaurantCoords = () => {
-    debugLog('?? Getting restaurant coordinates from order:', {
-      hasOrder: !!order,
-      restaurantLocation: order?.restaurantLocation,
-      coordinates: order?.restaurantLocation?.coordinates,
-      restaurantId: order?.restaurantId,
-      restaurantIdLocation: order?.restaurantId?.location,
-      restaurantIdCoordinates: order?.restaurantId?.location?.coordinates
-    });
-
+  // Memoize coordinates to prevent re-calculating on every parent render
+  const restaurantCoords = useMemo(() => {
     // Try multiple sources for restaurant coordinates
     let coords = null;
 
-    // Priority 1: restaurantLocation.coordinates (already extracted in transformed order)
     if (order?.restaurantLocation?.coordinates &&
       Array.isArray(order.restaurantLocation.coordinates) &&
       order.restaurantLocation.coordinates.length >= 2) {
       coords = order.restaurantLocation.coordinates;
-      debugLog('? Using restaurantLocation.coordinates:', coords);
     }
-    // Priority 2: restaurantId.location.coordinates (if restaurantId is populated)
     else if (order?.restaurantId?.location?.coordinates &&
       Array.isArray(order.restaurantId.location.coordinates) &&
       order.restaurantId.location.coordinates.length >= 2) {
       coords = order.restaurantId.location.coordinates;
-      debugLog('? Using restaurantId.location.coordinates:', coords);
     }
-    // Priority 3: restaurantId.location with latitude/longitude
     else if (order?.restaurantId?.location?.latitude && order?.restaurantId?.location?.longitude) {
       coords = [order.restaurantId.location.longitude, order.restaurantId.location.latitude];
-      debugLog('? Using restaurantId.location (lat/lng):', coords);
     }
 
     const fromCoords = toPointFromGeoJSON(coords);
-    if (fromCoords) {
-      const result = fromCoords;
-      debugLog('? Final restaurant coordinates (lat, lng):', result, 'from GeoJSON:', coords);
-      return result;
-    }
+    if (fromCoords) return fromCoords;
 
     const fallbackLat = Number(order?.restaurantId?.location?.latitude || order?.restaurant?.location?.latitude);
     const fallbackLng = Number(order?.restaurantId?.location?.longitude || order?.restaurant?.location?.longitude);
     if (Number.isFinite(fallbackLat) && Number.isFinite(fallbackLng)) {
       return { lat: fallbackLat, lng: fallbackLng };
     }
-
-    debugWarn('?? Restaurant coordinates not found in order payload');
     return null;
-  };
+  }, [order?.restaurantId, order?.restaurantLocation, order?.restaurant]);
 
-  const getCustomerCoords = () => {
+  const customerCoords = useMemo(() => {
     const coords = order?.address?.coordinates || order?.address?.location?.coordinates;
     const fromCoords = toPointFromGeoJSON(coords);
     if (fromCoords) return fromCoords;
@@ -158,32 +137,14 @@ const DeliveryMap = ({ orderId, order, isVisible, fallbackCustomerCoords = null,
     ) {
       return fallbackCustomerCoords;
     }
-
     return null;
-  };
-
-  const restaurantCoords = getRestaurantCoords();
-  const customerCoords = getCustomerCoords();
-
-  debugLog('?? Parents passing coordinates to map:', { restaurantCoords, customerCoords, orderId: order?._id });
+  }, [order?.address, fallbackCustomerCoords]);
 
   // Delivery boy data
-  const deliveryBoyData = order?.deliveryPartner ? {
+  const deliveryBoyData = useMemo(() => order?.deliveryPartner ? {
     name: order.deliveryPartner.name || 'Delivery Partner',
     avatar: order.deliveryPartner.avatar || null
-  } : null;
-
-  if (!isVisible || !orderId || !order || !restaurantCoords || !customerCoords) {
-    return (
-      <motion.div
-        className="relative min-h-[450px] bg-gradient-to-b from-gray-100 to-gray-200"
-        style={{ height: '450px' }}
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ duration: 0.5 }}
-      />
-    );
-  }
+  } : null, [order?.deliveryPartner]);
 
   // Firebase and backend write tracking under order.orderId (string) or mongoId; subscribe to all so we receive updates
   const orderTrackingIdsList = useMemo(() => [
@@ -194,13 +155,19 @@ const DeliveryMap = ({ orderId, order, isVisible, fallbackCustomerCoords = null,
     order?.id
   ].filter(Boolean), [order?.orderId, order?.mongoId, order?._id, orderId, order?.id]);
 
+  if (!isVisible || !orderId || !order || !restaurantCoords || !customerCoords) {
+    return (
+      <div
+        className="relative min-h-[450px] bg-gradient-to-b from-gray-100 to-gray-200"
+        style={{ height: '450px' }}
+      />
+    );
+  }
+
   return (
-    <motion.div
+    <div
       className="relative w-full min-h-[450px] overflow-visible"
       style={{ height: '450px' }}
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      transition={{ duration: 0.5 }}
     >
       <DeliveryTrackingMap
         orderId={orderId}
@@ -214,9 +181,9 @@ const DeliveryMap = ({ orderId, order, isVisible, fallbackCustomerCoords = null,
         order={order}
         onEtaUpdate={onEtaUpdate}
       />
-    </motion.div>
+    </div>
   );
-}
+});
 
 // Section item component
 const SectionItem = ({ icon: Icon, iconNode, title, subtitle, onClick, showArrow = true, rightContent }) => (
@@ -1347,45 +1314,47 @@ export default function OrderTracking() {
           </motion.button>
         </div>
 
-        {/* Status section */}
-        <div className="px-4 pb-4 text-center">
-          <motion.h1
-            className="text-2xl font-bold mb-3"
-            key={currentStatus.title}
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-          >
-            {currentStatus.title}
-          </motion.h1>
-
-          {/* Status pill */}
-          <motion.div
-            className="inline-flex items-center gap-2 bg-white/20 backdrop-blur-sm rounded-full px-4 py-2"
-            initial={{ scale: 0.9, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            transition={{ delay: 0.2 }}
-          >
-            <span className="text-sm">{currentStatus.subtitle}</span>
-            {orderStatus === 'preparing' && (
-              <>
-                <span className="w-1 h-1 rounded-full bg-white" />
-                <span className="text-sm text-orange-200">On time</span>
-              </>
-            )}
-            <motion.button
-              onClick={handleRefresh}
-              className="ml-1"
-              animate={{ rotate: isRefreshing ? 360 : 0 }}
-              transition={{ duration: 0.5 }}
+        {/* Status section - hidden for success milestones as requested */}
+        {!['at_pickup', 'ready', 'on_way', 'at_drop', 'delivered'].includes(orderStatus) && (
+          <div className="px-4 pb-4 text-center">
+            <motion.h1
+              className="text-2xl font-bold mb-3"
+              key={currentStatus.title}
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
             >
+              {currentStatus.title}
+            </motion.h1>
+
+            {/* Status pill */}
+            <motion.div
+              className="inline-flex items-center gap-2 bg-white/20 backdrop-blur-sm rounded-full px-4 py-2"
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              transition={{ delay: 0.2 }}
+            >
+              <span className="text-sm">{currentStatus.subtitle}</span>
+              {orderStatus === 'preparing' && (
+                <>
+                  <span className="w-1 h-1 rounded-full bg-white" />
+                  <span className="text-sm text-orange-200">On time</span>
+                </>
+              )}
+              <motion.button
+                onClick={handleRefresh}
+                className="ml-1"
+                animate={{ rotate: isRefreshing ? 360 : 0 }}
+                transition={{ duration: 0.5 }}
+              >
               <RefreshCw className="w-4 h-4" />
             </motion.button>
           </motion.div>
         </div>
+      )}
       </motion.div>
 
       {/* Map Section */}
-      {!isDeliveredOrder && (
+      {!isDeliveredOrder && orderStatus !== 'cancelled' && (
         <DeliveryMap
           orderId={orderId}
           order={order}
@@ -1693,7 +1662,7 @@ export default function OrderTracking() {
           </div>
         </motion.div>
 
-        {!isAdminAccepted && (
+        {!isAdminAccepted && orderStatus !== 'cancelled' && (
           <motion.div
             className="bg-white rounded-xl shadow-sm overflow-hidden"
             initial={{ opacity: 0, y: 20 }}

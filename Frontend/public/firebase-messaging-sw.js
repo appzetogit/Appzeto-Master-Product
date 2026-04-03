@@ -121,40 +121,40 @@ async function loadFirebaseWebConfig() {
   messaging.onBackgroundMessage(async (payload) => {
     pushDebugLog(PUSH_DEBUG_PREFIX, "Received Firebase background message", { payload });
     
-    // Always show system notification for background messages
-    const title = payload?.notification?.title || payload?.data?.title || "New Notification";
-    const body = payload?.notification?.body || payload?.data?.body || "";
-    const image =
-      payload?.notification?.image ||
-      payload?.data?.image ||
-      payload?.data?.imageUrl ||
-      undefined;
-    const notificationKey = getNotificationKey(payload);
-    
-    pushDebugLog(PUSH_DEBUG_PREFIX, "Showing service worker notification", {
-      title,
-      body,
-      image,
-      notificationKey,
-    });
-
-    self.registration.showNotification(title, {
-      body,
-      icon: "/favicon.ico",
-      image,
-      tag: notificationKey,
-      renotify: false,
-      silent: false,
-      requireInteraction: false,
-      vibrate: [200, 100, 200, 100, 300],
-      data: payload?.data || {},
-    });
-
-    // Still try to notify clients if they are open but hidden
     const visibleClient = await hasVisibleClientForTarget(payload);
+    
     if (!visibleClient) {
-      await notifyOpenClients(payload);
+      const title = payload?.notification?.title || payload?.data?.title || "New Notification";
+      const body = payload?.notification?.body || payload?.data?.body || "";
+      const image =
+        payload?.notification?.image ||
+        payload?.data?.image ||
+        payload?.data?.imageUrl ||
+        undefined;
+      const notificationKey = getNotificationKey(payload);
+      
+      pushDebugLog(PUSH_DEBUG_PREFIX, "Showing service worker notification", {
+        title,
+        body,
+        image,
+        notificationKey,
+      });
+  
+      self.registration.showNotification(title, {
+        body,
+        icon: "/favicon.ico",
+        image,
+        tag: notificationKey,
+        renotify: false,
+        silent: false,
+        requireInteraction: false,
+        vibrate: [200, 100, 200, 100, 300],
+        data: payload?.data || {},
+      });
     }
+
+    // Always notify clients regardless of visibility
+    await notifyOpenClients(payload);
   });
 })();
 

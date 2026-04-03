@@ -28,6 +28,7 @@ import {
   notifyOwnersSafely,
   pushStatusHistory,
   sanitizeOrderForExternal,
+  isStatusAdvance,
 } from './order.helpers.js';
 
 function emitOrderUpdate(order, deliveryPartnerId) {
@@ -54,46 +55,77 @@ function emitOrderUpdate(order, deliveryPartnerId) {
       io.to(rooms.user(order.userId)).emit('order_status_update', payload);
     }
 
-    let riderTitle = 'Order delivered!';
-    let riderBody = `Order #${order._id.toString()} has been marked as delivered.`;
+    // Only send push notifications for key delivery milestones
+    const status = order.orderStatus;
+    if (!['picked_up', 'reached_drop', 'delivered'].includes(status)) return;
+
+    let userTitle = '';
+    let userBody = '';
+    let riderTitle = '';
+    let riderBody = '';
+
+    const orderId = order._id.toString();
+
+    if (status === 'picked_up') {
+      userTitle = 'Order on the way!';
+      userBody = `Partner has picked up your order #${orderId} and is heading your way.`;
+      riderTitle = 'Order picked up!';
+      riderBody = `You have picked up order #${orderId}. Proceed to the customer location.`;
+    } else if (status === 'reached_drop') {
+      userTitle = 'Partner nearby!';
+      userBody = `Your delivery partner has reached your location for order #${orderId}.`;
+      riderTitle = 'Arrived at drop!';
+      riderBody = `You have reached the customer location for order #${orderId}.`;
+    } else if (status === 'delivered') {
+      userTitle = `Order #${orderId} delivered!`;
+      userBody = 'Hope you enjoyed your meal! Don\'t forget to rate your experience.';
+      riderTitle = 'Delivery successful!';
+      riderBody = `Order #${orderId} has been successfully delivered.`;
 
       if (order.payment?.method === 'cash' || order.paymentMethod === 'cash') {
-      riderTitle = 'Payment collected!';
+        riderTitle = 'Payment collected!';
         const amt = order.pricing?.total || order.amounts?.totalCustomerPaid || 0;
-        riderBody = `You have collected Rs ${amt} cash for Order #${order._id.toString()}.`;
+        riderBody = `You have collected Rs ${amt} cash for Order #${orderId}.`;
+      }
     }
 
-    void notifyOwnersSafely(
-      [
-        { ownerType: 'RESTAURANT', ownerId: order.restaurantId },
-        { ownerType: 'USER', ownerId: order.userId },
-      ],
-      {
-        title: `Order #${order._id.toString()} delivered!`,
-        body: 'Hope you enjoyed your meal!',
-        data: {
-          type: 'order_status_update',
-          orderId: order._id.toString(),
-          orderMongoId: order._id?.toString?.() || '',
-          orderStatus: 'delivered',
+    if (userTitle) {
+      void notifyOwnersSafely(
+        [
+          { ownerType: 'RESTAURANT', ownerId: order.restaurantId },
+          { ownerType: 'USER', ownerId: order.userId },
+        ],
+        {
+          title: userTitle,
+          body: userBody,
+          dataOnly: true,
+          data: {
+            type: 'order_status_update',
+            orderId,
+            orderMongoId: order._id?.toString?.() || '',
+            orderStatus: status,
+          },
         },
-      },
-    );
+      );
+    }
 
-    void notifyOwnerSafely(
-      { ownerType: 'DELIVERY_PARTNER', ownerId: deliveryPartnerId },
-      {
-        title: riderTitle,
-        body: riderBody,
-        data: {
-          type: 'order_completed',
-          orderId: order._id.toString(),
-          orderMongoId: order._id?.toString?.() || '',
-          paymentMethod: order.payment?.method || order.paymentMethod,
-          amountCollected: String(order.pricing?.total || order.amounts?.totalCustomerPaid || 0),
+    if (riderTitle) {
+      void notifyOwnerSafely(
+        { ownerType: 'DELIVERY_PARTNER', ownerId: deliveryPartnerId },
+        {
+          title: riderTitle,
+          body: riderBody,
+          dataOnly: true,
+          data: {
+            type: status === 'delivered' ? 'order_completed' : 'order_status_update',
+            orderId,
+            orderMongoId: order._id?.toString?.() || '',
+            paymentMethod: order.payment?.method || order.paymentMethod,
+            amountCollected: String(order.pricing?.total || order.amounts?.totalCustomerPaid || 0),
+          },
         },
-      },
-    );
+      );
+    }
   } catch (error) {
     logger.error(`Error emitting delivery order update: ${error?.message || error}`);
   }
@@ -441,7 +473,7 @@ export async function rejectOrderDelivery(orderId, deliveryPartnerId) {
   const identity = buildOrderIdentityFilter(orderId);
   if (!identity) throw new ValidationError('Order id required');
 
-  const order = await FoodOrder.findOne(identity);
+  const order = await FoodOrder.findOne(identity).select('+deliveryOtp');
   if (!order) throw new NotFoundError('Order not found');
   if (order.dispatch.deliveryPartnerId?.toString() !== deliveryPartnerId.toString()) {
     throw new ForbiddenError('Not your order');
@@ -486,7 +518,7 @@ export async function confirmReachedPickupDelivery(orderId, deliveryPartnerId) {
   const identity = buildOrderIdentityFilter(orderId);
   if (!identity) throw new ValidationError('Order id required');
 
-  const order = await FoodOrder.findOne(identity);
+  const order = await FoodOrder.findOne(identity).select('+deliveryOtp');
   if (!order) throw new NotFoundError('Order not found');
   if (
     order.dispatch?.deliveryPartnerId?.toString() !== deliveryPartnerId.toString()
@@ -565,7 +597,7 @@ export async function confirmReachedPickupDelivery(orderId, deliveryPartnerId) {
 
 export async function confirmPickupDelivery(orderId, deliveryPartnerId, billImageUrl) {
   const identity = buildOrderIdentityFilter(orderId);
-  const order = await FoodOrder.findOne(identity);
+  const order = await FoodOrder.findOne(identity).select('+deliveryOtp');
   if (!order) throw new NotFoundError('Order not found');
   if (
     order.dispatch?.deliveryPartnerId?.toString() !== deliveryPartnerId.toString()
@@ -574,7 +606,11 @@ export async function confirmPickupDelivery(orderId, deliveryPartnerId, billImag
   }
 
   const from = order.orderStatus;
-  order.orderStatus = 'picked_up';
+  const nextStatus = 'picked_up';
+  if (!isStatusAdvance(from, nextStatus)) {
+      throw new ValidationError(`Order is already at status '${from}'. Cannot re-mark as '${nextStatus}'.`);
+  }
+  order.orderStatus = nextStatus;
   order.deliveryState = {
     ...(order.deliveryState?.toObject?.() || order.deliveryState || {}),
     currentPhase: 'en_route_to_delivery',
@@ -716,7 +752,6 @@ export async function verifyDropOtpDelivery(orderId, deliveryPartnerId, otp) {
   if (!order.deliveryVerification) order.deliveryVerification = { dropOtp: {} };
   order.deliveryVerification.dropOtp.verified = true;
   order.markModified('deliveryVerification.dropOtp.verified');
-  order.deliveryOtp = '';
   await order.save();
 
   emitOrderUpdate(order, deliveryPartnerId);
@@ -730,7 +765,7 @@ export async function verifyDropOtpDelivery(orderId, deliveryPartnerId, otp) {
 
 export async function completeDelivery(orderId, deliveryPartnerId, body = {}) {
   const identity = buildOrderIdentityFilter(orderId);
-  const order = await FoodOrder.findOne(identity);
+  const order = await FoodOrder.findOne(identity).select('+deliveryOtp');
   if (!order) throw new NotFoundError('Order not found');
   if (
     order.dispatch?.deliveryPartnerId?.toString() !== deliveryPartnerId.toString()
@@ -749,7 +784,6 @@ export async function completeDelivery(orderId, deliveryPartnerId, body = {}) {
     const expected = String(orderWithSecret?.deliveryOtp || '').trim();
     if (expected && expected === String(otp).trim()) {
       order.deliveryVerification.dropOtp.verified = true;
-      order.deliveryOtp = '';
       order.markModified('deliveryVerification.dropOtp.verified');
     } else {
       throw new ValidationError('Invalid handover OTP provided.');
@@ -767,6 +801,11 @@ export async function completeDelivery(orderId, deliveryPartnerId, body = {}) {
   }
 
   const from = order.orderStatus;
+  const nextStatus = 'delivered';
+  if (!isStatusAdvance(from, nextStatus)) {
+      throw new ValidationError(`Order is already at status '${from}'. Cannot re-mark as '${nextStatus}'.`);
+  }
+  
   const tx = await FoodTransaction.findOne({ orderId: order._id }).lean();
   const prevPayStatus = String(tx?.payment?.status || order?.payment?.status || '');
   const payMethod = String(tx?.payment?.method || order?.payment?.method || order?.paymentMethod || '');
@@ -802,7 +841,6 @@ export async function completeDelivery(orderId, deliveryPartnerId, body = {}) {
   });
 
   await order.save();
-  emitOrderUpdate(order, deliveryPartnerId);
 
   const ledgerKind =
     payMethod === 'cash' && prevPayStatus === 'cod_pending'
@@ -832,13 +870,16 @@ export async function updateOrderStatusDelivery(orderId, deliveryPartnerId, orde
   const identity = buildOrderIdentityFilter(orderId);
   if (!identity) throw new ValidationError('Order id required');
 
-  const order = await FoodOrder.findOne(identity);
+  const order = await FoodOrder.findOne(identity).select('+deliveryOtp');
   if (!order) throw new NotFoundError('Order not found');
   if (order.dispatch.deliveryPartnerId?.toString() !== deliveryPartnerId.toString()) {
     throw new ForbiddenError('Not your order');
   }
 
   const from = order.orderStatus;
+  if (!isStatusAdvance(from, orderStatus)) {
+      throw new ValidationError(`Current order status '${from}' is further ahead than '${orderStatus}'. Order cannot be moved backwards.`);
+  }
   order.orderStatus = orderStatus;
   pushStatusHistory(order, {
     byRole: 'DELIVERY_PARTNER',

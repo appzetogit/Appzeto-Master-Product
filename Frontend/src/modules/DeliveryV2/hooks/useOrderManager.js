@@ -65,7 +65,7 @@ export const useOrderManager = () => {
         });
 
         updateTripStatus('PICKING_UP');
-        toast.success('Order Accepted! Opening Map...');
+        // toast.success('Order Accepted! Opening Map...');
       } else {
         toast.error(response?.data?.message || 'Order already taken or unavailable');
         throw new Error('Accept failed');
@@ -86,7 +86,7 @@ export const useOrderManager = () => {
       const response = await deliveryAPI.confirmReachedPickup(orderId);
       if (response?.data?.success) {
         updateTripStatus('REACHED_PICKUP');
-        toast.info('Arrived at Restaurant');
+        // toast.info('Arrived at Restaurant');
       } else {
         throw new Error('Confirm pickup failed');
       }
@@ -112,7 +112,7 @@ export const useOrderManager = () => {
       
       if (response?.data?.success) {
         updateTripStatus('PICKED_UP');
-        toast.success('Order Collected! Heading to Drop-off');
+        // toast.success('Order Collected! Heading to Drop-off');
       } else {
         throw new Error('Confirm order ID failed');
       }
@@ -131,7 +131,7 @@ export const useOrderManager = () => {
       const response = await deliveryAPI.confirmReachedDrop(orderId);
       if (response?.data?.success) {
         updateTripStatus('REACHED_DROP');
-        toast.info('Arrived at Customer Location');
+        // toast.info('Arrived at Customer Location');
       } else {
         throw new Error('Confirm drop failed');
       }
@@ -168,7 +168,7 @@ export const useOrderManager = () => {
         if (finalOrder) setActiveOrder(finalOrder);
         
         updateTripStatus('COMPLETED');
-        toast.success('Delivery Success!');
+        // toast.success('Delivery Success!');
       } else {
         toast.error('Invalid OTP. Please check with customer.');
         throw new Error('Invalid OTP');

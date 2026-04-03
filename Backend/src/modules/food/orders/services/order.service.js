@@ -48,6 +48,7 @@ import {
   applyAggregateRating,
   buildDeliverySocketPayload,
   notifyRestaurantNewOrder,
+  isStatusAdvance,
 } from './order.helpers.js';
 
 
@@ -110,112 +111,6 @@ async function getRiderEarning(distanceKm) {
 /** Append-only food_order_payments row; never blocks main flow on failure */
 // 🗑️ Deprecated in favor of FoodTransaction system.
 
-async function listNearbyOnlineDeliveryPartners(
-  restaurantId,
-  { maxKm = 15, limit = 25 } = {},
-) {
-  // Robust restaurantId handling (supports both ID string and populated document)
-  const rId = (restaurantId?._id || restaurantId).toString();
-  const restaurant = await FoodRestaurant.findById(rId)
-    .select("location")
-    .lean();
-    
-  if (!restaurant?.location?.coordinates?.length) {
-    // Fallback: if restaurant location is missing, notify any online approved partners.
-    const partners = await FoodDeliveryPartner.find({
-      status: "approved",
-      availabilityStatus: "online",
-    })
-      .select("_id status name")
-      .limit(Math.max(1, limit))
-      .lean();
-      
-    console.log(
-      `[DEBUG] listNearby: Restaurant ${rId} location missing. Found ${partners.length} fallback online partners.`,
-      JSON.stringify(partners)
-    );
-    
-    return {
-      restaurant: null,
-      partners: partners.map((p) => ({ partnerId: p._id, distanceKm: null })),
-    };
-  }
-
-  const [rLng, rLat] = restaurant.location.coordinates;
-  console.log(`[DEBUG] listNearby: Searching near Restaurant [${rLat}, ${rLng}] within ${maxKm}km`);
-
-  // Find all online partners first to see why they might be excluded
-  const allOnline = await FoodDeliveryPartner.find({
-    availabilityStatus: "online",
-  })
-    .select("_id status lastLat lastLng lastLocationAt name")
-    .lean();
-
-  console.log(`[DEBUG] listNearby: Found ${allOnline.length} total online partners globally.`);
-  if (allOnline.length > 0) {
-    console.log(`[DEBUG] listNearby: Sample partner: ${allOnline[0]._id} status=${allOnline[0].status}`);
-  }
-
-  const scored = [];
-  const allowedStatuses = process.env.NODE_ENV === 'production' ? ['approved'] : ['approved', 'pending'];
-  const STALE_GPS_MS = 10 * 60 * 1000; // 10 minutes
-
-  for (const p of allOnline) {
-    if (!allowedStatuses.includes(p.status)) {
-        continue;
-    }
-    
-    // Check GPS staleness: last updated > 10m ago or never updated
-    const isStale = !p.lastLocationAt || (Date.now() - new Date(p.lastLocationAt).getTime()) > STALE_GPS_MS;
-
-    // Allow fallback if GPS is missing/stale but they are online
-    if (p.lastLat == null || p.lastLng == null || isStale) {
-        scored.push({ partnerId: p._id, distanceKm: 999 }); // Token "far" distance for sorting but keeps them in list
-        continue;
-    }
-
-    const d = haversineKm(rLat, rLng, p.lastLat, p.lastLng);
-    if (Number.isFinite(d) && d <= maxKm) {
-        scored.push({ partnerId: p._id, distanceKm: d });
-    }
-  }
-
-  scored.sort((a, b) => a.distanceKm - b.distanceKm);
-  const picked = scored.slice(0, Math.max(1, limit));
-
-  console.log(`[DEBUG] listNearby: Scored ${scored.length} partners. Picked ${picked.length}.`);
-
-  // Fallback: if no one was found (unlikely now with GPS missing allowed), try strict status check
-  if (picked.length === 0) {
-    const anyOnline = await FoodDeliveryPartner.find({
-      status: { $in: allowedStatuses },
-      availabilityStatus: "online",
-    })
-      .select("_id status name")
-      .limit(Math.max(1, limit))
-      .lean();
-
-    console.log(
-      `[DEBUG] listNearby: Fallback found ${anyOnline.length} online partners.`,
-    );
-
-    return {
-      partners: anyOnline.map((p) => ({
-        partnerId: p._id,
-        distanceKm: null,
-        status: p.status,
-      })),
-    };
-  }
-
-  // Filter for approved only in production
-  const final = (config.env === 'production') 
-    ? picked.filter(p => p.status === 'approved')
-    : picked;
-
-  console.log(`[DEBUG] listNearby: Scored ${picked.length} partners. Final (approved): ${final.length}.`);
-  return { partners: final };
-}
 // ----- Settings -----
 export async function getDispatchSettings() {
   return dispatchService.getDispatchSettings();
@@ -564,196 +459,13 @@ export async function verifyPayment(userId, dto) {
  */
 export async function tryAutoAssign(orderId, options = {}) {
     return dispatchService.tryAutoAssign(orderId, options);
-    // Atomic Lock: Claim the order for dispatching to prevent overlapping calls.
-    // We allow claim if: status is unassigned OR (assigned but not accepted for > 55s) AND no one else is currently 'dispatching'.
-    const order = await FoodOrder.findOneAndUpdate(
-        {
-            _id: new mongoose.Types.ObjectId(orderId),
-            $or: [
-                { 'dispatch.status': 'unassigned' },
-                { 
-                    'dispatch.status': 'assigned', 
-                    'dispatch.acceptedAt': { $exists: false },
-                    'dispatch.assignedAt': { $lt: new Date(Date.now() - 55000) }
-                }
-            ],
-            'dispatch.dispatchingAt': { $exists: false }
-        },
-        { 
-            $set: { 'dispatch.dispatchingAt': new Date() } 
-        },
-        { new: true }
-    ).populate(['restaurantId', 'userId']);
-
-    if (!order) {
-        console.log(`[DEBUG] tryAutoAssign: Skip for ${orderId} (already being dispatched or already accepted).`);
-        return null;
-    }
-
-    try {
-        // Find ineligible partners (who already rejected it or were already offered if we want fresh ones)
-        const offeredIds = (order.dispatch?.offeredTo || []).map(o => o.partnerId.toString());
-    
-    // Find nearby online partners
-    const searchOptions = { maxKm: 30, limit: 10 }; // Increased radius from 15 to 30 for production robustness
-    const { partners } = await listNearbyOnlineDeliveryPartners(order.restaurantId, searchOptions);
-    
-    console.log(`[DEBUG] tryAutoAssign: partners found: ${partners.length}`);
-    
-    // Filter out already offered/rejected partners
-    const eligible = partners.filter(p => !offeredIds.includes(p.partnerId.toString()));
-    
-    console.log(
-        `[DEBUG] tryAutoAssign: Found ${partners.length} total online partners. ${eligible.length} are eligible (not already offered).`,
-        JSON.stringify(eligible)
-    );
-
-    if (eligible.length === 0) {
-        // No more specific partners to offer to? 
-        // If it's still unassigned, we leave it in the marketplace pool (sending broadcast now)
-        logger.info(`SmartDispatch: No more eligible partners for order ${order._id.toString()}. Broadcasting to marketplace.`);
-        
-        try {
-            const io = getIO();
-            if (io) {
-                const restaurant = order.restaurantId;
-                const payload = buildDeliverySocketPayload(order, restaurant);
-                console.log(`[DEBUG] tryAutoAssign Broadcast: Emitting to ${partners.length} total partners.`);
-                for (const p of partners) {
-                    const rName = rooms.delivery(p.partnerId);
-                    io.to(rName).emit('new_order_available', {
-                        ...payload,
-                        pickupDistanceKm: p.distanceKm
-                    });
-                    io.to(rooms.delivery(p.partnerId)).emit('play_notification_sound', {
-                        orderId: payload.orderId,
-                        orderMongoId: payload.orderMongoId
-                    });
-                }
-            }
-            
-            await notifyOwnersSafely(
-                partners.slice(0, 10).map(p => ({ ownerType: 'DELIVERY_PARTNER', ownerId: p.partnerId })),
-                {
-                    title: 'New delivery order available',
-                    body: `Order #${order._id.toString()} is available near you.`,
-                    data: {
-                        type: 'new_order_available',
-                        orderId: order._id.toString(),
-                        orderMongoId: order._id.toString(),
-                        link: '/delivery'
-                    }
-                }
-            );
-        } catch (err) {
-            logger.warn(`SmartDispatch: Broadcast failed for order ${order._id.toString()}: ${err.message}`);
-        }
-        return order;
-    }
-
-    // Pick the best (first in sorted list)
-    // Notify ALL eligible partners (Broadcast Mode for reliability in dev/testing)
-    const payload = buildDeliverySocketPayload(order, order.restaurantId);
-    const io = getIO();
-    
-    console.log(`[DEBUG] tryAutoAssign: Notifying ${eligible.length} eligible partners via 'new_order'.`, JSON.stringify(eligible.map(e => e.partnerId)));
-
-    for (const p of eligible) {
-        const roomName = rooms.delivery(p.partnerId);
-        try {
-            if (io) {
-                // Add distance to payload per partner
-                const pPayload = { ...payload, distanceKm: p.distanceKm === 999 ? null : p.distanceKm };
-                
-                io.to(roomName).emit('new_order', pPayload);
-                io.to(roomName).emit('play_notification_sound', {
-                    orderId: payload.orderId,
-                    orderMongoId: payload.orderMongoId
-                });
-                console.log(`[DEBUG] tryAutoAssign: Emitted 'new_order' to "${roomName}"`);
-            }
-        } catch (err) {
-            console.error(`[ERROR] tryAutoAssign: Failed to notify partner ${p.partnerId}:`, err.message);
-        }
-    }
-
-    // Assign to the first one but keep it in a state that others can still see/accept if first one doesn't.
-    const best = eligible[0];
-    order.dispatch.status = 'assigned';
-
-    order.dispatch.deliveryPartnerId = best.partnerId;
-    order.dispatch.assignedAt = new Date();
-    
-    // Record first one in history (standard behavior)
-    order.dispatch.offeredTo.push({
-        partnerId: best.partnerId,
-        at: new Date(),
-        action: 'offered'
-    });
-
-    await order.save();
-
-    try {
-        await notifyOwnerSafely(
-            { ownerType: 'DELIVERY_PARTNER', ownerId: best.partnerId },
-            {
-                title: 'New order assigned! 🛵',
-                body: `You have 60 seconds to accept Order #${order._id.toString()}.`,
-                data: {
-                    type: 'new_order',
-                    orderId: order._id.toString(),
-                    orderMongoId: order._id.toString(),
-                    link: '/delivery'
-                }
-            }
-        );
-    } catch (err) {
-        logger.error(`SmartDispatch: Failed to notify partner ${best.partnerId}: ${err.message}`);
-    }
-
-    await addOrderJob({
-        action: 'DISPATCH_TIMEOUT_CHECK',
-        orderMongoId: order._id.toString(),
-        orderId: order._id.toString(),
-        partnerId: best.partnerId.toString()
-    }, { delay: 60000 }); // 60 seconds
-
-    return order;
-  } finally {
-    await FoodOrder.findByIdAndUpdate(orderId, {
-      $unset: { 'dispatch.dispatchingAt': '' }
-    });
-  }
 }
 
 /**
  * Triggered by worker after 60 seconds of zero response.
  */
-export async function processDispatchTimeout(orderId, partnerId) {
-    return dispatchService.processDispatchTimeout(orderId, partnerId);
-    const order = await FoodOrder.findById(orderId);
-    if (!order) return;
-
-    // Check if the order is still assigned to this specific partner and not accepted
-    const stillAssigned = order.dispatch?.status === 'assigned' && 
-                          String(order.dispatch?.deliveryPartnerId) === String(partnerId) &&
-                          !order.dispatch?.acceptedAt;
-
-    if (stillAssigned) {
-        logger.info(`SmartDispatch: Timeout for order ${order._id.toString()} (Partner: ${partnerId}). Moving to next.`);
-        
-        // Mark as timeout in history
-        const offer = order.dispatch.offeredTo.find(o => String(o.partnerId) === String(partnerId) && o.action === 'offered');
-        if (offer) offer.action = 'timeout';
-
-        // Unassign and trigger next step
-        order.dispatch.status = 'unassigned';
-        order.dispatch.deliveryPartnerId = null;
-        await order.save();
-
-        // 🔄 Recursively try next partner
-        await tryAutoAssign(orderId);
-    }
+export async function processDispatchTimeout(orderId, partnerId, options = {}) {
+    return dispatchService.processDispatchTimeout(orderId, partnerId, options);
 }
 
 // ----- User: list, get, cancel -----
@@ -1221,6 +933,9 @@ export async function updateOrderStatusRestaurant(
   });
   if (!order) throw new NotFoundError("Order not found");
   const from = order.orderStatus;
+  if (!isStatusAdvance(from, orderStatus)) {
+      throw new ValidationError(`Current order status '${from}' is further ahead than '${orderStatus}'. Order cannot be moved backwards.`);
+  }
   order.orderStatus = orderStatus;
   pushStatusHistory(order, {
     byRole: "RESTAURANT",
@@ -1650,6 +1365,7 @@ export async function listOrdersAdmin(query) {
 
   const [docs, total] = await Promise.all([
     FoodOrder.find(filter)
+      .select("+deliveryOtp")
       .populate("userId", "name phone email")
       .populate("restaurantId", "restaurantName area city ownerPhone")
       .populate("dispatch.deliveryPartnerId", "name phone")

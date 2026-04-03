@@ -87,7 +87,7 @@ const OtpModal = ({ order, onVerified, onClose }) => {
       const res = await deliveryAPI.verifyDropOtp(orderId, otpString);
       if (res?.data?.success) {
         setIsOtpVerified(true);
-        toast.success("OTP Verified Successfully");
+        // toast.success("OTP Verified Successfully");
         setTimeout(() => onVerified(otpString), 600);
       }
     } catch (err) {
@@ -173,7 +173,7 @@ const PaymentModal = ({ order, otpString, onComplete, onClose }) => {
       if (['paid', 'captured', 'authorized'].includes(status)) {
         setPaymentStatus('paid');
         if (pollingRef.current) clearInterval(pollingRef.current);
-        toast.success("Payment Received Successfully!");
+        // toast.success("Payment Received Successfully!");
         setShowQrModal(false);
       }
     } catch (e) {}

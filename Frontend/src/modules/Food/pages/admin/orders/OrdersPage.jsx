@@ -506,6 +506,7 @@ export default function OrdersPage({ statusKey = "all" }) {
         deliveryPartnerName,
         deliveryPartnerPhone,
         deliveryType: order.deliveryType || "Home Delivery",
+        orderOtp: order.deliveryOtp,
         address: order.address || order.customerAddress || order.deliveryAddress,
         refundStatus: order.payment?.refund?.status || (order.payment?.status === 'refunded' ? 'processed' : null)
       }

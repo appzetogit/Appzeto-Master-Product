@@ -366,11 +366,11 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
         if (tripStatus === 'PICKING_UP') {
           lastAutoArrivalRef.current[tripStatus] = true;
           reachPickup().catch(() => { lastAutoArrivalRef.current[tripStatus] = false; });
-          toast.success('Auto-arrived at Restaurant');
+          // toast.success('Auto-arrived at Restaurant');
         } else if (tripStatus === 'PICKED_UP') {
           lastAutoArrivalRef.current[tripStatus] = true;
           reachDrop().catch(() => { lastAutoArrivalRef.current[tripStatus] = false; });
-          toast.success('Auto-arrived at Customer');
+          // toast.success('Auto-arrived at Customer');
         }
       }
 
@@ -839,11 +839,13 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
                     )}
                   </div>
                 )}
-                {showVerification && (
+                {showVerification && tripStatus !== 'COMPLETED' && (
                   <DeliveryVerificationModal 
                     order={activeOrder} 
                     onComplete={async (otp) => {
-                      return await completeDelivery(otp);
+                      const res = await completeDelivery(otp);
+                      setShowVerification(false);
+                      return res;
                     }}
                     onClose={() => setShowVerification(false)}
                   />

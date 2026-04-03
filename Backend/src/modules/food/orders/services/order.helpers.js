@@ -266,3 +266,40 @@ export async function notifyRestaurantNewOrder(orderDoc) {
     // Do not block order/payment flow if notification fails.
   }
 }
+
+export const STATUS_PRIORITY = {
+  created: 10,
+  confirmed: 20,
+  preparing: 30,
+  ready_for_pickup: 40,
+  reached_pickup: 50,
+  picked_up: 60,
+  reached_drop: 70,
+  delivered: 80,
+  cancelled_by_user: 100,
+  cancelled_by_restaurant: 100,
+  cancelled_by_admin: 100,
+};
+
+/**
+ * Returns true if the next status is a valid forward progression from the current status.
+ * Prevents "reversing" order status (e.g. from Preparing back to Created).
+ */
+export function isStatusAdvance(current, next) {
+  // If current status is missing, it's effectively 'created' or start of flow
+  if (!current) return true;
+  
+  const currentPrio = STATUS_PRIORITY[current] || 0;
+  const nextPrio = STATUS_PRIORITY[next] || 0;
+
+  // Terminal states (100) cannot transition to anything else
+  if (currentPrio >= 100) return false;
+  
+  // Delivered (80) cannot transition to anything (except maybe cancellation if allowed, but here we say no)
+  if (currentPrio === 80) return false;
+
+  // Special case: Cancellation is almost always an advance unless already delivered
+  if (nextPrio === 100 && currentPrio < 80) return true;
+
+  return nextPrio > currentPrio;
+}
