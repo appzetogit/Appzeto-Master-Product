@@ -8,6 +8,7 @@ import {
     getCurrentRestaurantController,
     updateRestaurantProfileController,
     updateRestaurantAcceptingOrdersController,
+    updateCurrentRestaurantDiningSettingsController,
     uploadRestaurantProfileImageController,
     uploadRestaurantMenuImageController,
     uploadRestaurantCoverImagesController,
@@ -83,6 +84,7 @@ router.get('/categories/public', listCategoriesController);
 router.get('/current', authMiddleware, requireRestaurant, getCurrentRestaurantController);
 router.patch('/profile', authMiddleware, requireRestaurant, updateRestaurantProfileController);
 router.patch('/availability', authMiddleware, requireRestaurant, updateRestaurantAcceptingOrdersController);
+router.patch('/dining-settings', authMiddleware, requireRestaurant, updateCurrentRestaurantDiningSettingsController);
 router.get('/outlet-timings', authMiddleware, requireRestaurant, getCurrentRestaurantOutletTimingsController);
 router.put('/outlet-timings', authMiddleware, requireRestaurant, upsertCurrentRestaurantOutletTimingsController);
 router.get('/finance', authMiddleware, requireRestaurant, getRestaurantFinanceController);
