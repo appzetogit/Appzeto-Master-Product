@@ -2,6 +2,8 @@ import mongoose from 'mongoose';
 import { QuickCategory } from '../models/category.model.js';
 import { QuickProduct } from '../models/product.model.js';
 import { QuickOrder } from '../models/order.model.js';
+import { Seller } from '../seller/models/seller.model.js';
+import { QuickZone } from '../models/quick_zone.model.js';
 import { ensureQuickCommerceSeedData } from '../services/seed.service.js';
 import { uploadImageBuffer } from '../../../services/cloudinary.service.js';
 
@@ -143,14 +145,39 @@ const buildCategoryTree = (categories) => {
   return roots;
 };
 
+const toSellerRequest = (seller) => ({
+  id: seller._id,
+  _id: seller._id,
+  shopName: seller.shopName || seller.name || 'Store',
+  ownerName: seller.name || 'Seller',
+  email: seller.email || '',
+  phone: seller.phoneLast10 || seller.phone || '',
+  location: seller.location?.formattedAddress || seller.location?.address || '',
+  category: seller.shopInfo?.businessType || 'General',
+  applicationDate: seller.createdAt,
+  status:
+    seller.approvalStatus ||
+    (seller.approved === false ? 'pending' : 'approved'),
+  approved: seller.approved !== false,
+  onboardingSubmitted: seller.onboardingSubmitted === true,
+  serviceRadius: Number(seller.serviceRadius || 0),
+  bankInfo: seller.bankInfo || {},
+  documents: seller.documents || {},
+  shopInfo: seller.shopInfo || {},
+  approvalNotes: seller.approvalNotes || '',
+});
+
 export const getAdminStats = async (_req, res) => {
   await ensureQuickCommerceSeedData();
 
   const [categories, products, orders, revenueAgg] = await Promise.all([
     QuickCategory.countDocuments({ isActive: true }),
     QuickProduct.countDocuments({ isActive: true }),
-    QuickOrder.countDocuments({}),
-    QuickOrder.aggregate([{ $group: { _id: null, total: { $sum: '$total' } } }]),
+    QuickOrder.countDocuments({ orderType: 'quick' }),
+    QuickOrder.aggregate([
+      { $match: { orderType: 'quick' } },
+      { $group: { _id: null, total: { $sum: '$pricing.total' } } },
+    ]),
   ]);
 
   return res.json({
@@ -502,8 +529,8 @@ export const removeProduct = async (req, res) => {
 
 export const getAdminOrders = async (req, res) => {
   const { status, page = 1, limit = 50 } = req.query || {};
-  const query = {};
-  if (status && status !== 'all') query.status = status;
+  const query = { orderType: 'quick' };
+  if (status && status !== 'all') query.orderStatus = status;
 
   const currentPage = Math.max(1, parseInt(page, 10) || 1);
   const perPage = Math.max(1, Math.min(parseInt(limit, 10) || 50, 200));
@@ -522,9 +549,9 @@ export const getAdminOrders = async (req, res) => {
       items: orders.map((order) => ({
         id: order._id,
         _id: order._id,
-        orderNumber: order.orderNumber,
-        total: order.total,
-        status: order.status,
+        orderNumber: order.orderId,
+        total: order.pricing?.total || 0,
+        status: order.orderStatus,
         itemCount: order.items.reduce((sum, item) => sum + item.quantity, 0),
         sessionId: order.sessionId,
         createdAt: order.createdAt,
@@ -534,4 +561,203 @@ export const getAdminOrders = async (req, res) => {
       total,
     },
   });
+};
+
+export const getAdminSellerRequests = async (req, res) => {
+  const { status = 'pending', page = 1, limit = 50, search = '' } = req.query || {};
+  const currentPage = Math.max(1, parseInt(page, 10) || 1);
+  const perPage = Math.max(1, Math.min(parseInt(limit, 10) || 50, 100));
+  const query = {};
+
+  if (status === 'pending') query.approvalStatus = 'pending';
+  else if (status === 'approved') query.approvalStatus = 'approved';
+  else if (status === 'rejected') query.approvalStatus = 'rejected';
+  else if (status === 'draft') query.approvalStatus = 'draft';
+
+  const searchText = String(search || '').trim();
+  if (searchText) {
+    query.$or = [
+      { name: { $regex: searchText, $options: 'i' } },
+      { shopName: { $regex: searchText, $options: 'i' } },
+      { email: { $regex: searchText, $options: 'i' } },
+      { phone: { $regex: searchText, $options: 'i' } },
+    ];
+  }
+
+  const [items, total] = await Promise.all([
+    Seller.find(query)
+      .sort({ createdAt: -1 })
+      .skip((currentPage - 1) * perPage)
+      .limit(perPage)
+      .lean(),
+    Seller.countDocuments(query),
+  ]);
+
+  return res.json({
+    success: true,
+    result: {
+      items: items.map(toSellerRequest),
+      page: currentPage,
+      limit: perPage,
+      total,
+      totalPages: Math.max(1, Math.ceil(total / perPage)),
+    },
+  });
+};
+
+export const approveAdminSellerRequest = async (req, res) => {
+  const { sellerId } = req.params;
+  const seller = await Seller.findById(sellerId);
+
+  if (!seller) {
+    return res.status(404).json({ success: false, message: 'Seller request not found' });
+  }
+
+  seller.approved = true;
+  seller.approvalStatus = 'approved';
+  seller.onboardingSubmitted = true;
+  seller.approvedAt = new Date();
+  seller.rejectedAt = null;
+  seller.approvalNotes = String(req.body?.approvalNotes || '').trim();
+  await seller.save();
+
+  return res.json({
+    success: true,
+    message: 'Seller approved successfully',
+    result: toSellerRequest(seller),
+  });
+};
+
+export const rejectAdminSellerRequest = async (req, res) => {
+  const { sellerId } = req.params;
+  const seller = await Seller.findById(sellerId);
+
+  if (!seller) {
+    return res.status(404).json({ success: false, message: 'Seller request not found' });
+  }
+
+  seller.approved = false;
+  seller.approvalStatus = 'rejected';
+  seller.onboardingSubmitted = true;
+  seller.approvedAt = null;
+  seller.rejectedAt = new Date();
+  seller.approvalNotes = String(req.body?.approvalNotes || req.body?.reason || '').trim();
+  await seller.save();
+
+  return res.json({
+    success: true,
+    message: 'Seller request rejected',
+    result: toSellerRequest(seller),
+  });
+};
+
+export const getAdminZones = async (req, res) => {
+  const { search, page = 1, limit = 50 } = req.query || {};
+  const currentPage = Math.max(1, parseInt(page, 10) || 1);
+  const perPage = Math.max(1, Math.min(parseInt(limit, 10) || 50, 1000));
+  const filter = {};
+
+  if (search) {
+    filter.$or = [
+      { name: { $regex: String(search).trim(), $options: 'i' } },
+      { zoneName: { $regex: String(search).trim(), $options: 'i' } },
+      { serviceLocation: { $regex: String(search).trim(), $options: 'i' } },
+    ];
+  }
+
+  const [zones, total] = await Promise.all([
+    QuickZone.find(filter).sort({ createdAt: -1 }).skip((currentPage - 1) * perPage).limit(perPage).lean(),
+    QuickZone.countDocuments(filter),
+  ]);
+
+  return res.json({
+    success: true,
+    data: { zones, total, page: currentPage, limit: perPage },
+  });
+};
+
+export const listPublicZones = async (_req, res) => {
+  const zones = await QuickZone.find({ isActive: true })
+    .select('name zoneName serviceLocation country unit isActive coordinates createdAt')
+    .sort({ createdAt: 1 })
+    .lean();
+
+  return res.json({
+    success: true,
+    message: 'Zones fetched successfully',
+    data: { zones },
+  });
+};
+
+export const getAdminZoneById = async (req, res) => {
+  const zone = await QuickZone.findById(req.params.zoneId).lean();
+  if (!zone) {
+    return res.status(404).json({ success: false, message: 'Zone not found' });
+  }
+
+  return res.json({ success: true, data: { zone } });
+};
+
+export const createAdminZone = async (req, res) => {
+  const body = req.body || {};
+  const name = typeof body.name === 'string' ? body.name.trim() : (body.zoneName && String(body.zoneName).trim()) || '';
+  const coordinates = Array.isArray(body.coordinates) ? body.coordinates : [];
+
+  if (!name) {
+    return res.status(400).json({ success: false, message: 'Zone name is required' });
+  }
+
+  if (coordinates.length < 3) {
+    return res.status(400).json({ success: false, message: 'Zone must have at least 3 coordinates' });
+  }
+
+  const zone = await QuickZone.create({
+    name,
+    zoneName: body.zoneName && String(body.zoneName).trim() ? String(body.zoneName).trim() : name,
+    country: body.country ? String(body.country).trim() : 'India',
+    serviceLocation: body.serviceLocation ? String(body.serviceLocation).trim() : name,
+    unit: body.unit === 'miles' ? 'miles' : 'kilometer',
+    isActive: body.isActive !== false,
+    coordinates: coordinates.map((coord) => ({
+      latitude: Number(coord?.latitude ?? coord?.lat),
+      longitude: Number(coord?.longitude ?? coord?.lng),
+    })),
+  });
+
+  return res.status(201).json({ success: true, data: { zone } });
+};
+
+export const updateAdminZone = async (req, res) => {
+  const zone = await QuickZone.findById(req.params.zoneId);
+  if (!zone) {
+    return res.status(404).json({ success: false, message: 'Zone not found' });
+  }
+
+  const body = req.body || {};
+  if (body.name !== undefined) zone.name = String(body.name || '').trim();
+  if (body.zoneName !== undefined) zone.zoneName = String(body.zoneName || '').trim();
+  if (body.country !== undefined) zone.country = String(body.country || '').trim() || 'India';
+  if (body.serviceLocation !== undefined) zone.serviceLocation = String(body.serviceLocation || '').trim();
+  if (body.unit !== undefined) zone.unit = body.unit === 'miles' ? 'miles' : 'kilometer';
+  if (body.isActive !== undefined) zone.isActive = body.isActive !== false;
+  if (Array.isArray(body.coordinates) && body.coordinates.length >= 3) {
+    zone.coordinates = body.coordinates.map((coord) => ({
+      latitude: Number(coord?.latitude ?? coord?.lat),
+      longitude: Number(coord?.longitude ?? coord?.lng),
+    }));
+  }
+  if (!zone.zoneName) zone.zoneName = zone.name;
+  if (!zone.serviceLocation) zone.serviceLocation = zone.name;
+
+  await zone.save();
+  return res.json({ success: true, data: { zone: zone.toObject() } });
+};
+
+export const deleteAdminZone = async (req, res) => {
+  const deleted = await QuickZone.findByIdAndDelete(req.params.zoneId);
+  if (!deleted) {
+    return res.status(404).json({ success: false, message: 'Zone not found' });
+  }
+
+  return res.json({ success: true, data: { id: req.params.zoneId } });
 };

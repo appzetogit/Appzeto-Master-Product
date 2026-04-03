@@ -20,6 +20,8 @@ import { Switch } from "@food/components/ui/switch"
 import api from "@food/api"
 import { restaurantAPI, uploadAPI } from "@food/api"
 import { toast } from "sonner"
+import { ImageSourcePicker } from "@food/components/ImageSourcePicker"
+import { isFlutterBridgeAvailable } from "@food/utils/imageUploadUtils"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -70,6 +72,7 @@ export default function ItemDetailsPage() {
   const [images, setImages] = useState([])
   const [imageFiles, setImageFiles] = useState(new Map()) // Track File objects by preview URL
   const [uploadingImages, setUploadingImages] = useState(false)
+  const [isPhotoPickerOpen, setIsPhotoPickerOpen] = useState(false)
   const [currentImageIndex, setCurrentImageIndex] = useState(0)
   const [touchStart, setTouchStart] = useState(null)
   const [touchEnd, setTouchEnd] = useState(null)
@@ -368,29 +371,10 @@ export default function ItemDetailsPage() {
     }
   ]
 
-  const handleImageAdd = (e) => {
-    const files = Array.from(e.target.files)
-
-    // Validate file types
-    const allowedTypes = ["image/png", "image/jpeg", "image/jpg", "image/webp", "image/heic", "image/heif"]
-    const validFiles = files.filter(file => {
-      if (!allowedTypes.includes(file.type)) {
-        toast.error(`${file.name}: Invalid file type. Please upload PNG, JPG, JPEG, WEBP, HEIC, or HEIF.`)
-        return false
-      }
-      // Validate file size (max 5MB)
-      const maxSize = 5 * 1024 * 1024 // 5MB
-      if (file.size > maxSize) {
-        toast.error(`${file.name}: File size exceeds 5MB limit.`)
-        return false
-      }
-      return true
-    })
-
-    if (validFiles.length === 0) return
+  const handleImageAdd = (file) => {
+    if (!file) return
 
     // Single-image mode: keep only the first selected valid file
-    const file = validFiles[0]
     const previewUrl = URL.createObjectURL(file)
 
     images.forEach((img) => {
@@ -404,9 +388,18 @@ export default function ItemDetailsPage() {
 
     setImages([previewUrl])
     setImageFiles(newImageFilesMap)
+    setCurrentImageIndex(0)
 
     if (fileInputRef.current) {
       fileInputRef.current.value = ""
+    }
+  }
+
+  const handleCameraClick = () => {
+    if (isFlutterBridgeAvailable()) {
+      setIsPhotoPickerOpen(true)
+    } else {
+      fileInputRef.current?.click()
     }
   }
 
@@ -654,7 +647,7 @@ export default function ItemDetailsPage() {
           : `Item updated successfully with ${imageCount} image(s)`
       )
       await new Promise((resolve) => setTimeout(resolve, 200))
-      navigate("/restaurant/hub-menu", { replace: true })
+      navigate("/food/restaurant/inventory", { replace: true })
       window.dispatchEvent(new CustomEvent('foodsChanged'))
     } catch (error) {
       debugError('Error saving menu:', error)
@@ -805,19 +798,18 @@ export default function ItemDetailsPage() {
               ref={fileInputRef}
               type="file"
               accept="image/*"
-              onChange={handleImageAdd}
+              onChange={(e) => handleImageAdd(e.target.files?.[0])}
               className="hidden"
-              id="image-upload"
             />
-            <label
-              htmlFor="image-upload"
-              className="flex items-center justify-center gap-2.5 px-6 py-3.5 bg-gradient-to-r from-gray-900 to-gray-800 text-white rounded-xl text-sm font-semibold cursor-pointer hover:from-gray-800 hover:to-gray-700 transition-all shadow-md hover:shadow-lg active:scale-95"
+            <button
+              onClick={handleCameraClick}
+              className="w-full flex items-center justify-center gap-2.5 px-6 py-3.5 bg-gradient-to-r from-gray-900 to-gray-800 text-white rounded-xl text-sm font-semibold cursor-pointer hover:from-gray-800 hover:to-gray-700 transition-all shadow-md hover:shadow-lg active:scale-95"
             >
               <div className="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center">
                 <Plus className="w-4 h-4" />
               </div>
               <span>Add Image</span>
-            </label>
+            </button>
           </div>
         </div>
 
@@ -940,7 +932,7 @@ export default function ItemDetailsPage() {
                     value={basePrice}
                     onChange={(e) => {
                       // Remove rupee symbol and any non-numeric characters except decimal point
-                      const value = e.target.value.replace(/[?\s,]/g, '').replace(/[^0-9.]/g, '')
+                      const value = e.target.value.replace(/[\u20B9\s,]/g, '').replace(/[^0-9.]/g, '')
                       // Allow only one decimal point
                       const parts = value.split('.')
                       const cleanedValue = parts.length > 2
@@ -950,14 +942,14 @@ export default function ItemDetailsPage() {
                     }}
                     onFocus={(e) => {
                       // Remove rupee symbol when focused for easier editing
-                      if (e.target.value.startsWith('?')) {
-                        e.target.value = e.target.value.replace(/\s+/g, '')
+                      if (e.target.value.startsWith('\u20B9')) {
+                        e.target.value = e.target.value.replace(/[\u20B9\s]+/g, '')
                       }
                     }}
                     placeholder="Enter price"
                     className="w-full pl-8 pr-12 py-3 border border-gray-300 rounded-lg text-sm text-gray-900 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   />
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-600">?</span>
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-600">{"\u20B9"}</span>
                   <button className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-full hover:bg-gray-100">
                     <EditIcon className="w-4 h-4 text-gray-500" />
                   </button>
@@ -1189,6 +1181,16 @@ export default function ItemDetailsPage() {
           </button>
         </div>
       </div>
+      {/* Photo Picker */}
+      <ImageSourcePicker
+        isOpen={isPhotoPickerOpen}
+        onClose={() => setIsPhotoPickerOpen(false)}
+        onFileSelect={handleImageAdd}
+        title="Item Image"
+        description="Choose how to upload your item image"
+        fileNamePrefix="item-photo"
+        galleryInputRef={fileInputRef}
+      />
     </div>
   )
 }

@@ -18,6 +18,19 @@ const LEGACY_ROLE_STORAGE_KEYS = {
     delivery: ['delivery_accessToken', 'accessToken']
 };
 
+const extractProfilePayload = (response) => {
+    const raw = response?.data?.result ?? response?.data?.data ?? null;
+    if (raw && typeof raw === 'object' && raw.user) {
+        return raw.user;
+    }
+    return raw;
+};
+
+const getProfileEndpoint = (role) => {
+    if (role === 'seller') return '/seller/profile';
+    return '/auth/me';
+};
+
 export const AuthProvider = ({ children }) => {
     // Current role based on URL
     const getCurrentRoleFromUrl = () => {
@@ -52,23 +65,31 @@ export const AuthProvider = ({ children }) => {
     const currentRole = getCurrentRoleFromUrl();
     const [user, setUser] = useState(null);
     const token = authData[currentRole];
+    const [isLoading, setIsLoading] = useState(Boolean(authData[currentRole]));
     const isAuthenticated = !!token;
 
     // Fetch user profile on mount or token change
     useEffect(() => {
         const fetchProfile = async () => {
             if (token) {
+                setIsLoading(true);
                 try {
                     // Use deduplicated fetch to avoid multiple simultaneous profile calls
-                    const endpoint = `/${currentRole}/profile`;
-                    const response = await getWithDedupe(endpoint, {}, { ttl: 5000 });
-                    setUser(response.data.result);
+                    const response = await getWithDedupe(
+                        getProfileEndpoint(currentRole),
+                        {},
+                        { ttl: 5000 }
+                    );
+                    setUser(extractProfilePayload(response));
                 } catch (error) {
                     console.error('Failed to fetch profile:', error);
                     // If 401, axios interceptor will handle it
+                } finally {
+                    setIsLoading(false);
                 }
             } else {
                 setUser(null);
+                setIsLoading(false);
             }
         };
 
@@ -96,6 +117,8 @@ export const AuthProvider = ({ children }) => {
             localStorage.removeItem(key);
         });
 
+        const path = window.location.pathname;
+
         // Also clear common 'token' key if implemented
         localStorage.removeItem('token');
 
@@ -112,7 +135,6 @@ export const AuthProvider = ({ children }) => {
 
         // Final fallback: redirect based on current path if needed
         // (ProtectedRoute usually handles this, but explicit navigation is safer for some UI edge cases)
-        const path = window.location.pathname;
         if (path.startsWith('/admin')) window.location.href = '/admin/auth';
         else if (path.startsWith('/seller')) window.location.href = '/seller/auth';
         else if (path.startsWith('/delivery')) window.location.href = '/delivery/auth';
@@ -122,10 +144,10 @@ export const AuthProvider = ({ children }) => {
     const refreshUser = async () => {
         if (token) {
             try {
-                const endpoint = `/${currentRole}/profile`;
-                const response = await axiosInstance.get(endpoint);
-                setUser(response.data.result);
-                return response.data.result;
+                const response = await axiosInstance.get(getProfileEndpoint(currentRole));
+                const payload = extractProfilePayload(response);
+                setUser(payload);
+                return payload;
             } catch (error) {
                 console.error('Failed to refresh profile:', error);
             }
@@ -138,6 +160,7 @@ export const AuthProvider = ({ children }) => {
             token, // Added token to context
             role: currentRole,
             isAuthenticated,
+            isLoading,
             authData,
             login,
             logout,

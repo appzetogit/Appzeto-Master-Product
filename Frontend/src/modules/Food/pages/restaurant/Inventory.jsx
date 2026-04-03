@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from "react"
+﻿import { useState, useEffect, useRef, useMemo } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import {
   Search,
@@ -27,64 +27,6 @@ const debugError = (...args) => {}
 
 const INVENTORY_STORAGE_KEY = "restaurant_inventory_state"
 const INVENTORY_RECOMMENDED_KEY = "restaurant_inventory_recommended_map"
-
-// Mock data - replace with actual data from API
-const mockCategories = [
-  {
-    id: "combo",
-    name: "Combo",
-    description: "Combo",
-    itemCount: 1,
-    inStock: true,
-    items: [
-      { id: 1, name: "Manchurian with Rice", inStock: true, isVeg: true }
-    ]
-  },
-  {
-    id: "starters",
-    name: "Starters",
-    description: "Starters",
-    itemCount: 2,
-    inStock: true,
-    items: [
-      { id: 2, name: "Paneer Manchurian", inStock: true, isVeg: true },
-      { id: 3, name: "Cheese Manchurian", inStock: true, isVeg: true }
-    ]
-  },
-  {
-    id: "main-course",
-    name: "Main Course",
-    description: "Main Course",
-    itemCount: 2,
-    inStock: true,
-    items: [
-      { id: 4, name: "Butter Chicken", inStock: true, isVeg: false },
-      { id: 5, name: "Dal Makhani", inStock: true, isVeg: true }
-    ]
-  },
-  {
-    id: "rice",
-    name: "Rice",
-    description: "Rice and Biryani",
-    itemCount: 1,
-    inStock: false,
-    items: [
-      { id: 6, name: "Tava Pulao", inStock: false, isVeg: true }
-    ]
-  },
-  {
-    id: "desserts",
-    name: "Desserts",
-    description: "Desserts",
-    itemCount: 3,
-    inStock: false,
-    items: [
-      { id: 7, name: "Gulab Jamun", inStock: false, isVeg: true },
-      { id: 8, name: "Ice Cream", inStock: true, isVeg: true },
-      { id: 9, name: "Kheer", inStock: false, isVeg: true }
-    ]
-  }
-]
 
 // Time Picker Wheel Component (copied from DaySlots.jsx)
 function TimePickerWheel({
@@ -604,7 +546,7 @@ export default function Inventory() {
   const [loadingInventory, setLoadingInventory] = useState(false)
   const [categories, setCategories] = useState(() => {
     try {
-      if (typeof window === "undefined") return mockCategories
+      if (typeof window === "undefined") return []
       const saved = localStorage.getItem(INVENTORY_STORAGE_KEY)
       if (saved) {
         const parsed = JSON.parse(saved)
@@ -615,14 +557,13 @@ export default function Inventory() {
     } catch (error) {
       debugError("Error loading inventory from storage:", error)
     }
-    return mockCategories
+    return []
   })
-  const [expandedCategories, setExpandedCategories] = useState(() =>
-    mockCategories.map(c => c.id)
-  )
+  const [expandedCategories, setExpandedCategories] = useState([])
   const [togglePopupOpen, setTogglePopupOpen] = useState(false)
   const [toggleTarget, setToggleTarget] = useState(null)
   const [isMenuOpen, setIsMenuOpen] = useState(false)
+  const [isAddPopupOpen, setIsAddPopupOpen] = useState(false)
 
   // Toggle popup state
   const [selectedOption, setSelectedOption] = useState("specific-time")
@@ -1327,19 +1268,6 @@ export default function Inventory() {
           isSwiping.current = false
         }}
       >
-        {/* Edit Menu Banner */}
-        <motion.div
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          onClick={() => navigate("/restaurant/hub-menu")}
-          className="bg-blue-200/20 rounded-lg p-4 mt-4 mb-4 flex items-center justify-between"
-        >
-          <span className="text-sm font-light text-gray-900">Want to edit your menu?</span>
-          <button className="bg-blue-200/30 hover:bg-blue-300 text-black  px-4 py-2 rounded-full text-sm font-light transition-colors">
-            Edit now
-          </button>
-        </motion.div>
-
         {/* Search and Filter */}
         <div className="flex sticky top-[50px] gap-2 mb-4">
           {/* Search Bar */}
@@ -1406,7 +1334,7 @@ export default function Inventory() {
                           {addon.description && (
                             <p className="text-sm text-gray-600 mb-2">{addon.description}</p>
                           )}
-                          <p className="text-base font-bold text-gray-900">?{addon.price}</p>
+                          <p className="text-base font-bold text-gray-900">₹{addon.price}</p>
                           {addon.approvalStatus === 'rejected' && addon.rejectionReason && (
                             <p className="text-xs text-red-600 mt-1">Reason: {addon.rejectionReason}</p>
                           )}
@@ -1703,8 +1631,8 @@ export default function Inventory() {
                     <div className="">
                       <h3 className="text-base font-bold text-gray-900 mb-3">{categoryData.name}</h3>
                       <ul className="space-y-1 text-sm text-gray-600">
-                        <li>� {categoryData.name}</li>
-                        <li>� Includes {categoryData.itemCount} item{categoryData.itemCount !== 1 ? 's' : ''}</li>
+                        <li>• {categoryData.name}</li>
+                        <li>• Includes {categoryData.itemCount} item{categoryData.itemCount !== 1 ? 's' : ''}</li>
                       </ul>
                       <div className="border-t border-gray-200 mt-4"></div>
                     </div>
@@ -1859,9 +1787,54 @@ export default function Inventory() {
         onConfirm={handleTimePickerConfirm}
       />
 
+      {/* Add Popup */}
+      <AnimatePresence>
+        {isAddPopupOpen && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsAddPopupOpen(false)}
+              className="fixed inset-0 bg-black/50 z-50"
+            />
+            <motion.div
+              initial={{ y: "100%" }}
+              animate={{ y: 0 }}
+              exit={{ y: "100%" }}
+              transition={{ type: "spring", damping: 30, stiffness: 300 }}
+              className="fixed bottom-0 left-0 right-0 bg-white rounded-t-2xl shadow-2xl z-50"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="px-4 py-4 border-b border-gray-200">
+                <h2 className="text-lg font-bold text-gray-900 text-center">Add item</h2>
+              </div>
+              <div className="px-4 py-4 space-y-2">
+                <button
+                  onClick={() => {
+                    setIsAddPopupOpen(false)
+                    navigate(`/food/restaurant/hub-menu/item/new`)
+                  }}
+                  className="w-full py-3 px-4 text-left rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  <span className="text-sm font-medium text-gray-900">Add item</span>
+                </button>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
       {/* Floating Menu Button & Popup (hidden on Add-ons tab) */}
       {activeTab !== "add-ons" && (
-        <div className="fixed right-4 bottom-24 z-30">
+        <div className="fixed right-4 bottom-24 z-30 flex flex-col items-end gap-2">
+          <motion.button
+            whileTap={{ scale: 0.96 }}
+            onClick={() => setIsAddPopupOpen(true)}
+            className="px-4 py-2 border bg-black text-white border-gray-800 rounded-lg text-sm font-bold"
+          >
+            + ADD
+          </motion.button>
           <motion.button
             type="button"
             whileTap={{ scale: 0.96 }}

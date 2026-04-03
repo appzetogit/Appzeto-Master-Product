@@ -136,8 +136,7 @@ export default function AdminHome() {
   const platformFeeTotal = dashboardData?.platformFee?.total || 0
   const deliveryFeeTotal = dashboardData?.deliveryFee?.total || 0
   const gstTotal = dashboardData?.gst?.total || 0
-  // Total revenue = Commission + Platform Fee + Delivery Fee + GST
-  const totalAdminEarnings = commissionTotal + platformFeeTotal + deliveryFeeTotal + gstTotal
+  const totalAdminEarnings = dashboardData?.totalAdminEarnings || 0
 
   // Additional stats
   const totalRestaurants = dashboardData?.restaurants?.total || 0
@@ -156,12 +155,17 @@ export default function AdminHome() {
     fill: item.color,
   }))
 
+  const deliveryProfit = dashboardData?.deliveryProfit || 0
+  const periodLabel = selectedPeriod === "overall" ? "Overall" : 
+                    selectedPeriod === "today" ? "Today's" : 
+                    `This ${selectedPeriod}'s`
+
   const activityFeed = dashboardData?.liveSignals || []
   const totalRevenueHelper = [
-    `Commission ${formatCurrency(commissionTotal, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-    `Platform ${formatCurrency(platformFeeTotal, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-    `Delivery ${formatCurrency(deliveryFeeTotal, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-    `GST ${formatCurrency(gstTotal, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+    `Comm: ${formatCurrency(commissionTotal)}`,
+    `Platform: ${formatCurrency(platformFeeTotal)}`,
+    `Delivery Net: ${formatCurrency(deliveryProfit)}`,
+    `GST: ${formatCurrency(gstTotal)}`,
   ].join(" + ")
 
   return (
@@ -218,7 +222,7 @@ export default function AdminHome() {
             <MetricCard
               title="Gross revenue"
               value={formatCurrency(revenueTotal)}
-              helper="Rolling 12 months"
+              helper={`${periodLabel} transaction volume`}
               icon={<ShoppingBag className="h-5 w-5 text-emerald-600" />}
               accent="bg-emerald-200/40"
               path="/admin/food/transaction-report"
@@ -226,7 +230,7 @@ export default function AdminHome() {
             <MetricCard
               title="Commission earned"
               value={formatCurrency(commissionTotal)}
-              helper="Restaurant commission"
+              helper={`${periodLabel} restaurant cut`}
               icon={<ArrowUpRight className="h-5 w-5 text-indigo-600" />}
               accent="bg-indigo-200/40"
               path="/admin/food/restaurants/commission"
@@ -234,7 +238,7 @@ export default function AdminHome() {
             <MetricCard
               title="Orders processed"
               value={ordersTotal.toLocaleString("en-IN")}
-              helper="Fulfilled & billed"
+              helper={`${periodLabel} successful orders`}
               icon={<Activity className="h-5 w-5 text-amber-600" />}
               accent="bg-amber-200/40"
               path="/admin/food/orders/processing"
@@ -242,7 +246,7 @@ export default function AdminHome() {
             <MetricCard
               title="Platform fee"
               value={formatCurrency(platformFeeTotal)}
-              helper="Total platform fees"
+              helper={`Platform service fees: ${periodLabel}`}
               icon={<CreditCard className="h-5 w-5 text-purple-600" />}
               accent="bg-purple-200/40"
               path="/admin/food/fee-settings"
@@ -250,7 +254,7 @@ export default function AdminHome() {
             <MetricCard
               title="Delivery fee"
               value={formatCurrency(deliveryFeeTotal)}
-              helper="Total delivery fees"
+              helper={`Total delivery fees: ${periodLabel}`}
               icon={<Truck className="h-5 w-5 text-blue-600" />}
               accent="bg-blue-200/40"
               path="/admin/food/transaction-report"
@@ -258,13 +262,13 @@ export default function AdminHome() {
             <MetricCard
               title="GST"
               value={formatCurrency(gstTotal)}
-              helper="Total GST collected"
+              helper={`Total tax collected: ${periodLabel}`}
               icon={<Receipt className="h-5 w-5 text-orange-600" />}
               accent="bg-orange-200/40"
               path="/admin/food/tax-report"
             />
             <MetricCard
-              title="Total revenue"
+              title="Platform Total"
               value={formatCurrency(totalAdminEarnings, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               helper={totalRevenueHelper}
               icon={<DollarSign className="h-5 w-5 text-green-600" />}

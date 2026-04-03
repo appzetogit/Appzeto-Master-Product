@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from "react"
+import { useSearchParams } from "react-router-dom"
 import { Search, Download, ChevronDown, Calendar, Eye, FileDown, FileSpreadsheet, FileText, X, Mail, Phone, MapPin, Package, IndianRupee, Calendar as CalendarIcon, User, CheckCircle, XCircle } from "lucide-react"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@food/components/ui/dropdown-menu"
 import { exportCustomersToCSV, exportCustomersToExcel, exportCustomersToPDF } from "@food/components/admin/customers/customersExportUtils"
@@ -152,6 +153,18 @@ export default function Customers() {
       clearTimeout(t)
     }
   }, [searchQuery, filters.status, filters.joiningDate, filters.sortBy, filters.chooseFirst])
+
+  const [searchParams] = useSearchParams()
+  const userIdFromUrl = searchParams.get("userId")
+
+  useEffect(() => {
+    if (userIdFromUrl && customers.length > 0) {
+      const customer = customers.find(c => c.id === userIdFromUrl || c._id === userIdFromUrl)
+      if (customer) {
+        handleViewDetails(customer.id || customer.sl || customer._id)
+      }
+    }
+  }, [userIdFromUrl, customers])
 
   const handleToggleStatus = async (customerId) => {
     try {

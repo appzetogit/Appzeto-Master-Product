@@ -5,6 +5,7 @@ import { FoodAdmin } from "../admin/admin.model.js";
 import { AdminResetOtp } from "../admin/adminResetOtp.model.js";
 import { FoodRestaurant } from "../../modules/food/restaurant/models/restaurant.model.js";
 import { FoodDeliveryPartner } from "../../modules/food/delivery/models/deliveryPartner.model.js";
+import { Seller } from "../../modules/quick-commerce/seller/models/seller.model.js";
 import { FoodReferralSettings } from "../../modules/food/admin/models/referralSettings.model.js";
 import { FoodReferralLog } from "../../modules/food/admin/models/referralLog.model.js";
 import { createOrUpdateOtp, verifyOtp } from "../otp/otp.service.js";
@@ -22,6 +23,7 @@ const ROLES = {
   RESTAURANT: "RESTAURANT",
   DELIVERY_PARTNER: "DELIVERY_PARTNER",
   ADMIN: "ADMIN",
+  SELLER: "SELLER",
 };
 
 export const requestUserOtp = async (phone) => {
@@ -244,13 +246,12 @@ export const requestRestaurantOtp = async (phone) => {
     throw new ValidationError("Phone is required");
   }
   const otp = await createOrUpdateOtp(phone);
-  // Only expose OTP in response when in default/dev mode — never in production with real SMS
   const shouldExposeOtp =
     config.nodeEnv !== "production" || config.useDefaultOtp;
   return shouldExposeOtp ? { otp } : {};
 };
 
-export const verifyRestaurantOtpAndLogin = async (phone, otp) => {
+export const verifyRestaurantOtpAndLogin = async (phone, otp, fcmToken, platform) => {
   const result = await verifyOtp(phone, otp);
   if (!result.valid) {
     throw new AuthError(result.reason || "OTP verification failed");
@@ -271,7 +272,7 @@ export const verifyRestaurantOtpAndLogin = async (phone, otp) => {
       ...phoneOrFields("ownerPhone"),
       ...phoneOrFields("primaryContactNumber"),
     ],
-  }).lean();
+  });
   if (!restaurant) {
     // Phone has been successfully verified, but no restaurant exists yet.
     // Frontend will use this to redirect into registration/onboarding.
@@ -279,6 +280,27 @@ export const verifyRestaurantOtpAndLogin = async (phone, otp) => {
       needsRegistration: true,
       phone,
     };
+  }
+
+  // Update FCM token if provided
+  if (fcmToken) {
+    let isModified = false;
+    if (platform === "mobile") {
+      if (!restaurant.fcmTokenMobile) restaurant.fcmTokenMobile = [];
+      if (!restaurant.fcmTokenMobile.includes(fcmToken)) {
+        restaurant.fcmTokenMobile.push(fcmToken);
+        isModified = true;
+      }
+    } else {
+      if (!restaurant.fcmTokens) restaurant.fcmTokens = [];
+      if (!restaurant.fcmTokens.includes(fcmToken)) {
+        restaurant.fcmTokens.push(fcmToken);
+        isModified = true;
+      }
+    }
+    if (isModified) {
+      await restaurant.save();
+    }
   }
 
   // If restaurant approval status is used, only allow login for approved restaurants.
@@ -326,7 +348,7 @@ const normalizePhoneForDelivery = (phone) => {
   return digits.slice(-10) || null;
 };
 
-export const verifyDeliveryOtpAndLogin = async (phone, otp) => {
+export const verifyDeliveryOtpAndLogin = async (phone, otp, fcmToken, platform) => {
   const result = await verifyOtp(phone, otp);
   if (!result.valid) {
     throw new AuthError(result.reason || "OTP verification failed");
@@ -342,18 +364,45 @@ export const verifyDeliveryOtpAndLogin = async (phone, otp) => {
       { phone: normalized },
       { phone: { $regex: new RegExp(normalized + "$") } },
     ],
-  }).lean();
+  });
 
   if (!deliveryPartner) {
     return { needsRegistration: true, phone };
   }
 
+  // Update FCM token if provided - CRITICAL: do this BEFORE returning pendingApproval
+  // so we can notify them when approved.
+  if (fcmToken) {
+    let isModified = false;
+    if (platform === "mobile") {
+      if (!deliveryPartner.fcmTokenMobile) deliveryPartner.fcmTokenMobile = [];
+      if (!deliveryPartner.fcmTokenMobile.includes(fcmToken)) {
+        deliveryPartner.fcmTokenMobile.push(fcmToken);
+        isModified = true;
+      }
+    } else {
+      if (!deliveryPartner.fcmTokens) deliveryPartner.fcmTokens = [];
+      if (!deliveryPartner.fcmTokens.includes(fcmToken)) {
+        deliveryPartner.fcmTokens.push(fcmToken);
+        isModified = true;
+      }
+    }
+    if (isModified) {
+      await deliveryPartner.save();
+    }
+  }
+
   if (deliveryPartner.status && deliveryPartner.status !== "approved") {
+    const isRejected = deliveryPartner.status === "rejected";
     return {
       pendingApproval: true,
+      isRejected,
+      rejectionReason: isRejected ? deliveryPartner.rejectionReason : null,
       message:
-        deliveryPartner.status === "rejected"
-          ? "Your delivery account was not approved. Please contact support."
+        isRejected
+          ? (deliveryPartner.rejectionReason 
+              ? `Your account was rejected: ${deliveryPartner.rejectionReason}`
+              : "Your delivery account was not approved. Please contact support.")
           : "Your account is pending admin verification. You will be notified once approved.",
     };
   }
@@ -528,12 +577,16 @@ export const getProfile = async (userId, role) => {
             partner.bankAccountHolderName ||
             partner.bankAccountNumber ||
             partner.bankIfscCode ||
-            partner.bankName
+            partner.bankName ||
+            partner.upiId ||
+            partner.upiQrCode
               ? {
                   accountHolderName: partner.bankAccountHolderName || null,
                   accountNumber: partner.bankAccountNumber || null,
                   ifscCode: partner.bankIfscCode || null,
                   bankName: partner.bankName || null,
+                  upiId: partner.upiId || null,
+                  upiQrCode: partner.upiQrCode || null,
                 }
               : null,
         },
@@ -554,6 +607,36 @@ export const getProfile = async (userId, role) => {
                 number: partner.vehicleNumber,
               }
             : null,
+      };
+      break;
+    }
+    case ROLES.SELLER: {
+      const seller = await Seller.findById(id).lean();
+      if (!seller) break;
+
+      profile = {
+        ...seller,
+        name: seller.name || "Seller",
+        shopName: seller.shopName || seller.name || "Store",
+        phone: seller.phoneLast10 || seller.phone || "",
+        email: seller.email || "",
+        role: "seller",
+        location: seller.location || null,
+        serviceRadius:
+          typeof seller.serviceRadius === "number" ? seller.serviceRadius : 5,
+        isVerified: seller.isVerified !== false,
+        isActive: seller.isActive !== false,
+        approved: seller.approved !== false,
+        approvalStatus:
+          seller.approvalStatus ||
+          (seller.approved === false ? "pending" : "approved"),
+        onboardingSubmitted: seller.onboardingSubmitted === true,
+        approvalNotes: seller.approvalNotes || "",
+        approvedAt: seller.approvedAt || null,
+        rejectedAt: seller.rejectedAt || null,
+        bankInfo: seller.bankInfo || {},
+        documents: seller.documents || {},
+        shopInfo: seller.shopInfo || {},
       };
       break;
     }

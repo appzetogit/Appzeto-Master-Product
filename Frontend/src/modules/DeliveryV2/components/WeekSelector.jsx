@@ -59,12 +59,12 @@ export default function WeekSelector({ weekStartsOn = 0, onChange, className }) 
   return (
     <div className={cn("w-full", className)}>
       {/* Pills */}
-      <div className="flex items-center justify-center gap-2">
+      <div className="flex flex-nowrap items-center justify-center gap-1.5">
         <Button
           variant="outline"
           onClick={setThisWeek}
           className={cn(
-            "rounded-md px-2 h-10 text-base",
+            "rounded-md px-2 h-10 text-xs whitespace-nowrap",
             isSameRange(range, computeRange(new Date())) &&
             "bg-emerald-50 text-emerald-900 border-emerald-200"
           )}
@@ -75,7 +75,7 @@ export default function WeekSelector({ weekStartsOn = 0, onChange, className }) 
         <Button
           variant="outline"
           onClick={setLastWeek}
-          className="rounded-md px-2 h-10 text-base"
+          className="rounded-md px-2 h-10 text-xs whitespace-nowrap"
         >
           Last week
         </Button>
@@ -84,9 +84,9 @@ export default function WeekSelector({ weekStartsOn = 0, onChange, className }) 
           <PopoverTrigger asChild>
             <Button
               variant="outline"
-              className="rounded-md px-2 h-10 text-base inline-flex items-center"
+              className="rounded-md px-2 h-10 text-xs inline-flex items-center justify-center whitespace-nowrap"
             >
-              Select week <ChevronDown className="ml-2 h-4 w-4" />
+              Select day <ChevronDown className="ml-2 h-4 w-4" />
             </Button>
           </PopoverTrigger>
           <PopoverContent className="p-0" align="start">

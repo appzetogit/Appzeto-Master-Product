@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useCallback } from "react"
+import { useSearchParams } from "react-router-dom"
 import { Search, Trash2, Loader2, Eye, Pencil, Plus, Save, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react"
 import { adminAPI, uploadAPI } from "@food/api"
 import { toast } from "sonner"
@@ -145,6 +146,18 @@ export default function FoodsList() {
   useEffect(() => {
     fetchAllFoods()
   }, [fetchAllFoods])
+
+  const [searchParams] = useSearchParams()
+  const productIdFromUrl = searchParams.get("productId")
+
+  useEffect(() => {
+    if (productIdFromUrl && foods.length > 0) {
+      const food = foods.find(f => f.id === productIdFromUrl || f._id === productIdFromUrl)
+      if (food) {
+        handleViewDetails(food)
+      }
+    }
+  }, [productIdFromUrl, foods])
 
   // Format ID to FOOD format (e.g., FOOD519399)
   const formatFoodId = (id) => {

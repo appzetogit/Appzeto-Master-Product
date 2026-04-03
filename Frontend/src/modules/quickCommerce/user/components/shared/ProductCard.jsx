@@ -1,5 +1,5 @@
 import React from "react";
-import { Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { Heart, Plus, Minus, Star } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -12,9 +12,11 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Clock } from "lucide-react";
 
 import { useProductDetail } from "../../context/ProductDetailContext";
+import { getQuickProductPath, isEmbeddedQuickPath } from "../../utils/routes";
 
 const ProductCard = React.memo(
   ({ product, badge, className, compact = false, neutralBg = false }) => {
+    const navigate = useNavigate();
     const { toggleWishlist: toggleWishlistGlobal, isInWishlist } =
       useWishlist();
     const { cart, addToCart, updateQuantity, removeFromCart } = useCart();
@@ -38,12 +40,21 @@ const ProductCard = React.memo(
 
     const handleProductClick = React.useCallback(
       (e) => {
+        const productId = product.id || product._id;
+        const pathname =
+          typeof window !== "undefined" ? window.location.pathname : "";
+
+        if (productId && isEmbeddedQuickPath(pathname)) {
+          navigate(getQuickProductPath(productId));
+          return;
+        }
+
         if (openProduct) {
           e.preventDefault();
           openProduct(product);
         }
       },
-      [openProduct, product],
+      [navigate, openProduct, product],
     );
 
     const toggleWishlist = React.useCallback(

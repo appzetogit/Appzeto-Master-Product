@@ -22,6 +22,7 @@ import {
   Terminal,
   Sparkles,
   User,
+  MapPinned,
 } from "lucide-react"
 import Loader from "@food/components/Loader"
 
@@ -60,9 +61,13 @@ const AdminSettings = React.lazy(() => import("../pages/AdminSettings"))
 const EnvSettings = React.lazy(() => import("../pages/EnvSettings"))
 const AdminProfile = React.lazy(() => import("../pages/AdminProfile"))
 const BillingCharges = React.lazy(() => import("../pages/BillingCharges"))
+const QuickZoneSetup = React.lazy(() => import("../pages/ZoneSetup"))
+const QuickAddZone = React.lazy(() => import("../pages/AddZone"))
+const QuickViewZone = React.lazy(() => import("../pages/ViewZone"))
 
 const navItems = [
   { label: "Dashboard", path: "/admin/quick-commerce", icon: LayoutDashboard, color: "indigo", end: true },
+  { label: "Seller Requests", path: "/admin/quick-commerce/seller-requests", icon: Building2, color: "amber" },
   {
     label: "Categories",
     icon: Tag,
@@ -75,6 +80,7 @@ const navItems = [
     ],
   },
   { label: "Products", path: "/admin/quick-commerce/products", icon: Box, color: "amber" },
+  { label: "Zone Setup", path: "/admin/quick-commerce/zone-setup", icon: MapPinned, color: "emerald" },
   {
     label: "Marketing Tools",
     icon: Sparkles,
@@ -156,6 +162,11 @@ function QuickCommerceAdminRoutesInner() {
         <Route path="/categories/sub" element={<SubCategories />} />
         <Route path="/categories/hierarchy" element={<CategoryHierarchy />} />
         <Route path="/products" element={<ProductManagement />} />
+        <Route path="/zone-setup" element={<QuickZoneSetup />} />
+        <Route path="/zone-setup/add" element={<QuickAddZone />} />
+        <Route path="/zone-setup/edit/:id" element={<QuickAddZone />} />
+        <Route path="/zone-setup/view/:id" element={<QuickViewZone />} />
+        <Route path="/seller-requests" element={<PendingSellers />} />
         <Route path="/sellers/active" element={<ActiveSellers />} />
         <Route path="/sellers/active/:id" element={<SellerDetail />} />
         <Route path="/support-tickets" element={<SupportTickets />} />
@@ -203,4 +214,3 @@ export default function QuickCommerceAdminRoutes() {
     </Suspense>
   )
 }
-

@@ -79,13 +79,44 @@ axiosInstance.interceptors.response.use(
             if (!hasToken) {
                 return Promise.reject(error);
             }
+            const path = window.location.pathname;
+            const requestUrl = String(originalRequest?.url || '');
+            const currentModule = path.startsWith('/seller')
+                ? 'seller'
+                : path.startsWith('/admin')
+                    ? 'admin'
+                    : path.startsWith('/delivery')
+                        ? 'delivery'
+                        : 'customer';
+            const requestModule = requestUrl.startsWith('/seller')
+                ? 'seller'
+                : requestUrl.startsWith('/admin')
+                    ? 'admin'
+                    : requestUrl.startsWith('/delivery')
+                        ? 'delivery'
+                        : requestUrl.startsWith('/user') || requestUrl.startsWith('/customer') || requestUrl.startsWith('/auth')
+                            ? 'customer'
+                            : null;
 
-            // Clear all possible auth tokens from localStorage
-            const storageKeys = ['auth_seller', 'auth_admin', 'auth_delivery', 'auth_customer', 'user_accessToken', 'accessToken', 'token'];
-            storageKeys.forEach(key => localStorage.removeItem(key));
+            // Prevent cross-module 401s from logging out the active session
+            // (e.g. seller page accidentally calling an admin endpoint).
+            if (requestModule && requestModule !== currentModule) {
+                return Promise.reject(error);
+            }
 
-            // Reload will trigger ProtectedRoute to redirect to proper login page
-            window.location.reload();
+            const moduleStorageKeys = {
+                seller: ['auth_seller', 'seller_accessToken', 'token'],
+                admin: ['auth_admin', 'admin_accessToken', 'token'],
+                delivery: ['auth_delivery', 'delivery_accessToken', 'token'],
+                customer: ['auth_customer', 'user_accessToken', 'accessToken', 'token'],
+            };
+            const keysToClear = moduleStorageKeys[currentModule] || ['token'];
+            keysToClear.forEach((key) => localStorage.removeItem(key));
+
+            if (currentModule === 'seller') window.location.href = '/seller/auth';
+            else if (currentModule === 'admin') window.location.href = '/admin/auth';
+            else if (currentModule === 'delivery') window.location.href = '/delivery/auth';
+            else window.location.href = '/login';
         }
         return Promise.reject(error);
     }

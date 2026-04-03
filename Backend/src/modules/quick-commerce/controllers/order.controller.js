@@ -51,13 +51,42 @@ export const placeOrder = async (req, res) => {
   const orderNumber = `QC${Date.now().toString().slice(-8)}`;
 
   const order = await QuickOrder.create({
-    ...idQuery,
-    orderNumber,
-    items,
-    subtotal,
-    deliveryFee,
-    total,
-    status: 'placed',
+    orderType: 'quick',
+    orderId: orderNumber,
+    sessionId: idQuery.sessionId || '',
+    userId: idQuery.userId || null,
+    items: items.map((item) => ({
+      itemId: String(item.productId),
+      name: item.name,
+      image: item.image,
+      price: item.price,
+      quantity: item.quantity,
+    })),
+    pricing: {
+      subtotal,
+      tax: 0,
+      packagingFee: 0,
+      deliveryFee,
+      platformFee: 0,
+      restaurantCommission: 0,
+      discount: 0,
+      total,
+      currency: 'INR',
+    },
+    payment: {
+      method: 'cash',
+      status: 'cod_pending',
+      amountDue: total,
+    },
+    orderStatus: 'placed',
+    statusHistory: [
+      {
+        byRole: 'SYSTEM',
+        from: '',
+        to: 'placed',
+        note: 'Quick commerce order placed',
+      },
+    ],
   });
 
   await QuickCart.findOneAndUpdate(idQuery, { $set: { items: [] } }, { upsert: true });
@@ -66,9 +95,9 @@ export const placeOrder = async (req, res) => {
     success: true,
     result: {
       id: order._id,
-      orderNumber: order.orderNumber,
-      total: order.total,
-      status: order.status,
+      orderNumber: order.orderId,
+      total: order.pricing?.total || 0,
+      status: order.orderStatus,
       createdAt: order.createdAt,
     },
   });
@@ -81,15 +110,15 @@ export const getMyOrders = async (req, res) => {
     return res.status(400).json({ success: false, message: 'sessionId or userId is required' });
   }
 
-  const orders = await QuickOrder.find(idQuery).sort({ createdAt: -1 }).lean();
+  const orders = await QuickOrder.find({ ...idQuery, orderType: 'quick' }).sort({ createdAt: -1 }).lean();
 
   return res.json({
     success: true,
     result: orders.map((order) => ({
       id: order._id,
-      orderNumber: order.orderNumber,
-      total: order.total,
-      status: order.status,
+      orderNumber: order.orderId,
+      total: order.pricing?.total || 0,
+      status: order.orderStatus,
       itemCount: order.items.reduce((sum, item) => sum + item.quantity, 0),
       createdAt: order.createdAt,
     })),

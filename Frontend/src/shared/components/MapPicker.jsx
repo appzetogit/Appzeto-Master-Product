@@ -5,6 +5,7 @@ import {
   Marker,
   Circle,
   Autocomplete,
+  Polygon,
 } from "@react-google-maps/api";
 import { Search, MapPin, Navigation, Loader2 } from "lucide-react";
 import Modal from "./ui/Modal";
@@ -29,14 +30,33 @@ const MapPicker = ({
   initialLocation = null,
   initialRadius = 5,
   maxRadius = 20,
+  zoneCoordinates = [],
+  zoneLabel = "",
 }) => {
   const [center, setCenter] = useState(initialLocation || defaultCenter);
   const [marker, setMarker] = useState(initialLocation);
   const [radius, setRadius] = useState(initialRadius);
-  const [searchResult, setSearchResult] = useState(null);
   const [address, setAddress] = useState("");
   const [isGeocoding, setIsGeocoding] = useState(false);
+  const [isFetchingLocation, setIsFetchingLocation] = useState(false);
   const autocompleteRef = useRef(null);
+  const mapRef = useRef(null);
+
+  const zonePath = React.useMemo(
+    () =>
+      Array.isArray(zoneCoordinates)
+        ? zoneCoordinates
+            .map((coord) => ({
+              lat: Number(coord?.latitude ?? coord?.lat),
+              lng: Number(coord?.longitude ?? coord?.lng),
+            }))
+            .filter(
+              (coord) =>
+                Number.isFinite(coord.lat) && Number.isFinite(coord.lng),
+            )
+        : [],
+    [zoneCoordinates],
+  );
 
   const { isLoaded, loadError } = useJsApiLoader({
     id: "google-map-script",
@@ -50,6 +70,36 @@ const MapPicker = ({
       setMarker(initialLocation);
     }
   }, [initialLocation]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    if (initialLocation) {
+      setCenter(initialLocation);
+      setMarker(initialLocation);
+      return;
+    }
+
+    if (zonePath.length > 0) {
+      const avgLat =
+        zonePath.reduce((sum, point) => sum + point.lat, 0) / zonePath.length;
+      const avgLng =
+        zonePath.reduce((sum, point) => sum + point.lng, 0) / zonePath.length;
+      setCenter({ lat: avgLat, lng: avgLng });
+    } else {
+      setCenter(defaultCenter);
+    }
+  }, [initialLocation, isOpen, zonePath]);
+
+  useEffect(() => {
+    if (!isLoaded || !isOpen || !mapRef.current || zonePath.length < 3 || !window.google) {
+      return;
+    }
+
+    const bounds = new window.google.maps.LatLngBounds();
+    zonePath.forEach((point) => bounds.extend(point));
+    mapRef.current.fitBounds(bounds);
+  }, [isLoaded, isOpen, zonePath]);
 
   const onMapClick = useCallback((e) => {
     const newPos = {
@@ -83,21 +133,33 @@ const MapPicker = ({
   };
 
   const getCurrentLocation = () => {
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          const newPos = {
-            lat: position.coords.latitude,
-            lng: position.coords.longitude,
-          };
-          setCenter(newPos);
-          setMarker(newPos);
-        },
-        () => {
-          alert("Unable to retrieve your location. Please select manually.");
-        },
-      );
+    if (!navigator.geolocation) {
+      alert("Geolocation is not supported on this device.");
+      return;
     }
+
+    setIsFetchingLocation(true);
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const newPos = {
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+        };
+        setCenter(newPos);
+        setMarker(newPos);
+        setAddress("");
+        setIsFetchingLocation(false);
+      },
+      () => {
+        setIsFetchingLocation(false);
+        alert("Unable to retrieve your current location. Please allow location access and try again.");
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 0,
+      },
+    );
   };
 
   const handleConfirm = async () => {
@@ -196,10 +258,17 @@ const MapPicker = ({
           </div>
           <Button
             variant="outline"
-            size="icon"
+            type="button"
             onClick={getCurrentLocation}
+            disabled={isFetchingLocation}
+            className="shrink-0 whitespace-nowrap px-4"
             title="Use current location">
-            <Navigation className="w-4 h-4" />
+            {isFetchingLocation ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Navigation className="mr-2 h-4 w-4" />
+            )}
+            {isFetchingLocation ? "Fetching..." : "Use Current Location"}
           </Button>
         </div>
 
@@ -214,6 +283,9 @@ const MapPicker = ({
               center={center}
               zoom={15}
               onClick={onMapClick}
+              onLoad={(map) => {
+                mapRef.current = map;
+              }}
               options={{
                 disableDefaultUI: true,
                 zoomControl: true,
@@ -221,6 +293,21 @@ const MapPicker = ({
                 mapTypeControl: false,
                 fullscreenControl: false,
               }}>
+              {zonePath.length >= 3 && (
+                <Polygon
+                  path={zonePath}
+                  options={{
+                    fillColor: "#10b981",
+                    fillOpacity: 0.14,
+                    strokeColor: "#059669",
+                    strokeOpacity: 0.9,
+                    strokeWeight: 2,
+                    clickable: false,
+                    editable: false,
+                    zIndex: 1,
+                  }}
+                />
+              )}
               {marker && (
                 <>
                   <Marker
@@ -250,6 +337,11 @@ const MapPicker = ({
         </div>
 
         <div className="bg-gray-50 p-4 rounded-lg space-y-3">
+          {zoneLabel ? (
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800">
+              Showing selected zone: {zoneLabel}
+            </div>
+          ) : null}
           <div className="flex justify-between items-center">
             <label className="text-sm font-medium text-gray-700">
               Service Radius (km)

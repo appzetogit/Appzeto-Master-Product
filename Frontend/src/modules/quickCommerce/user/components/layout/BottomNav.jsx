@@ -3,22 +3,32 @@ import { Link, useLocation } from 'react-router-dom';
 import { Home, LayoutGrid, ShoppingBag, User } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
-
-const navItems = [
-    { label: 'Home', icon: Home, path: '/' },
-    { label: 'Category', icon: LayoutGrid, path: '/categories' },
-    { label: 'Orders', icon: ShoppingBag, path: '/orders' },
-    { label: 'Profile', icon: User, path: '/profile' },
-];
+import {
+    getQuickCategoriesPath,
+    getQuickHomePath,
+    getQuickOrdersPath,
+    getQuickProfilePath,
+} from '../../utils/routes';
 
 const BottomNav = () => {
     const location = useLocation();
+    const navItems = [
+        { label: 'Home', icon: Home, path: getQuickHomePath(location.pathname) },
+        { label: 'Category', icon: LayoutGrid, path: getQuickCategoriesPath() },
+        { label: 'Orders', icon: ShoppingBag, path: getQuickOrdersPath() },
+        { label: 'Profile', icon: User, path: getQuickProfilePath() },
+    ];
+    const isActivePath = (targetPath) => {
+        if (targetPath === getQuickHomePath(location.pathname)) {
+            return location.pathname === targetPath;
+        }
+        return location.pathname === targetPath || location.pathname.startsWith(`${targetPath}/`);
+    };
 
     return (
         <div className="fixed bottom-0 left-0 right-0 z-[500] bg-white border-t border-gray-100 flex items-center justify-around h-[70px] md:hidden shadow-[0_-8px_30px_rgba(0,0,0,0.06)] px-4 pb-[env(safe-area-inset-bottom)]">
             {navItems.map((item) => {
-                const isActive = location.pathname === item.path ||
-                    (item.path !== '/' && location.pathname.startsWith(item.path));
+                const isActive = isActivePath(item.path);
 
                 return (
                     <Link

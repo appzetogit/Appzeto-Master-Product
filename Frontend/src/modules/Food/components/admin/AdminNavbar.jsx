@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Menu,
@@ -13,6 +13,10 @@ import {
   Users,
   AlertCircle,
   ArrowRight,
+  Building2,
+  Utensils,
+  Grid,
+  PlusCircle,
 } from "lucide-react";
 import {
   Dialog,
@@ -114,6 +118,15 @@ export default function AdminNavbar({ onMenuClick }) {
 
     return () => clearTimeout(delayDebounceFn);
   }, [searchQuery]);
+
+  const groupedResults = useMemo(() => {
+    const groups = {};
+    searchResults.forEach((res) => {
+      if (!groups[res.type]) groups[res.type] = [];
+      groups[res.type].push(res);
+    });
+    return groups;
+  }, [searchResults]);
 
   const handleResultClick = (result) => {
     // Save to recent searches
@@ -470,26 +483,45 @@ export default function AdminNavbar({ onMenuClick }) {
                   </div>
                 ) : (
                   <>
-                    <div className="text-sm text-neutral-600 mb-3">
+                    <div className="text-sm text-neutral-600 mb-3 ml-1">
                       {searchResults.length} result{searchResults.length !== 1 ? "s" : ""} found
                     </div>
-                    {searchResults.map((result, idx) => (
-                      <button
-                        key={idx}
-                        onClick={() => handleResultClick(result)}
-                        className="w-full flex items-center gap-4 p-4 rounded-lg border border-neutral-200 hover:border-neutral-300 hover:bg-neutral-50 transition-all text-left"
-                      >
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2">
-                            <p className="text-sm font-semibold text-neutral-900">{result.title}</p>
-                            <span className="text-xs px-2 py-0.5 bg-neutral-100 text-neutral-700 rounded">
-                              {result.type}
-                            </span>
-                          </div>
-                          <p className="text-xs text-neutral-600 mt-1">{result.description}</p>
+                    {Object.entries(groupedResults).map(([type, results]) => (
+                      <div key={type} className="mb-4">
+                        <div className="flex items-center gap-2 mb-2 px-1">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400">
+                            {type}s
+                          </span>
+                          <div className="h-px flex-1 bg-neutral-100"></div>
                         </div>
-                        <ArrowRight className="w-4 h-4 text-neutral-400" />
-                      </button>
+                        <div className="space-y-2">
+                          {results.map((result, idx) => (
+                            <button
+                              key={`${type}-${idx}`}
+                              onClick={() => handleResultClick(result)}
+                              className="w-full flex items-center gap-3 p-3 rounded-xl border border-neutral-100 hover:border-neutral-200 hover:bg-neutral-50 transition-all text-left group"
+                            >
+                              <div className="w-10 h-10 rounded-lg bg-neutral-100 flex items-center justify-center text-neutral-500 group-hover:bg-white group-hover:text-black transition-colors">
+                                {result.type === 'Order' && <Package className="w-5 h-5" />}
+                                {result.type === 'User' && <User className="w-5 h-5" />}
+                                {result.type === 'Restaurant' && <Building2 className="w-5 h-5" />}
+                                {result.type === 'Product' && <Utensils className="w-5 h-5" />}
+                                {result.type === 'Category' && <Grid className="w-5 h-5" />}
+                                {result.type === 'Addon' && <PlusCircle className="w-5 h-5" />}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-semibold text-neutral-900 truncate">
+                                  {result.title}
+                                </p>
+                                <p className="text-xs text-neutral-500 truncate mt-0.5">
+                                  {result.description}
+                                </p>
+                              </div>
+                              <ArrowRight className="w-4 h-4 text-neutral-300 group-hover:text-black group-hover:translate-x-0.5 transition-all" />
+                            </button>
+                          ))}
+                        </div>
+                      </div>
                     ))}
                   </>
                 )}

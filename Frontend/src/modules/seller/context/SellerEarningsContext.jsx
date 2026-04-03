@@ -1,4 +1,4 @@
-import { createContext } from "react"
+import { createContext, useContext } from "react"
 
 export const defaultEarnings = {
   balances: {},
@@ -12,5 +12,6 @@ const SellerEarningsContext = createContext({
   refreshEarnings: () => {},
 })
 
-export default SellerEarningsContext
+export const useSellerEarnings = () => useContext(SellerEarningsContext)
 
+export default SellerEarningsContext

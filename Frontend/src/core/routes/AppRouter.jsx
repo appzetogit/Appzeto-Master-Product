@@ -69,6 +69,28 @@ const CustomerLayoutWrapper = () => (
     </LocationProvider>
 );
 
+const hasSellerSession = () => {
+    try {
+        return Boolean(localStorage.getItem('auth_seller'));
+    } catch {
+        return false;
+    }
+};
+
+const SellerRootEntry = () => {
+    if (hasSellerSession()) {
+        return (
+            <ProtectedRoute>
+                <RoleGuard allowedRoles={[UserRole.SELLER]}>
+                    <SellerModule />
+                </RoleGuard>
+            </ProtectedRoute>
+        );
+    }
+
+    return <Auth />;
+};
+
 const AppRouter = () => {
     const router = useMemo(() => createBrowserRouter([
         {
@@ -83,6 +105,10 @@ const AppRouter = () => {
                 {
                     path: 'signup',
                     element: <CustomerAuth />,
+                },
+                {
+                    path: 'seller',
+                    element: <SellerRootEntry />,
                 },
                 {
                     path: 'seller/auth',

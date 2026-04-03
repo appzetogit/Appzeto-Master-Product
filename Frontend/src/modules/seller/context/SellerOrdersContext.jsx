@@ -1,4 +1,4 @@
-import { createContext } from "react"
+import { createContext, useContext } from "react"
 
 const SellerOrdersContext = createContext({
   orders: [],
@@ -6,5 +6,6 @@ const SellerOrdersContext = createContext({
   refreshOrders: () => {},
 })
 
-export default SellerOrdersContext
+export const useSellerOrders = () => useContext(SellerOrdersContext)
 
+export default SellerOrdersContext

@@ -1,91 +1,122 @@
 import axiosInstance from "@core/api/axios";
 import { getWithDedupe, invalidateCache } from "@core/api/dedupe";
+import { getQuickSessionId } from "./quickApi";
 
-/**
- * Quick Commerce Backend Services (Customer Module)
- * All endpoints are prefixed with /v1/quick-commerce via the API config unless absolute URLs are used.
- * Version: 1.0.2 - Fixed HMR and re-added missing imports
- */
+const withQuickSession = (config = {}) => ({
+  ...config,
+  params: {
+    ...(config.params || {}),
+    sessionId: getQuickSessionId(),
+  },
+  headers: {
+    ...(config.headers || {}),
+    "x-quick-session": getQuickSessionId(),
+  },
+});
+
+const quickGetWithDedupe = (url, params = {}, options = {}) =>
+  getWithDedupe(url, params, withQuickSession(options));
 
 export const customerApi = {
-  // --- Cart & Checkout ---
-  getCart: () => axiosInstance.get("/quick-commerce/cart"),
+  getProfile: () =>
+    axiosInstance.get("/auth/me", withQuickSession()).then((res) => {
+      const user =
+        res?.data?.data?.user ??
+        res?.data?.user ??
+        res?.data?.data ??
+        res?.data;
+      return {
+        ...res,
+        data: {
+          ...res.data,
+          result: user,
+          data: user,
+        },
+      };
+    }),
+
+  getCart: () => axiosInstance.get("/quick-commerce/cart", withQuickSession()),
   addToCart: (data) => {
     invalidateCache("/quick-commerce/cart");
-    return axiosInstance.post("/quick-commerce/cart/add", data);
+    return axiosInstance.post("/quick-commerce/cart/add", data, withQuickSession());
   },
   updateCartQuantity: (data) => {
     invalidateCache("/quick-commerce/cart");
-    return axiosInstance.put("/quick-commerce/cart/update", data);
+    return axiosInstance.put("/quick-commerce/cart/update", data, withQuickSession());
   },
   removeFromCart: (productId) => {
     invalidateCache("/quick-commerce/cart");
-    return axiosInstance.delete(`/quick-commerce/cart/remove/${productId}`);
+    return axiosInstance.delete(`/quick-commerce/cart/remove/${productId}`, withQuickSession());
   },
   clearCart: () => {
     invalidateCache("/quick-commerce/cart");
-    return axiosInstance.delete("/quick-commerce/cart/clear");
+    return axiosInstance.delete("/quick-commerce/cart/clear", withQuickSession());
   },
 
-  // --- Orders & Checkout ---
-  placeOrder: (data) => axiosInstance.post("/quick-commerce/orders", data),
-  getOrders: (params) => getWithDedupe("/quick-commerce/orders", params),
-  getOrderDetails: (orderId) => getWithDedupe(`/quick-commerce/orders/${orderId}`, {}),
-  cancelOrder: (orderId) => axiosInstance.post(`/quick-commerce/orders/${orderId}/cancel`, {}),
+  placeOrder: (data) => axiosInstance.post("/quick-commerce/orders", data, withQuickSession()),
+  getOrders: (params) => quickGetWithDedupe("/quick-commerce/orders", params),
+  getMyOrders: (params) => quickGetWithDedupe("/quick-commerce/orders", params),
+  createOrder: (data) => axiosInstance.post("/quick-commerce/orders", data, withQuickSession()),
+  getOrderDetails: (orderId) => quickGetWithDedupe(`/quick-commerce/orders/${orderId}`, {}),
+  cancelOrder: (orderId) => axiosInstance.post(`/quick-commerce/orders/${orderId}/cancel`, {}, withQuickSession()),
 
-  // --- Search & Catalog ---
-  getProducts: (params) => getWithDedupe("/quick-commerce/products", params),
-  searchProducts: (params) => getWithDedupe("/quick-commerce/products", params),
-  getCategories: () => getWithDedupe("/quick-commerce/categories", {}),
-  getCategoryProducts: (categoryId, params) => getWithDedupe("/quick-commerce/products", { categoryId, ...params }),
-  getProductDetails: (productId) => getWithDedupe(`/quick-commerce/products/${productId}`, {}),
+  getProducts: (params) => quickGetWithDedupe("/quick-commerce/products", params),
+  searchProducts: (params) => quickGetWithDedupe("/quick-commerce/products", params),
+  getCategories: () => quickGetWithDedupe("/quick-commerce/categories", {}),
+  getCategoryProducts: (categoryId, params) =>
+    quickGetWithDedupe("/quick-commerce/products", { categoryId, ...params }),
+  getProductDetails: (productId) => quickGetWithDedupe(`/quick-commerce/products/${productId}`, {}),
 
-  // --- Customer / Profiles ---
-  getAddresses: () => axiosInstance.get("/quick-commerce/addresses"),
-  addAddress: (data) => axiosInstance.post("/quick-commerce/addresses", data),
-  updateAddress: (id, data) => axiosInstance.put(`/quick-commerce/addresses/${id}`, data),
-  deleteAddress: (id) => axiosInstance.delete(`/quick-commerce/addresses/${id}`),
+  getAddresses: () => axiosInstance.get("/quick-commerce/addresses", withQuickSession()),
+  addAddress: (data) => axiosInstance.post("/quick-commerce/addresses", data, withQuickSession()),
+  updateAddress: (id, data) => axiosInstance.put(`/quick-commerce/addresses/${id}`, data, withQuickSession()),
+  deleteAddress: (id) => axiosInstance.delete(`/quick-commerce/addresses/${id}`, withQuickSession()),
 
-  // --- Store / Discovery ---
-  getStores: (params) => getWithDedupe("/quick-commerce/stores", params),
-  getStoreDetails: (storeId) => getWithDedupe(`/quick-commerce/stores/${storeId}`, {}),
+  getStores: (params) => quickGetWithDedupe("/quick-commerce/stores", params),
+  getStoreDetails: (storeId) => quickGetWithDedupe(`/quick-commerce/stores/${storeId}`, {}),
 
-  // --- Reviews ---
-  getProductReviews: (productId) => getWithDedupe(`/quick-commerce/products/${productId}/reviews`, {}),
-  submitReview: (data) => axiosInstance.post("/quick-commerce/products/reviews", data),
+  getProductReviews: async (productId) => {
+    try {
+      return await quickGetWithDedupe(`/quick-commerce/products/${productId}/reviews`, {});
+    } catch (error) {
+      if (error?.response?.status === 404) {
+        return { data: { success: true, results: [] } };
+      }
+      throw error;
+    }
+  },
+  submitReview: (data) => axiosInstance.post("/quick-commerce/products/reviews", data, withQuickSession()),
 
-  // --- Experience & Delivery Optimization ---
-  // The "Experience" API handles dynamic layouts, banners, and personalized sections
-  getExperienceSections: (params) => getWithDedupe("/quick-commerce/experience", params),
-  getHeroConfig: (params) => getWithDedupe("/quick-commerce/experience/hero", params),
-  getOfferSections: (params) => getWithDedupe("/quick-commerce/offer-sections", params),
-  
-  // Catalog / Home
-  getHomeData: () => getWithDedupe("/quick-commerce/home", {}),
+  getExperienceSections: (params) => quickGetWithDedupe("/quick-commerce/experience", params),
+  getHeroConfig: (params) => quickGetWithDedupe("/quick-commerce/experience/hero", params),
+  getOfferSections: (params) => quickGetWithDedupe("/quick-commerce/offer-sections", params),
+  getHomeData: () => quickGetWithDedupe("/quick-commerce/home", {}),
 
-  // Coupons / Payments
-  getCoupons: () => getWithDedupe("/quick-commerce/coupons", {}),
-  applyCoupon: (data) => axiosInstance.post("/quick-commerce/coupons/apply", data),
+  getCoupons: () => quickGetWithDedupe("/quick-commerce/coupons", {}),
+  getActiveCoupons: () => quickGetWithDedupe("/quick-commerce/coupons", {}),
+  applyCoupon: (data) => axiosInstance.post("/quick-commerce/coupons/apply", data, withQuickSession()),
+  validateCoupon: (data) => axiosInstance.post("/quick-commerce/coupons/apply", data, withQuickSession()),
+  getOffers: () => quickGetWithDedupe("/quick-commerce/offers", {}),
 
-  // Wallet / Loyalty
-  getWalletBalance: () => axiosInstance.get("/quick-commerce/wallet/balance"),
-  getWalletTransactions: (params) => getWithDedupe("/quick-commerce/wallet/transactions", params),
+  getWalletBalance: () => axiosInstance.get("/quick-commerce/wallet/balance", withQuickSession()),
+  getWalletTransactions: (params) => quickGetWithDedupe("/quick-commerce/wallet/transactions", params),
+  geocodeAddress: (address) =>
+    axiosInstance.get(
+      `/quick-commerce/location/geocode?address=${encodeURIComponent(address)}`,
+      withQuickSession()
+    ),
 
-  // Geocoding (Bridge to specialized backend logic if exists, or just proxy)
-  geocodeAddress: (address) => axiosInstance.get(`/quick-commerce/location/geocode?address=${encodeURIComponent(address)}`),
-
-  // Wishlist
-  getWishlist: (params) => getWithDedupe("/quick-commerce/wishlist", params),
+  getWishlist: (params) => quickGetWithDedupe("/quick-commerce/wishlist", params),
   addToWishlist: (data) => {
     invalidateCache("/quick-commerce/wishlist");
-    return axiosInstance.post("/quick-commerce/wishlist/add", data);
+    return axiosInstance.post("/quick-commerce/wishlist/add", data, withQuickSession());
   },
   removeFromWishlist: (productId) => {
     invalidateCache("/quick-commerce/wishlist");
-    return axiosInstance.delete(`/quick-commerce/wishlist/remove/${productId}`);
+    return axiosInstance.delete(`/quick-commerce/wishlist/remove/${productId}`, withQuickSession());
   },
   toggleWishlist: (data) => {
     invalidateCache("/quick-commerce/wishlist");
-    return axiosInstance.post("/quick-commerce/wishlist/toggle", data);
+    return axiosInstance.post("/quick-commerce/wishlist/toggle", data, withQuickSession());
   },
 };

@@ -15,6 +15,7 @@ const DiningExplore50 = lazy(() => import("@food/pages/user/DiningExplore50"))
 const DiningExploreNear = lazy(() => import("@food/pages/user/DiningExploreNear"))
 const Coffee = lazy(() => import("@food/pages/user/Coffee"))
 const Under250 = lazy(() => import("@food/pages/user/Under250"))
+const Categories = lazy(() => import("@food/pages/user/Categories"))
 const CategoryPage = lazy(() => import("@food/pages/user/CategoryPage"))
 const Restaurants = lazy(() => import("@food/pages/user/restaurants/Restaurants"))
 const RestaurantDetails = lazy(() => import("@food/pages/user/restaurants/RestaurantDetails"))
@@ -30,6 +31,7 @@ const ProductDetail = lazy(() => import("@food/pages/user/ProductDetail"))
 const Cart = lazy(() => import("@food/pages/user/cart/Cart"))
 const Checkout = lazy(() => import("@food/pages/user/cart/Checkout"))
 const SelectAddress = lazy(() => import("@food/pages/user/cart/SelectAddress"))
+const AddressSelectorPage = lazy(() => import("@food/pages/user/cart/AddressSelectorPage"))
 
 // Orders
 const Orders = lazy(() => import("@food/pages/user/orders/Orders"))
@@ -68,6 +70,7 @@ const Cancellation = lazy(() => import("@food/pages/user/profile/Cancellation"))
 const ReportSafetyEmergency = lazy(() => import("@food/pages/user/profile/ReportSafetyEmergency"))
 const Accessibility = lazy(() => import("@food/pages/user/profile/Accessibility"))
 const Logout = lazy(() => import("@food/pages/user/profile/Logout"))
+const ReferEarn = lazy(() => import("@food/pages/user/profile/ReferEarn"))
 
 // Auth
 const SignIn = lazy(() => import("@food/pages/user/auth/SignIn"))
@@ -114,6 +117,7 @@ export default function UserRouter() {
             }
           />
           <Route path="under-250" element={<Under250 />} />
+          <Route path="categories" element={<Categories />} />
           <Route path="category/:category" element={<CategoryPage />} />
           <Route path="restaurants" element={<Restaurants />} />
           <Route path="restaurants/:slug" element={<RestaurantDetails />} />
@@ -124,6 +128,7 @@ export default function UserRouter() {
           <Route path="cart" element={<Cart />} />
           <Route path="cart/checkout" element={<Checkout />} />
           <Route path="cart/select-address" element={<SelectAddress />} />
+          <Route path="cart/address-selector" element={<AddressSelectorPage />} />
 
           {/* Orders - Protected (require user auth) */}
           <Route
@@ -267,6 +272,14 @@ export default function UserRouter() {
             element={
               <ProtectedRoute requiredRole="user" loginPath="/user/auth/login">
                 <Logout />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="profile/refer-earn"
+            element={
+              <ProtectedRoute requiredRole="user" loginPath="/user/auth/login">
+                <ReferEarn />
               </ProtectedRoute>
             }
           />

@@ -28,6 +28,8 @@ export const ProfileV2 = () => {
   const [loading, setLoading] = useState(true)
   const [referralReward, setReferralReward] = useState(0)
   const [showAlertSoundPopup, setShowAlertSoundPopup] = useState(false)
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
+  const [logoutSubmitting, setLogoutSubmitting] = useState(false)
   const [selectedAlertSound, setSelectedAlertSound] = useState(() => {
     return localStorage.getItem('delivery_alert_sound') || 'zomato_tone'
   })
@@ -75,13 +77,17 @@ export const ProfileV2 = () => {
   }
 
   const handleLogout = async () => {
+    if (logoutSubmitting) return
+    setShowLogoutConfirm(false)
     try {
+      setLogoutSubmitting(true)
       await deliveryAPI.logout()
     } catch (error) {}
     clearModuleAuth("delivery")
     localStorage.removeItem("app:isOnline")
     toast.success("Logged out successfully")
     navigate("/food/delivery/login", { replace: true })
+    setLogoutSubmitting(false)
   }
 
   if (loading) {
@@ -190,7 +196,7 @@ export const ProfileV2 = () => {
           {/* Logout Section */}
           <div className="pt-4">
             <div 
-              onClick={handleLogout}
+              onClick={() => setShowLogoutConfirm(true)}
               className="bg-white rounded-xl p-4 flex items-center justify-between cursor-pointer border border-red-50 hover:bg-red-50/30 active:bg-red-50 transition-colors"
             >
               <div className="flex items-center gap-3">
@@ -203,10 +209,47 @@ export const ProfileV2 = () => {
         </div>
       </div>
 
+      {/* Logout Confirm Popup */}
+      {showLogoutConfirm && (
+        <div 
+          className="fixed inset-0 bg-black/60 z-[1000] flex items-center justify-center px-4"
+          onClick={() => setShowLogoutConfirm(false)}
+        >
+          <div 
+            className="bg-white w-full max-w-sm rounded-2xl shadow-2xl p-5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-base font-black text-gray-900 mb-2">Do you want to log out?</h3>
+            <p className="text-sm text-gray-500 mb-5">You will be signed out from your delivery account.</p>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setShowLogoutConfirm(false)}
+                className="flex-1 h-11 rounded-xl border border-gray-200 text-gray-700 font-bold"
+              >
+                No
+              </button>
+              <button
+                onClick={handleLogout}
+                disabled={logoutSubmitting}
+                className="flex-1 h-11 rounded-xl bg-red-600 text-white font-bold disabled:opacity-60"
+              >
+                {logoutSubmitting ? "Logging out..." : "Yes"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Order Alert Sound Popup */}
       {showAlertSoundPopup && (
-        <div className="fixed inset-0 bg-black/60 z-[1000] flex items-end justify-center">
-          <div className="bg-white w-full max-w-md rounded-t-[2rem] shadow-2xl animate-in slide-in-from-bottom duration-300 pb-8">
+        <div 
+          className="fixed inset-0 bg-black/60 z-[1000] flex items-end justify-center"
+          onClick={() => setShowAlertSoundPopup(false)}
+        >
+          <div 
+            className="bg-white w-full max-w-md rounded-t-[2rem] shadow-2xl animate-in slide-in-from-bottom duration-300 pb-8"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between p-6 border-b border-gray-50">
               <h3 className="text-lg font-black text-gray-900 uppercase tracking-tight">Order alert sound</h3>
               <button onClick={() => setShowAlertSoundPopup(false)} className="p-2 bg-gray-50 rounded-full text-gray-400"><X className="w-6 h-6" /></button>

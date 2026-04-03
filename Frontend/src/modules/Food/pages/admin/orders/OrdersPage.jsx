@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react"
+import { useSearchParams } from "react-router-dom"
 import io from "socket.io-client"
 import { FileText, Calendar, Package } from "lucide-react"
 import { adminAPI } from "@food/api"
@@ -485,6 +486,18 @@ export default function OrdersPage({ statusKey = "all" }) {
     }
   }, [playDefaultRing, showBrowserNotification])
 
+  const [searchParams] = useSearchParams()
+  const orderIdFromUrl = searchParams.get("orderId")
+
+  useEffect(() => {
+    if (orderIdFromUrl && normalizedOrders.length > 0) {
+      const order = normalizedOrders.find(o => o.id === orderIdFromUrl || o._id === orderIdFromUrl || o.orderId === orderIdFromUrl)
+      if (order) {
+        handleViewOrder(order)
+      }
+    }
+  }, [orderIdFromUrl, normalizedOrders, handleViewOrder])
+
   const handleAcceptOrder = async (order) => {
     const orderIdToUse = order.id || order._id || order.orderId
     if (!orderIdToUse) {
@@ -758,7 +771,8 @@ export default function OrdersPage({ statusKey = "all" }) {
       let paymentStatus = order.paymentStatus
       if (!paymentStatus) {
         const s = String(paymentStatusRaw || "").toLowerCase()
-        if (s === "paid" || s === "refunded") paymentStatus = "Paid"
+        if (s === "refunded") paymentStatus = "Refunded"
+        else if (s === "paid" || s === "authorized" || s === "captured" || s === "settled") paymentStatus = "Paid"
         else if (s === "failed") paymentStatus = "Failed"
         else paymentStatus = "Pending"
       }
@@ -832,6 +846,7 @@ export default function OrdersPage({ statusKey = "all" }) {
         deliveryPartnerPhone,
         deliveryType: order.deliveryType || "Home Delivery",
         address: order.address || order.customerAddress || order.deliveryAddress,
+        refundStatus: order.payment?.refund?.status || (order.payment?.status === 'refunded' ? 'processed' : null)
       }
     })
   }, [orders])

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { motion, AnimatePresence, useAnimation, useDragControls } from 'framer-motion';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { X, ChevronDown, Share2, Heart, Search, Clock, Minus, Plus, ShoppingBag, Star, MessageSquare, ArrowLeft, ChevronRight } from 'lucide-react';
 import { useProductDetail } from '../../context/ProductDetailContext';
 import { useCart } from '../../context/CartContext';
@@ -19,6 +19,10 @@ const ProductDetailSheet = () => {
     const { showToast } = useToast();
     const { settings } = useSettings();
     const supportEmail = settings?.supportEmail || 'support@example.com';
+    const location = useLocation();
+    const cartPath = location.pathname.startsWith('/food/user/quick')
+        ? '/food/user/cart'
+        : '/checkout';
 
     // Controls for sheet animation
     const controls = useAnimation();
@@ -440,7 +444,7 @@ const ProductDetailSheet = () => {
                                                 className="flex justify-center -mt-1"
                                             >
                                                 <Link
-                                                    to="/checkout"
+                                                    to={cartPath}
                                                     onClick={closeProduct}
                                                     className="w-[80%] bg-gradient-to-r from-[#0c831f] to-[#0a7519] text-white h-[40px] rounded-xl flex items-center justify-between px-4 shadow-md shadow-green-200/40 hover:shadow-lg hover:-translate-y-0.5 transition-all active:scale-[0.98]"
                                                 >
@@ -993,7 +997,7 @@ const ProductDetailSheet = () => {
                                         className="mt-2"
                                     >
                                         <Link
-                                            to="/checkout"
+                                            to={cartPath}
                                             onClick={closeProduct}
                                             className="w-full bg-[#0c831f] text-white h-[56px] rounded-xl flex items-center justify-between px-5 shadow-lg shadow-green-100/50 hover:bg-[#0b721b] transition-all active:scale-[0.98]"
                                         >

@@ -16,6 +16,8 @@ import { requireRoles } from '../core/roles/role.middleware.js';
 import { getQueuesController } from '../controllers/admin.controller.js';
 import { getPublicEnvController } from '../modules/food/landing/controllers/publicEnv.controller.js';
 import quickCommerceRoutes from '../modules/quick-commerce/routes/quick-commerce.routes.js';
+import webhookRoutes from '../core/payments/routes/webhook.routes.js';
+import sellerRoutes from '../modules/quick-commerce/seller/routes/seller.routes.js';
 
 const router = express.Router();
 
@@ -43,9 +45,11 @@ router.use('/v1/food/admin', authMiddleware, requireRoles('ADMIN'), restaurantAd
 router.use('/v1/food/user', authMiddleware, requireRoles('USER'), userRoutes);
 router.use('/v1/food/orders', authMiddleware, requireRoles('USER'), orderUserRoutes);
 router.use('/v1/food/payments', authMiddleware, paymentRoutes);
+router.use('/v1/payments/webhook', webhookRoutes);
 router.use('/v1/fcm-tokens', fcmRoutes);
 router.use('/fcm-tokens', fcmRoutes);
 router.use('/v1/quick-commerce', quickCommerceRoutes);
+router.use('/v1/seller', sellerRoutes);
 
 // router.get('/v1/env/public', getPublicEnvController);
 // router.get('/env/public', getPublicEnvController);

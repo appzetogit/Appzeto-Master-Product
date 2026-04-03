@@ -37,13 +37,6 @@ const helpTopics = [
     path: "/restaurant/outlet-info"
   },
   {
-    id: 5,
-    icon: FileText,
-    title: "Menu",
-    subtitle: "Items, photos, prices, charges etc.",
-    path: "/restaurant/hub-menu"
-  },
-  {
     id: 6,
     icon: Wallet,
     title: "Payments",

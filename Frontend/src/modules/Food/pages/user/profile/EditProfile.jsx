@@ -23,6 +23,8 @@ import {
 import { useProfile } from "@food/context/ProfileContext"
 import { userAPI } from "@food/api"
 import { toast } from "sonner"
+import { ImageSourcePicker } from "@food/components/ImageSourcePicker"
+import { isFlutterBridgeAvailable } from "@food/utils/imageUploadUtils"
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider'
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs'
 import { DatePicker } from '@mui/x-date-pickers/DatePicker'
@@ -254,80 +256,8 @@ export default function EditProfile() {
     e.target.value = ""
   }
 
-  const convertBase64ToFile = (base64Value, mimeType = "image/jpeg", fileNamePrefix = "profile-photo") => {
-    if (!base64Value || typeof base64Value !== "string") {
-      throw new Error("Invalid base64 image data")
-    }
-
-    let pureBase64 = base64Value
-    if (base64Value.includes(",")) {
-      pureBase64 = base64Value.split(",")[1]
-    }
-
-    const byteCharacters = atob(pureBase64)
-    const byteNumbers = new Array(byteCharacters.length)
-    for (let i = 0; i < byteCharacters.length; i += 1) {
-      byteNumbers[i] = byteCharacters.charCodeAt(i)
-    }
-
-    const byteArray = new Uint8Array(byteNumbers)
-    const extension = mimeType.includes("png") ? "png" : "jpg"
-    const blob = new Blob([byteArray], { type: mimeType })
-    return new File([blob], `${fileNamePrefix}-${Date.now()}.${extension}`, { type: mimeType })
-  }
-
-  const handleOpenCamera = async () => {
-    try {
-      const hasBridge =
-        typeof window !== "undefined" &&
-        window.flutter_inappwebview &&
-        typeof window.flutter_inappwebview.callHandler === "function"
-
-      if (!hasBridge) {
-        toast.error("Camera option is available only in app")
-        return
-      }
-
-      const result = await window.flutter_inappwebview.callHandler("openCamera", {
-        source: "camera",
-        accept: "image/*",
-        multiple: false,
-        quality: 0.8,
-      })
-
-      if (!result || !result.success) return
-
-      let selectedFile = null
-      if (result.base64) {
-        selectedFile = convertBase64ToFile(
-          result.base64,
-          result.mimeType || "image/jpeg",
-          "profile-photo"
-        )
-      } else if (result.file instanceof File || result.file instanceof Blob) {
-        selectedFile = result.file
-      }
-
-      if (!selectedFile || !String(selectedFile.type || "").startsWith("image/")) {
-        toast.error("Failed to capture image from camera")
-        return
-      }
-
-      await processProfileImageFile(selectedFile)
-      setPhotoPickerOpen(false)
-    } catch (error) {
-      debugError("openCamera bridge failed:", error)
-      toast.error("Failed to open camera")
-    }
-  }
-
   const handleProfileImageAction = () => {
-    const hasBridge =
-      typeof window !== "undefined" &&
-      window.flutter_inappwebview &&
-      typeof window.flutter_inappwebview.callHandler === "function"
-
-    if (hasBridge) {
+    if (isFlutterBridgeAvailable()) {
       setPhotoPickerOpen(true)
       return
     }
@@ -660,37 +590,15 @@ export default function EditProfile() {
           )}
         </Button>
 
-        <Dialog open={photoPickerOpen} onOpenChange={setPhotoPickerOpen}>
-          <DialogContent className="max-w-sm w-[calc(100%-2rem)] rounded-2xl p-0 overflow-hidden">
-            <DialogHeader className="p-5 pb-3">
-              <DialogTitle className="text-lg font-bold text-gray-900">Update profile photo</DialogTitle>
-              <DialogDescription className="text-sm text-gray-500">
-                Choose how you want to upload your profile photo.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-2 px-5 pb-5">
-              <button
-                type="button"
-                onClick={handleOpenCamera}
-                className="w-full p-3 rounded-xl border-2 border-gray-200 bg-white hover:border-gray-300 transition-all flex items-center justify-between"
-              >
-                <span className="font-medium text-sm text-gray-900">Use Camera</span>
-                <Camera className="h-5 w-5 text-gray-600" />
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setPhotoPickerOpen(false)
-                  fileInputRef.current?.click()
-                }}
-                className="w-full p-3 rounded-xl border-2 border-gray-200 bg-white hover:border-gray-300 transition-all flex items-center justify-between"
-              >
-                <span className="font-medium text-sm text-gray-900">Upload from Device</span>
-                <Upload className="h-5 w-5 text-gray-600" />
-              </button>
-            </div>
-          </DialogContent>
-        </Dialog>
+        <ImageSourcePicker
+          isOpen={photoPickerOpen}
+          onClose={() => setPhotoPickerOpen(false)}
+          onFileSelect={processProfileImageFile}
+          title="Update profile photo"
+          description="Choose how you want to upload your profile photo."
+          fileNamePrefix="profile-photo"
+          galleryInputRef={fileInputRef}
+        />
       </div>
     </div>
   )

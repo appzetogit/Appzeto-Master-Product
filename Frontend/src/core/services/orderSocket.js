@@ -5,8 +5,11 @@ let socket = null;
 function socketBaseUrl() {
   const env = import.meta.env.VITE_SOCKET_URL;
   if (env) return env.replace(/\/$/, "");
-  const api = import.meta.env.VITE_API_URL || "http://localhost:7000/api";
-  return api.replace(/\/api\/?$/, "");
+  const api =
+    import.meta.env.VITE_API_BASE_URL ||
+    import.meta.env.VITE_API_URL ||
+    "http://localhost:5000/api/v1";
+  return api.replace(/\/api(?:\/v\d+)?\/?$/, "");
 }
 
 /**

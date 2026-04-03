@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { resolveQuickImageUrl } from '../utils/image';
 import { useState } from 'react';
+import { getQuickProductsPath } from '../utils/routes';
 
 const categoryPalettes = [
   { from: "#ffe5e5", to: "#fff5f5" },
@@ -13,7 +14,14 @@ const categoryPalettes = [
 
 function CategoryTileImage({ name, image }) {
   const [broken, setBroken] = useState(false);
-  const src = resolveQuickImageUrl(image);
+  const candidate =
+    image?.url ||
+    image?.src ||
+    image?.image ||
+    image?.thumbnail ||
+    image ||
+    "";
+  const src = resolveQuickImageUrl(candidate);
   const showFallback = !src || broken;
 
   if (showFallback) {
@@ -60,7 +68,11 @@ export default function QuickCategories({ categories = [] }) {
               key={cat.id || cat._id}
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
-              onClick={() => navigate(`/quick-commerce/user/products?categoryId=${cat.id || cat._id}`)}
+              onClick={() =>
+                navigate(
+                  `${getQuickProductsPath()}?categoryId=${cat.id || cat._id}`,
+                )
+              }
               className="group flex flex-col items-center gap-2"
             >
               <div 

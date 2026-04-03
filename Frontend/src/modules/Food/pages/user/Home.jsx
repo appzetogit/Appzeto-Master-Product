@@ -108,6 +108,9 @@ import exploreGourmet from "@food/assets/explore more icons/gourmet.png";
 import exploreTop10 from "@food/assets/explore more icons/top 10.png";
 import exploreCollection from "@food/assets/explore more icons/collection.png";
 
+// Import local banners
+import bannerVideo from "@/assets/banner.MP4";
+
 // Banner images for hero carousel - will be fetched from API
 
 // Animated placeholder for search - moved outside component to prevent recreation
@@ -836,6 +839,7 @@ export default function Home() {
         const images = list
           .map((b) => (b && typeof b.imageUrl === "string" ? b.imageUrl : ""))
           .filter(Boolean);
+        
         setHeroBannerImages(images);
         setHeroBannersData(list);
         setCurrentBannerIndex(0);
@@ -1282,9 +1286,6 @@ export default function Home() {
 
   const handleTabChange = (tab) => {
     setActiveTab(tab);
-    if (tab !== "quick") {
-      setQuickThemeColor("#67c6f5");
-    }
     if (tab === "quick") {
       navigate("/food/user/quick");
     } else {
@@ -2300,24 +2301,20 @@ export default function Home() {
     setHeroSearch("");
   }, [closeSearch]);
 
-  // Removed GSAP animations - using CSS and ScrollReveal components instead for better performance
-  // Auto-scroll removed - manual scroll only
-
-  // Animated placeholder cycling - same as RestaurantDetails highlight offer animation
+  // Animated placeholder cycling
   useEffect(() => {
     const interval = setInterval(() => {
       setPlaceholderIndex((prev) => (prev + 1) % placeholders.length);
-    }, 2000); // Change placeholder every 2 seconds (same as RestaurantDetails)
-
+    }, 2000);
     return () => clearInterval(interval);
-  }, []); // placeholders is a constant, no need for dependency
+  }, []);
 
   // Memoized Hero Banner Component for better perf
   const HeroBannerSection = useMemo(() => {
     if (showBannerSkeleton) {
       return (
-        <div className="px-4 py-2">
-          <HeroBannerSkeleton className="h-28 sm:h-36 lg:h-44 rounded-2xl" />
+        <div className="h-full w-full">
+          <HeroBannerSkeleton className="h-full w-full" />
         </div>
       );
     }
@@ -2325,11 +2322,11 @@ export default function Home() {
     if (heroBannerImages.length === 0) return null;
 
     return (
-      <div className="px-4 py-2">
+      <div className="h-full w-full">
         <div
           ref={heroShellRef}
           data-home-hero-shell="true"
-          className="relative w-full overflow-hidden aspect-[1.85/1] rounded-2xl shadow-sm group cursor-pointer bg-white"
+          className="relative w-full h-full overflow-hidden bg-white"
           onTouchStart={handleTouchStart}
           onTouchMove={handleTouchMove}
           onTouchEnd={handleTouchEnd}
@@ -2354,25 +2351,42 @@ export default function Home() {
                 className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent skew-x-[-20deg] w-[150%] h-full"
               />
             </div>
-            {heroBannerImages.map((image, index) => (
-              <div
-                key={`${index}-${image}`}
-                className="absolute inset-0 transition-opacity duration-700 ease-in-out"
-                style={{
-                  opacity: currentBannerIndex === index ? 1 : 0,
-                  zIndex: currentBannerIndex === index ? 2 : 1,
-                  pointerEvents: "none",
-                }}>
-                <img
-                  src={image}
-                  alt={`Hero Banner ${index + 1}`}
-                  className="h-full w-full object-cover"
-                  loading={index === currentBannerIndex ? "eager" : "lazy"}
-                  fetchPriority={index === currentBannerIndex ? "high" : "low"}
-                  draggable={false}
-                />
-              </div>
-            ))}
+            {heroBannerImages.map((image, index) => {
+              const bannerData = heroBannersData[index];
+              const isVideo = bannerData?.type === 'video' || (typeof image === 'string' && image.toLowerCase().endsWith('.mp4'));
+
+              return (
+                <div
+                  key={`${index}-${image}`}
+                  className="absolute inset-0 transition-opacity duration-700 ease-in-out"
+                  style={{
+                    opacity: currentBannerIndex === index ? 1 : 0,
+                    zIndex: currentBannerIndex === index ? 2 : 1,
+                    pointerEvents: "none",
+                  }}>
+                  {isVideo ? (
+                    <video
+                      src={image}
+                      autoPlay
+                      loop
+                      muted
+                      playsInline
+                      className="h-full w-full object-cover"
+                      style={{ filter: "brightness(0.95)" }}
+                    />
+                  ) : (
+                    <img
+                      src={image}
+                      alt={`Hero Banner ${index + 1}`}
+                      className="h-full w-full object-cover"
+                      loading={index === currentBannerIndex ? "eager" : "lazy"}
+                      fetchPriority={index === currentBannerIndex ? "high" : "low"}
+                      draggable={false}
+                    />
+                  )}
+                </div>
+              );
+            })}
           </div>
 
           <button
@@ -2390,7 +2404,7 @@ export default function Home() {
             aria-label={`Open hero banner ${currentBannerIndex + 1}`}
           />
 
-          <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-1.5 px-3 py-1.5 bg-black/20 backdrop-blur-md rounded-full border border-white/10 z-30">
+          <div className="absolute bottom-12 left-1/2 -translate-x-1/2 flex gap-1.5 px-3 py-1.5 bg-black/20 backdrop-blur-md rounded-full border border-white/10 z-30">
             {heroBannerImages.map((_, index) => (
               <button
                 key={index}
@@ -2413,6 +2427,11 @@ export default function Home() {
   const CategoryRailSection = useMemo(() => {
     return (
       <section className="space-y-1 sm:space-y-1.5 lg:space-y-2 min-h-[108px] sm:min-h-[120px]">
+        <div className="px-4 pt-1 sm:px-4">
+          <p className="text-lg sm:text-xl font-bold text-neutral-900 tracking-tight leading-none mt-1">
+            What's on your mind?
+          </p>
+        </div>
         <div
           ref={categoryScrollRef}
           className="flex gap-3 sm:gap-4 lg:gap-5 overflow-x-auto overflow-y-visible scrollbar-hide scroll-smooth px-2 sm:px-3 py-2 sm:py-3"
@@ -2475,7 +2494,6 @@ export default function Home() {
   }, [displayCategories, showCategorySkeleton, navigate]);
 
   return (
-
     <div className="relative min-h-screen bg-white dark:bg-[#0a0a0a] pb-16 md:pb-6 overflow-x-clip">
       {shouldShowOutOfZoneHome && (
         <div className="fixed inset-0 z-[90] pointer-events-none">
@@ -2488,411 +2506,164 @@ export default function Home() {
         </div>
       )}
 
-      <div
-        className={
-          shouldShowOutOfZoneHome
-            ? "grayscale opacity-70 transition-all duration-300"
-            : "transition-all duration-300"
-        }>
-        {/* Unified Background for Entire Page - Vibrant Food Theme */}
-        <div className="absolute top-0 left-0 right-0 bottom-0 pointer-events-none overflow-hidden z-0">
-          {/* Main Background */}
-          <div className="absolute inset-0 bg-white dark:bg-[#0a0a0a]"></div>
-          {/* Background Elements - Reduced to 2 blobs with CSS animations for better performance */}
-          <div className="absolute inset-0 overflow-hidden opacity-20">
-            {/* Top right blob - CSS animation */}
-            <div
-              style={{
-                animation: "blob 8s ease-in-out infinite",
-                willChange: "transform",
-              }}
+      {/* Main Header - Mobile Only */}
+      <div className="md:hidden relative overflow-x-clip z-[50]">
+        <HomeHeader 
+          activeTab={activeTab}
+          setActiveTab={handleTabChange}
+          location={location}
+          handleLocationClick={handleLocationClick}
+          handleSearchFocus={handleSearchFocus}
+          placeholderIndex={placeholderIndex}
+          placeholders={placeholders}
+          vegMode={vegMode}
+          onVegModeChange={handleVegModeChange}
+          quickThemeColor={quickThemeColor}
+          bannerContent={
+            <video
+              src={bannerVideo}
+              autoPlay
+              loop
+              muted
+              playsInline
+              className="h-full w-full scale-[1.06] object-cover object-top"
             />
-            {/* Bottom left blob - CSS animation */}
-            <div
-              style={{
-                animation: "blob-reverse 10s ease-in-out infinite",
-                willChange: "transform",
-              }}
-            />
-          </div>
-          {/* CSS keyframes for animations */}
-          <style>{`
-          @keyframes blob {
-            0%, 100% {
-              transform: translate(0, 0) scale(1);
-            }
-            50% {
-              transform: translate(50px, -30px) scale(1.2);
-            }
           }
-          @keyframes blob-reverse {
-            0%, 100% {
-              transform: translate(0, 0) scale(1);
-            }
-            50% {
-              transform: translate(-40px, 40px) scale(1.3);
-            }
-          }
-          @keyframes fade-in {
-            from {
-              opacity: 0;
-              transform: translateY(20px);
-            }
-            to {
-              opacity: 1;
-              transform: translateY(0);
-            }
-          }
-          @keyframes gradient {
-            0%, 100% {
-              background-position: 0% 50%;
-            }
-            50% {
-              background-position: 100% 50%;
-            }
-          }
-          @keyframes fade-in-up {
-            from {
-              opacity: 0;
-              transform: translateY(20px);
-            }
-            to {
-              opacity: 1;
-              transform: translateY(0);
-            }
-          }
-          @keyframes wiggle {
-            0%, 100% {
-              transform: rotate(0deg);
-            }
-            25% {
-              transform: rotate(10deg);
-            }
-            75% {
-              transform: rotate(-10deg);
-            }
-          }
-          @keyframes placeholderFade {
-            0% {
-              opacity: 0;
-              transform: translateY(20px);
-            }
-            100% {
-              opacity: 0.6;
-              transform: translateY(0);
-            }
-          }
-          @keyframes gradientShift {
-            0%, 100% {
-              background-position: 0% 50%;
-            }
-            50% {
-              background-position: 100% 50%;
-            }
-          }
-          @keyframes slideUp {
-            0% {
-              opacity: 0;
-              transform: translateY(15px);
-            }
-            100% {
-              opacity: 1;
-              transform: translateY(0);
-            }
-          }
-          .red-header-bg {
-            background-color: #ef4f5f;
-            background-image: linear-gradient(180deg, #ef4f5f 0%, #e03546 100%);
-          }
-        `}</style>
-        </div>
+        />
+      </div>
 
-        <div className="md:hidden relative overflow-x-clip">
-          <HomeHeader 
-            activeTab={activeTab}
-            setActiveTab={handleTabChange}
-            quickHeaderColor={quickThemeColor}
-            location={location}
-            handleLocationClick={handleLocationClick}
-            handleSearchFocus={handleSearchFocus}
-            placeholderIndex={placeholderIndex}
-            placeholders={placeholders}
-          />
-        </div>
+      <AnimatePresence mode="wait">
+        {activeTab === "food" ? (
+          <motion.div
+            key="food-content"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.3 }}
+            className="bg-white dark:bg-[#0a0a0a]"
+          >
+            <div className="relative z-10">
+              {CategoryRailSection}
+              {recommendedForYouRestaurants.length > 0 && (
+                <motion.section
+                  className="content-auto pt-1 sm:pt-2"
+                  initial={false}
+                  animate={{ opacity: 1, y: 0 }}
+                >
+                  <h2 className="text-xs sm:text-sm lg:text-base font-semibold text-gray-400 dark:text-gray-500 tracking-widest uppercase mb-2 sm:mb-3 px-4">
+                    Recommended For You
+                  </h2>
 
-        <AnimatePresence mode="wait">
-          {activeTab === "food" ? (
-              <motion.div
-                key="food-content"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.3 }}
-                className="bg-white"
-              >
-                {/* Flavour Fest Banner */}
-                {/* <FestBanner /> */}
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 px-4">
+                    {recommendedForYouRestaurants.map((restaurant, index) => {
+                      const restaurantSlug =
+                        restaurant.slug ||
+                        restaurant.name.toLowerCase().replace(/\s+/g, "-");
 
-                {/* Promo Row */}
-                <div className="relative">
-                  <PromoRow 
-                    handleVegModeChange={handleVegModeChange}
-                    navigate={navigate}
-                    isVegMode={vegMode}
-                    toggleRef={vegModeToggleRef}
-                  />
-                </div>
-
-                {/* "What's on your mind today?" Section */}
-                <div className="relative z-10 px-4 py-6 space-y-6 bg-white">
-                  <div className="flex items-center justify-between gap-2 min-w-0">
-                    <h2 className="text-base sm:text-xl font-bold text-gray-900 leading-tight shrink-0">What's on your mind today?</h2>
-                    <div className="hidden sm:block h-[1px] bg-gray-100 flex-1"></div>
-                    <Link to="/user/categories" className="text-xs sm:text-sm font-bold text-gray-400 flex items-center gap-0.5 whitespace-nowrap shrink-0">
-                      View All <ArrowDownUp className="h-3 w-3 rotate-90" />
-                    </Link>
+                      return (
+                        <motion.div
+                          key={`recommended-${restaurant.mongoId || restaurant.id || restaurantSlug}`}
+                          initial={{ opacity: 0, y: 12 }}
+                          whileInView={{ opacity: 1, y: 0 }}
+                          viewport={{ once: true }}
+                          transition={{ duration: 0.35, delay: index * 0.05 }}
+                        >
+                          <Link
+                            to={`/user/restaurants/${restaurantSlug}`}
+                            className="block rounded-[20px] overflow-hidden border border-gray-100 dark:border-gray-800 bg-white dark:bg-[#1a1a1a] shadow-sm hover:shadow-md transition-shadow"
+                          >
+                            <div className="relative h-24 sm:h-28 md:h-32 bg-gray-50">
+                              <img
+                                src={restaurant.image}
+                                alt={restaurant.name}
+                                className="w-full h-full object-cover"
+                                loading="lazy"
+                              />
+                              <div className={`absolute bottom-2 left-2 px-2 py-0.5 rounded-lg ${Number(restaurant.rating) > 0 ? "bg-black/80 backdrop-blur-md text-white font-medium" : "bg-gray-200/90 text-gray-600 font-medium"} text-[10px] shadow-lg border border-white/10`}>
+                                {Number(restaurant.rating) > 0 ? Number(restaurant.rating).toFixed(1) : "NEW"}
+                              </div>
+                            </div>
+                            <div className="p-2.5">
+                              <p className="text-sm font-semibold text-gray-900 dark:text-white truncate tracking-tight">
+                                {restaurant.name}
+                              </p>
+                              <p className="text-[10px] text-orange-600 font-bold mt-1 flex items-center gap-1 uppercase tracking-wider">
+                                <Flame className="w-3.5 h-3.5 fill-orange-600" />
+                                Near & Fast
+                              </p>
+                            </div>
+                          </Link>
+                        </motion.div>
+                      );
+                    })}
                   </div>
-                  
-                  <div className="grid grid-cols-4 gap-y-8 gap-x-4">
-                    {displayCategories.slice(0, 8).map((category, index) => (
-                      <Link 
-                        key={category.id || index}
-                        to={`/user/category/${category.slug}`}
-                        className="flex flex-col items-center gap-2 group"
-                      >
-                        <div className="relative w-full aspect-square rounded-full overflow-hidden shadow-sm border border-gray-100 bg-white group-active:scale-95 transition-all duration-300">
-                          {/* Shining Glint Effect */}
-                          <div className="absolute inset-0 z-10 pointer-events-none overflow-hidden">
-                            <motion.div 
-                              animate={{ 
-                                x: ['-200%', '200%'],
-                              }}
-                              transition={{ 
-                                duration: 2, 
-                                repeat: Infinity, 
-                                repeatDelay: 3 + index * 0.5,
-                                ease: "easeInOut"
-                              }}
-                              className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 to-transparent skew-x-[-20deg] w-[150%] h-full"
-                            />
-                          </div>
-                      
-                          <OptimizedImage 
-                            src={category.image} 
-                            alt={category.name} 
-                            className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
-                          />
-                        </div>
-                        <span className="text-[11px] font-bold text-gray-700 text-center leading-tight">
-                          {category.name}
-                        </span>
-                      </Link>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Admin Hero Banners Section - Now below categories */}
-                {HeroBannerSection}
-
-
-          {/* Filters */}
-          <motion.section
-            className="py-1 lg:py-2"
-            initial={false}
-            animate={{ opacity: 1, y: 0 }}>
-            <div
-              className="flex items-center gap-1.5 sm:gap-2 lg:gap-3 overflow-x-auto scrollbar-hide pb-1 lg:pb-2"
-              style={{
-                scrollbarWidth: "none",
-                msOverflowStyle: "none",
-              }}>
-              {/* Filter Button - Opens Modal */}
-              <motion.div
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}>
-                <Button
-                  variant="outline"
-                  onClick={() => setIsFilterOpen(true)}
-                  className="h-7 sm:h-8 px-2 sm:px-3 rounded-md flex items-center gap-1.5 whitespace-nowrap flex-shrink-0 font-medium transition-all bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-700 dark:text-white">
-                  <SlidersHorizontal className="h-3 w-3 sm:h-4 sm:w-4" />
-                  <span className="text-xs sm:text-sm font-bold text-black dark:text-white">
-                    Filters
-                  </span>
-                </Button>
-              </motion.div>
-
-              {/* Filter Buttons */}
-              {[
-                { id: "delivery-under-30", label: "Under 30 mins" },
-                { id: "delivery-under-45", label: "Under 45 mins" },
-                { id: "distance-under-1km", label: "Under 1km", icon: MapPin },
-                { id: "distance-under-2km", label: "Under 2km", icon: MapPin },
-              ].map((filter, index) => {
-                const Icon = filter.icon;
-                const isActive = activeFilters.has(filter.id);
-                return (
-                  <motion.div
-                    key={filter.id}
-                    initial={{ opacity: 0, x: -20 }}
-                    whileInView={{ opacity: 1, x: 0 }}
-                    viewport={{ once: true }}
-                    transition={{ duration: 0.4, delay: index * 0.1 }}
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}>
-                    <Button
-                      variant="outline"
-                      onClick={() => {
-                        const nextFilters = new Set(activeFilters);
-                        if (nextFilters.has(filter.id)) {
-                          nextFilters.delete(filter.id);
-                        } else {
-                          nextFilters.add(filter.id);
-                        }
-                        setActiveFilters(nextFilters);
-                        void applyFiltersAndRefetch(
-                          nextFilters,
-                          sortBy,
-                          selectedCuisine,
-                        );
-                      }}
-                      className={`h-7 sm:h-8 px-2 sm:px-3 rounded-md flex items-center gap-1.5 whitespace-nowrap flex-shrink-0 transition-all font-medium ${
-                        isActive
-                          ? "bg-green-600 text-white border border-green-600 hover:bg-green-600/90"
-                          : "bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-300"
-                      }`}>
-                      {Icon && (
-                        <Icon
-                          className={`h-3 w-3 sm:h-4 sm:w-4 ${isActive ? "fill-white" : ""}`}
-                        />
-                      )}
-                      <span className="text-xs sm:text-sm font-bold text-black dark:text-white">
-                        {filter.label}
-                      </span>
-                    </Button>
-                  </motion.div>
-                );
-              })}
-            </div>
-          </motion.section>
-
-          {recommendedForYouRestaurants.length > 0 && (
-            <motion.section
-              className="content-auto pt-1 sm:pt-2"
-              initial={false}
-              animate={{ opacity: 1, y: 0 }}>
-              <h2 className="text-xs sm:text-sm lg:text-base font-semibold text-gray-400 dark:text-gray-500 tracking-widest uppercase mb-2 sm:mb-3 px-4">
-                Recommended For You
-              </h2>
-
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 px-4">
-                {recommendedForYouRestaurants.map((restaurant, index) => {
-                  const restaurantSlug =
-                    restaurant.slug ||
-                    restaurant.name.toLowerCase().replace(/\s+/g, "-");
-                  return (
-                    <motion.div
-                      key={`recommended-${restaurant.mongoId || restaurant.id || restaurantSlug}`}
-                      initial={{ opacity: 0, y: 12 }}
-                      whileInView={{ opacity: 1, y: 0 }}
-                      viewport={{ once: true }}
-                      transition={{ duration: 0.35, delay: index * 0.05 }}>
-                      <Link
-                        to={`/user/restaurants/${restaurantSlug}`}
-                        className="block rounded-[20px] overflow-hidden border border-gray-100 dark:border-gray-800 bg-white dark:bg-[#1a1a1a] shadow-sm hover:shadow-md transition-shadow">
-                        <div className="relative h-24 sm:h-28 md:h-32 bg-gray-50">
-                          <img
-                            src={restaurant.image}
-                            alt={restaurant.name}
-                            className="w-full h-full object-cover"
-                            loading="lazy"
-                          />
-                          <div className={`absolute bottom-2 left-2 px-2 py-0.5 rounded-lg ${Number(restaurant.rating) > 0 ? "bg-black/80 backdrop-blur-md text-white font-medium" : "bg-gray-200/90 text-gray-600 font-medium"} text-[10px] shadow-lg border border-white/10`}>
-                            {Number(restaurant.rating) > 0 ? Number(restaurant.rating).toFixed(1) : "NEW"}
-                          </div>
-                        </div>
-                        <div className="p-2.5">
-                          <p className="text-sm font-semibold text-gray-900 dark:text-white truncate tracking-tight">
-                            {restaurant.name}
-                          </p>
-                          <p className="text-[10px] text-orange-600 font-bold mt-1 flex items-center gap-1 uppercase tracking-wider">
-                            <Flame className="w-3.5 h-3.5 fill-orange-600" />
-                            Near & Fast
-                          </p>
-                        </div>
-                      </Link>
-                    </motion.div>
-                  );
-                })}
-              </div>
-            </motion.section>
-          )}
-
-          {/* Explore More Section */}
-          <motion.section
-            className="content-auto pt-2 sm:pt-3 lg:pt-4"
-            initial={false}
-            animate={{ opacity: 1, y: 0 }}>
-            <h2 className="text-xs sm:text-sm lg:text-base font-semibold text-gray-400 dark:text-gray-500 tracking-widest uppercase mb-2 sm:mb-3 lg:mb-4 px-4">
-              {exploreMoreHeading}
-            </h2>
-            <div
-              className="flex gap-4 overflow-x-auto scrollbar-hide pb-2 lg:pb-3 min-h-[132px] w-full px-4"
-              style={{
-                scrollbarWidth: "none",
-                msOverflowStyle: "none",
-              }}>
-              {showExploreSkeleton ? (
-                <div className="w-full min-w-full shrink-0">
-                  <ExploreGridSkeleton />
-                </div>
-              ) : (
-                finalExploreItems.map((item, index) => (
-                  <motion.div
-                    key={item.id}
-                    initial={{ opacity: 0, scale: 0.9 }}
-                    whileInView={{ opacity: 1, scale: 1 }}
-                    viewport={{ once: true }}
-                    transition={{
-                      duration: 0.4,
-                      delay: index * 0.08,
-                    }}
-                    whileHover={{ y: -5 }}
-                    whileTap={{ scale: 0.95 }}>
-                    <Link
-                      to={item.href}
-                      className="flex-shrink-0">
-                      <div className="flex flex-col items-center gap-3 w-24 sm:w-28 group">
-                        <div className="relative w-20 h-20 sm:w-24 sm:h-24 rounded-3xl bg-white dark:bg-[#1a1a1a] flex items-center justify-center shadow-[0_4px_15px_-3px_rgba(0,0,0,0.08)] group-hover:shadow-[0_10px_25px_-5px_rgba(0,0,0,0.12)] transition-all duration-500 overflow-hidden p-3 border border-gray-100 dark:border-gray-800 group-hover:border-orange-500/30">
-                          {/* Colorful Glow Background */}
-                          <div className={`absolute inset-0 opacity-0 group-hover:opacity-10 transition-opacity duration-500 bg-gradient-to-br ${index % 3 === 0 ? 'from-orange-500 to-red-500' : index % 3 === 1 ? 'from-blue-500 to-purple-500' : 'from-green-500 to-teal-500'}`} />
-                          
-                          {/* Shine Effect */}
-                          <div className="absolute inset-0 z-10 pointer-events-none overflow-hidden">
-                            <motion.div 
-                              animate={{ x: ['-200%', '200%'] }}
-                              transition={{ duration: 2.5, repeat: Infinity, repeatDelay: 4 + index * 0.5 }}
-                              className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 to-transparent skew-x-[-20deg] w-[150%]"
-                            />
-                          </div>
-
-                          <OptimizedImage
-                            src={item.image}
-                            alt={item.label}
-                            className="w-full h-full object-contain relative z-10 transition-transform duration-500 group-hover:scale-110"
-                            width={112}
-                            height={112}
-                          />
-                        </div>
-                        <span className="text-[11px] font-medium text-gray-600 dark:text-gray-400 group-hover:text-gray-900 dark:group-hover:text-white transition-colors text-center tracking-wide">
-                          {item.label}
-                        </span>
-                      </div>
-                    </Link>
-                  </motion.div>
-                ))
+                </motion.section>
               )}
-            </div>
-          </motion.section>
+
+              <motion.section
+                className="content-auto pt-2 sm:pt-3 lg:pt-4"
+                initial={false}
+                animate={{ opacity: 1, y: 0 }}
+              >
+                <h2 className="text-xs sm:text-sm lg:text-base font-semibold text-gray-400 dark:text-gray-500 tracking-widest uppercase mb-2 sm:mb-3 lg:mb-4 px-4">
+                  {exploreMoreHeading}
+                </h2>
+                <div
+                  className="flex gap-4 overflow-x-auto scrollbar-hide pb-2 lg:pb-3 min-h-[132px] w-full px-4"
+                  style={{
+                    scrollbarWidth: "none",
+                    msOverflowStyle: "none",
+                  }}
+                >
+                  {showExploreSkeleton ? (
+                    <div className="w-full min-w-full shrink-0">
+                      <ExploreGridSkeleton />
+                    </div>
+                  ) : (
+                    finalExploreItems.map((item, index) => (
+                      <motion.div
+                        key={item.id}
+                        initial={{ opacity: 0, scale: 0.9 }}
+                        whileInView={{ opacity: 1, scale: 1 }}
+                        viewport={{ once: true }}
+                        transition={{
+                          duration: 0.4,
+                          delay: index * 0.08,
+                        }}
+                        whileHover={{ y: -5 }}
+                        whileTap={{ scale: 0.95 }}
+                      >
+                        <Link to={item.href} className="flex-shrink-0">
+                          <div className="flex flex-col items-center gap-3 w-24 sm:w-28 group">
+                            <div className="relative w-20 h-20 sm:w-24 sm:h-24 rounded-3xl bg-white dark:bg-[#1a1a1a] flex items-center justify-center shadow-[0_4px_15px_-3px_rgba(0,0,0,0.08)] group-hover:shadow-[0_10px_25px_-5px_rgba(0,0,0,0.12)] transition-all duration-500 overflow-hidden p-3 border border-gray-100 dark:border-gray-800 group-hover:border-orange-500/30">
+                              <div className={`absolute inset-0 opacity-0 group-hover:opacity-10 transition-opacity duration-500 bg-gradient-to-br ${index % 3 === 0 ? 'from-orange-500 to-red-500' : index % 3 === 1 ? 'from-blue-500 to-purple-500' : 'from-green-500 to-teal-500'}`} />
+
+                              <div className="absolute inset-0 z-10 pointer-events-none overflow-hidden">
+                                <motion.div
+                                  animate={{ x: ['-200%', '200%'] }}
+                                  transition={{ duration: 2.5, repeat: Infinity, repeatDelay: 4 + index * 0.5 }}
+                                  className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 to-transparent skew-x-[-20deg] w-[150%]"
+                                />
+                              </div>
+
+                              <OptimizedImage
+                                src={item.image}
+                                alt={item.label}
+                                className="w-full h-full object-contain relative z-10 transition-transform duration-500 group-hover:scale-110"
+                                width={112}
+                                height={112}
+                              />
+                            </div>
+                            <span className="text-[11px] font-medium text-gray-600 dark:text-gray-400 group-hover:text-gray-900 dark:group-hover:text-white transition-colors text-center tracking-wide">
+                              {item.label}
+                            </span>
+                          </div>
+                        </Link>
+                      </motion.div>
+                    ))
+                  )}
+                </div>
+              </motion.section>
 
           {/* Featured Foods - Horizontal Scroll */}
 
@@ -3151,6 +2922,7 @@ export default function Home() {
               />
             </div>
           </motion.section>
+        </div>
         </motion.div>
       ) : activeTab === "quick" ? (
         <motion.div
@@ -3160,7 +2932,7 @@ export default function Home() {
           exit={{ opacity: 0, y: -10 }}
           transition={{ duration: 0.3 }}
         >
-          <div className="min-h-screen bg-white">
+          <div className="bg-white">
             <QuickLocationProvider>
               <QuickWishlistProvider>
                 <QuickCartProvider>
@@ -3173,6 +2945,7 @@ export default function Home() {
                             setQuickThemeColor(color);
                           }
                         }}
+                        embeddedHeaderColor={quickThemeColor}
                       />
                     </QuickProductDetailProvider>
                   </QuickCartAnimationProvider>
@@ -4340,7 +4113,6 @@ export default function Home() {
       <StickyCartCard />
       {/* Live order strip: only on homepage (not in UserLayout) */}
       <OrderTrackingCard hasBottomNav />
-      </div>
     </div>
   );
 }

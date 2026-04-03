@@ -22,20 +22,12 @@ import { toast } from "sonner"
 import { useCompanyName } from "@food/hooks/useCompanyName"
 import { getGoogleMapsApiKey } from "@food/utils/googleMapsApiKey"
 import { clearModuleAuth, clearAuthData } from "@food/utils/auth"
+import { ImageSourcePicker } from "@food/components/ImageSourcePicker"
+import { isFlutterBridgeAvailable, openCamera } from "@food/utils/imageUploadUtils"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
 
-
-const cuisinesOptions = [
-  "North Indian",
-  "South Indian",
-  "Chinese",
-  "Pizza",
-  "Burgers",
-  "Bakery",
-  "Cafe",
-]
 
 const daysOfWeek = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 const ESTIMATED_DELIVERY_TIME_OPTIONS = [
@@ -480,39 +472,6 @@ export default function RestaurantOnboarding() {
     return null
   }
 
-  const getExtensionFromMimeType = (mimeType) => {
-    const normalized = String(mimeType || "").toLowerCase()
-    if (normalized.includes("png")) return "png"
-    if (normalized.includes("webp")) return "webp"
-    if (normalized.includes("heic")) return "heic"
-    if (normalized.includes("heif")) return "heif"
-    return "jpg"
-  }
-
-  const convertBase64ToFile = (base64Value, mimeType = "image/jpeg", fileNamePrefix = "camera") => {
-    if (!base64Value || typeof base64Value !== "string") {
-      throw new Error("Invalid base64 image data")
-    }
-
-    let pureBase64 = base64Value
-    if (base64Value.includes(",")) {
-      pureBase64 = base64Value.split(",")[1]
-    }
-
-    const byteCharacters = atob(pureBase64)
-    const byteNumbers = new Array(byteCharacters.length)
-    for (let i = 0; i < byteCharacters.length; i += 1) {
-      byteNumbers[i] = byteCharacters.charCodeAt(i)
-    }
-
-    const byteArray = new Uint8Array(byteNumbers)
-    const normalizedMimeType = mimeType || "image/jpeg"
-    const extension = getExtensionFromMimeType(normalizedMimeType)
-    const fileName = `${fileNamePrefix}-${Date.now()}.${extension}`
-    const blob = new Blob([byteArray], { type: normalizedMimeType })
-    return new File([blob], fileName, { type: normalizedMimeType })
-  }
-
   const openBrowserCameraFallback = ({ onSelectFile }) => {
     try {
       const input = document.createElement("input")
@@ -555,51 +514,7 @@ export default function RestaurantOnboarding() {
       fileNamePrefix: sourcePicker.fileNamePrefix,
     }
     closeImageSourcePicker()
-    await openCameraFromFlutter(pickerConfig)
-  }
-
-  const openCameraFromFlutter = async ({ onSelectFile, fileNamePrefix }) => {
-    try {
-      const hasBridge =
-        typeof window !== "undefined" &&
-        window.flutter_inappwebview &&
-        typeof window.flutter_inappwebview.callHandler === "function"
-
-      if (!hasBridge) {
-        openBrowserCameraFallback({ onSelectFile })
-        return
-      }
-
-      const result = await window.flutter_inappwebview.callHandler("openCamera", {
-        source: "camera",
-        accept: "image/*",
-        multiple: false,
-        quality: 0.8,
-      })
-
-      if (!result || !result.success) return
-
-      let selectedFile = null
-      if (isUploadableFile(result.file)) {
-        selectedFile = result.file
-      } else if (result.base64) {
-        selectedFile = convertBase64ToFile(
-          result.base64,
-          result.mimeType || "image/jpeg",
-          fileNamePrefix || "camera-image"
-        )
-      }
-
-      if (!selectedFile || !String(selectedFile.type || "").startsWith("image/")) {
-        toast.error("Failed to capture image from camera")
-        return
-      }
-
-      onSelectFile(selectedFile)
-    } catch (error) {
-      debugError("openCamera bridge failed:", error)
-      openBrowserCameraFallback({ onSelectFile })
-    }
+    await openCamera(pickerConfig)
   }
 
 
@@ -706,7 +621,6 @@ export default function RestaurantOnboarding() {
     setStep1((prev) => ({
       ...prev,
       ownerPhone: verifiedPhoneNumber,
-      primaryContactNumber: verifiedPhoneNumber,
     }))
   }, [verifiedPhoneNumber])
 
@@ -878,7 +792,7 @@ export default function RestaurantOnboarding() {
     }
     if (!step1.ownerEmail?.trim()) {
       errors.push("Owner email is required")
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(step1.ownerEmail)) {
+    } else if (!/^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/.test(step1.ownerEmail.trim())) {
       errors.push("Please enter a valid email address")
     }
     if (!step1.ownerPhone?.trim()) {
@@ -934,9 +848,6 @@ export default function RestaurantOnboarding() {
       }
     }
 
-    if (!step2.cuisines || step2.cuisines.length === 0) {
-      errors.push("Please select at least one cuisine")
-    }
     if (!step2.openingTime?.trim()) {
       errors.push("Opening time is required")
     }
@@ -1116,10 +1027,13 @@ export default function RestaurantOnboarding() {
     try {
       if (step === 1) {
         setStep(2)
+        window.scrollTo({ top: 0, behavior: "instant" })
       } else if (step === 2) {
         setStep(3)
+        window.scrollTo({ top: 0, behavior: "instant" })
       } else if (step === 3) {
         setStep(4)
+        window.scrollTo({ top: 0, behavior: "instant" })
       } else if (step === 4) {
         // Final submit: create restaurant in DB using backend multipart endpoint.
         const formData = new FormData()
@@ -1131,7 +1045,7 @@ export default function RestaurantOnboarding() {
           step1.pureVegRestaurant === true ? "true" : "false",
         )
         formData.append("ownerName", step1.ownerName || "")
-        formData.append("ownerEmail", step1.ownerEmail || "")
+        formData.append("ownerEmail", (step1.ownerEmail || "").trim())
         formData.append("ownerPhone", normalizePhoneDigits(step1.ownerPhone))
         formData.append("primaryContactNumber", normalizePhoneDigits(step1.primaryContactNumber))
         formData.append("zoneId", step1.zoneId || "")
@@ -1228,16 +1142,7 @@ export default function RestaurantOnboarding() {
     }
   }
 
-  const toggleCuisine = (cuisine) => {
-    setStep2((prev) => {
-      const exists = prev.cuisines.includes(cuisine)
-      if (exists) {
-        return { ...prev, cuisines: prev.cuisines.filter((c) => c !== cuisine) }
-      }
-      if (prev.cuisines.length >= 3) return prev
-      return { ...prev, cuisines: [...prev.cuisines, cuisine] }
-    })
-  }
+
 
   const toggleDay = (day) => {
     setStep2((prev) => {
@@ -1253,7 +1158,6 @@ export default function RestaurantOnboarding() {
     <div className="space-y-6">
       <section className="bg-white p-4 sm:p-6 rounded-md">
         <h2 className="text-lg font-semibold text-black mb-4">Restaurant information</h2>
-        <p className="text-sm text-gray-600 mb-4">Restaurant name</p>
         <div className="space-y-3">
           <div>
             <Label className="text-xs text-gray-700">Restaurant name*</Label>
@@ -1345,10 +1249,21 @@ export default function RestaurantOnboarding() {
           <Label className="text-xs text-gray-700">Primary contact number*</Label>
           <Input
             value={step1.primaryContactNumber || ""}
-            onChange={(e) =>
-              setStep1({ ...step1, primaryContactNumber: e.target.value })
-            }
-            readOnly={Boolean(verifiedPhoneNumber)}
+            onChange={(e) => {
+              const val = e.target.value.replace(/\D/g, "").slice(0, 10)
+              setStep1({ ...step1, primaryContactNumber: val })
+            }}
+            onKeyDown={(e) => {
+              const allowed = ["Backspace", "Delete", "ArrowLeft", "ArrowRight", "Tab", "Enter"]
+              if (!allowed.includes(e.key) && !/^\d$/.test(e.key)) e.preventDefault()
+              if (/^\d$/.test(e.key) && (step1.primaryContactNumber || "").length >= 10) e.preventDefault()
+            }}
+            onPaste={(e) => {
+              e.preventDefault()
+              const pasted = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, 10)
+              setStep1({ ...step1, primaryContactNumber: pasted })
+            }}
+            inputMode="numeric"
             className="mt-1 bg-white text-sm text-black placeholder-black"
             placeholder="Restaurant's primary contact number"
             disabled={!isEditing}
@@ -1392,7 +1307,6 @@ export default function RestaurantOnboarding() {
               className="mt-1 bg-white text-sm text-black! dark:text-white! placeholder:text-gray-500 dark:placeholder:text-gray-400 caret-black dark:caret-white"
               style={{ color: "#000", WebkitTextFillColor: "#000" }}
               placeholder="Start typing your restaurant address..."
-              disabled={!isEditing}
             />
             <p className="text-[11px] text-gray-500 mt-1">
               Select a suggestion to auto-fill area/city/state/pincode and coordinates.
@@ -1488,106 +1402,112 @@ export default function RestaurantOnboarding() {
   // Initialize Google Places Autocomplete for Step 1 location search.
   useEffect(() => {
     if (step !== 1) return
-    if (!locationSearchInputRef.current) return
-
-    const loadMaps = async () => {
-      if (mapsScriptLoadedRef.current && window.google?.maps?.places?.Autocomplete) return true
-      if (window.google?.maps?.places?.Autocomplete) {
-        mapsScriptLoadedRef.current = true
-        return true
-      }
-      const apiKey = await getGoogleMapsApiKey()
-      if (!apiKey) return false
-
-      const existing = document.getElementById("restaurant-onboarding-maps-script")
-      if (existing) {
-        // Wait briefly for Places library to be available.
-        for (let i = 0; i < 30; i += 1) {
-          if (window.google?.maps?.places?.Autocomplete) {
-            mapsScriptLoadedRef.current = true
-            return true
-          }
-          await new Promise((r) => setTimeout(r, 100))
-        }
-        return false
-      }
-
-      await new Promise((resolve, reject) => {
-        const script = document.createElement("script")
-        script.id = "restaurant-onboarding-maps-script"
-        script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places&v=weekly`
-        script.async = true
-        script.defer = true
-        script.onload = resolve
-        script.onerror = reject
-        document.head.appendChild(script)
-      })
-      mapsScriptLoadedRef.current = true
-      return !!window.google?.maps?.places?.Autocomplete
-    }
-
-    const parsePlace = (place) => {
-      const formattedAddress = place?.formatted_address || ""
-      const comps = Array.isArray(place?.address_components) ? place.address_components : []
-      const get = (types) => comps.find((c) => types.some((t) => c.types?.includes(t)))?.long_name || ""
-      const area =
-        get(["sublocality_level_1", "sublocality", "neighborhood"]) ||
-        get(["locality"])
-      const city =
-        get(["locality"]) ||
-        get(["administrative_area_level_2"])
-      const state = get(["administrative_area_level_1"])
-      const pincode = get(["postal_code"])
-      const lat = place?.geometry?.location?.lat?.()
-      const lng = place?.geometry?.location?.lng?.()
-      return {
-        formattedAddress,
-        area,
-        city,
-        state,
-        pincode,
-        latitude: Number.isFinite(lat) ? Number(lat.toFixed(6)) : "",
-        longitude: Number.isFinite(lng) ? Number(lng.toFixed(6)) : "",
-      }
-    }
 
     let cancelled = false
-    loadMaps()
-      .then((ok) => {
-        if (!ok || cancelled) return
-        if (!locationSearchInputRef.current) return
-        if (placesAutocompleteRef.current) return
 
-        placesAutocompleteRef.current = new window.google.maps.places.Autocomplete(
-          locationSearchInputRef.current,
-          {
-            fields: ["formatted_address", "address_components", "geometry"],
-            componentRestrictions: { country: "in" },
+    const init = async () => {
+      // Wait for the ref to be attached (up to 1s)
+      for (let i = 0; i < 20; i++) {
+        if (locationSearchInputRef.current) break
+        await new Promise((r) => setTimeout(r, 50))
+      }
+      if (!locationSearchInputRef.current || cancelled) return
+
+      const loadMaps = async () => {
+        if (mapsScriptLoadedRef.current && window.google?.maps?.places?.Autocomplete) return true
+        if (window.google?.maps?.places?.Autocomplete) {
+          mapsScriptLoadedRef.current = true
+          return true
+        }
+        const apiKey = await getGoogleMapsApiKey()
+        if (!apiKey) return false
+
+        const existing = document.getElementById("restaurant-onboarding-maps-script")
+        if (existing) {
+          for (let i = 0; i < 30; i += 1) {
+            if (window.google?.maps?.places?.Autocomplete) {
+              mapsScriptLoadedRef.current = true
+              return true
+            }
+            await new Promise((r) => setTimeout(r, 100))
           }
-        )
+          return false
+        }
 
-        placesAutocompleteRef.current.addListener("place_changed", () => {
-          const place = placesAutocompleteRef.current.getPlace()
-          const parsed = parsePlace(place)
-          setStep1((prev) => ({
-            ...prev,
-            location: {
-              ...prev.location,
-              formattedAddress: parsed.formattedAddress || prev.location.formattedAddress,
-              addressLine1: prev.location.addressLine1 || parsed.formattedAddress || "",
-              area: parsed.area || prev.location.area,
-              city: parsed.city || prev.location.city,
-              state: parsed.state || prev.location.state,
-              pincode: parsed.pincode || prev.location.pincode,
-              latitude: parsed.latitude !== "" ? parsed.latitude : prev.location.latitude,
-              longitude: parsed.longitude !== "" ? parsed.longitude : prev.location.longitude,
-            },
-          }))
+        await new Promise((resolve, reject) => {
+          const script = document.createElement("script")
+          script.id = "restaurant-onboarding-maps-script"
+          script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places&v=weekly`
+          script.async = true
+          script.defer = true
+          script.onload = resolve
+          script.onerror = reject
+          document.head.appendChild(script)
         })
+        mapsScriptLoadedRef.current = true
+        return !!window.google?.maps?.places?.Autocomplete
+      }
+
+      const parsePlace = (place) => {
+        const formattedAddress = place?.formatted_address || ""
+        const comps = Array.isArray(place?.address_components) ? place.address_components : []
+        const get = (types) => comps.find((c) => types.some((t) => c.types?.includes(t)))?.long_name || ""
+        const area =
+          get(["sublocality_level_1", "sublocality", "neighborhood"]) ||
+          get(["locality"])
+        const city =
+          get(["locality"]) ||
+          get(["administrative_area_level_2"])
+        const state = get(["administrative_area_level_1"])
+        const pincode = get(["postal_code"])
+        const lat = place?.geometry?.location?.lat?.()
+        const lng = place?.geometry?.location?.lng?.()
+        return {
+          formattedAddress,
+          area,
+          city,
+          state,
+          pincode,
+          latitude: Number.isFinite(lat) ? Number(lat.toFixed(6)) : "",
+          longitude: Number.isFinite(lng) ? Number(lng.toFixed(6)) : "",
+        }
+      }
+
+      const ok = await loadMaps()
+      if (!ok || cancelled || !locationSearchInputRef.current) return
+      if (placesAutocompleteRef.current) return
+
+      placesAutocompleteRef.current = new window.google.maps.places.Autocomplete(
+        locationSearchInputRef.current,
+        {
+          fields: ["formatted_address", "address_components", "geometry"],
+          componentRestrictions: { country: "in" },
+        }
+      )
+
+      placesAutocompleteRef.current.addListener("place_changed", () => {
+        const place = placesAutocompleteRef.current.getPlace()
+        const parsed = parsePlace(place)
+        setStep1((prev) => ({
+          ...prev,
+          location: {
+            ...prev.location,
+            formattedAddress: parsed.formattedAddress || prev.location.formattedAddress,
+            addressLine1: prev.location.addressLine1 || parsed.formattedAddress || "",
+            area: parsed.area || prev.location.area,
+            city: parsed.city || prev.location.city,
+            state: parsed.state || prev.location.state,
+            pincode: parsed.pincode || prev.location.pincode,
+            latitude: parsed.latitude !== "" ? parsed.latitude : prev.location.latitude,
+            longitude: parsed.longitude !== "" ? parsed.longitude : prev.location.longitude,
+          },
+        }))
       })
-      .catch((err) => {
-        debugWarn("Failed to load Google Places for onboarding:", err)
-      })
+    }
+
+    init().catch((err) => {
+      debugWarn("Failed to load Google Places for onboarding:", err)
+    })
 
     return () => {
       cancelled = true
@@ -1643,18 +1563,7 @@ export default function RestaurantOnboarding() {
               type="button"
               variant="outline"
               className="w-full text-xs"
-              onClick={() =>
-                openImageSourcePicker({
-                  title: "Menu images",
-                  fileNamePrefix: "restaurant-menu",
-                  fallbackInputRef: menuImagesInputRef,
-                  onSelectFile: (file) =>
-                    setStep2((prev) => ({
-                      ...prev,
-                      menuImages: [...(prev.menuImages || []), file],
-                    })),
-                })
-              }
+              onClick={() => menuImagesInputRef.current?.click()}
             >
               <Upload className="w-4 h-4 mr-1.5" />
               Upload
@@ -1800,18 +1709,7 @@ export default function RestaurantOnboarding() {
             type="button"
             variant="outline"
             className="w-full text-xs"
-            onClick={() =>
-              openImageSourcePicker({
-                title: "Restaurant profile image",
-                fileNamePrefix: "restaurant-profile",
-                onSelectFile: (file) =>
-                  setStep2((prev) => ({
-                    ...prev,
-                    profileImage: file,
-                  })),
-                fallbackInputRef: profileImageInputRef,
-              })
-            }
+            onClick={() => profileImageInputRef.current?.click()}
           >
             <Upload className="w-4 h-4 mr-1.5" />
             Upload
@@ -1840,27 +1738,6 @@ export default function RestaurantOnboarding() {
 
       {/* Operational details */}
       <section className="bg-white p-4 sm:p-6 rounded-md space-y-5">
-        {/* Cuisines */}
-        <div>
-          <Label className="text-xs text-gray-700">Select cuisines (up to 3)</Label>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {cuisinesOptions.map((cuisine) => {
-              const active = step2.cuisines.includes(cuisine)
-              return (
-                <button
-                  key={cuisine}
-                  type="button"
-                  onClick={() => toggleCuisine(cuisine)}
-                  className={`px-3 py-1.5 text-xs rounded-full ${active ? "bg-black text-white" : "bg-gray-100 text-gray-800"
-                    }`}
-                >
-                  {cuisine}
-                </button>
-              )
-            })}
-          </div>
-        </div>
-
         {/* Timings with popover time selectors */}
         <div className="space-y-3">
           <Label className="text-xs text-gray-700">Delivery timings</Label>
@@ -1952,18 +1829,7 @@ export default function RestaurantOnboarding() {
             type="button"
             variant="outline"
             className="mt-2 w-full text-xs"
-            onClick={() =>
-              openImageSourcePicker({
-                title: "PAN document image",
-                fileNamePrefix: "pan-document",
-                onSelectFile: (file) =>
-                  setStep3((prev) => ({
-                    ...prev,
-                    panImage: file,
-                  })),
-                fallbackInputRef: panImageInputRef,
-              })
-            }
+            onClick={() => panImageInputRef.current?.click()}
           >
             <Upload className="w-4 h-4 mr-1.5" />
             Upload
@@ -2061,18 +1927,7 @@ export default function RestaurantOnboarding() {
               type="button"
               variant="outline"
               className="w-full text-xs"
-              onClick={() =>
-                openImageSourcePicker({
-                  title: "GST document image",
-                  fileNamePrefix: "gst-document",
-                  onSelectFile: (file) =>
-                    setStep3((prev) => ({
-                      ...prev,
-                      gstImage: file,
-                    })),
-                  fallbackInputRef: gstImageInputRef,
-                })
-              }
+              onClick={() => gstImageInputRef.current?.click()}
             >
               <Upload className="w-4 h-4 mr-1.5" />
               Upload
@@ -2175,18 +2030,7 @@ export default function RestaurantOnboarding() {
           type="button"
           variant="outline"
           className="w-full text-xs"
-          onClick={() =>
-            openImageSourcePicker({
-              title: "FSSAI document image",
-              fileNamePrefix: "fssai-document",
-              onSelectFile: (file) =>
-                setStep3((prev) => ({
-                  ...prev,
-                  fssaiImage: file,
-                })),
-              fallbackInputRef: fssaiImageInputRef,
-            })
-          }
+          onClick={() => fssaiImageInputRef.current?.click()}
         >
           <Upload className="w-4 h-4 mr-1.5" />
           Upload
@@ -2429,22 +2273,14 @@ export default function RestaurantOnboarding() {
           )}
         </main>
 
-        {sourcePicker.isOpen && (
-          <div className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center p-4">
-            <div className="w-full max-w-sm bg-white rounded-lg p-4 space-y-3">
-              <h3 className="text-sm font-semibold text-black">{sourcePicker.title || "Select image source"}</h3>
-              <Button type="button" className="w-full" onClick={handlePickFromCamera}>
-                Use Camera
-              </Button>
-              <Button type="button" variant="outline" className="w-full" onClick={handlePickFromDevice}>
-                Upload from Device
-              </Button>
-              <Button type="button" variant="ghost" className="w-full text-gray-700" onClick={closeImageSourcePicker}>
-                Cancel
-              </Button>
-            </div>
-          </div>
-        )}
+        <ImageSourcePicker
+          isOpen={sourcePicker.isOpen}
+          onClose={closeImageSourcePicker}
+          onFileSelect={sourcePicker.onSelectFile}
+          title={sourcePicker.title}
+          fileNamePrefix={sourcePicker.fileNamePrefix}
+          galleryInputRef={sourcePicker.fallbackInputRef}
+        />
 
         {error && (
           <div className="px-4 sm:px-6 pb-2 text-xs text-red-600">
@@ -2457,7 +2293,7 @@ export default function RestaurantOnboarding() {
             <Button
               variant="ghost"
               disabled={step === 1 || saving}
-              onClick={() => setStep((s) => Math.max(1, s - 1))}
+              onClick={() => { setStep((s) => Math.max(1, s - 1)); window.scrollTo({ top: 0, behavior: "instant" }) }}
               className="text-sm text-gray-700 bg-transparent"
             >
               Back

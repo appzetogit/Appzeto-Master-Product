@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Eye, Edit2, Loader2, Camera, X, Plus, FileText } from 'lucide-react';
+import { ArrowLeft, Eye, Edit2, Loader2, Camera, X, Plus, FileText, Image as ImageIcon } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { deliveryAPI } from '@food/api';
 import { toast } from 'sonner';
+import { openCamera } from "@food/utils/imageUploadUtils";
 
 /**
  * ProfileDocsV2 - Restored Old UI for Registration Documents & Vehicle Info.
@@ -14,6 +15,7 @@ export const ProfileDocsV2 = () => {
   const [loading, setLoading] = useState(true);
   const [isUpdating, setIsUpdating] = useState(false);
   const [showViewer, setShowViewer] = useState(null); // { title: string, url: string }
+  const [uploadField, setUploadField] = useState(null)
   const fileInputRef = useRef(null);
 
   useEffect(() => {
@@ -42,6 +44,18 @@ export const ProfileDocsV2 = () => {
      } catch (e) { toast.error("Upload failed"); }
      finally { setIsUpdating(false); }
   };
+
+  const handleTakeCameraPhoto = (field) => {
+    openCamera({
+      onSelectFile: (file) => handleUpdate(field, file),
+      fileNamePrefix: `profile-doc-${field}`
+    })
+  }
+
+  const handlePickFromGallery = (field) => {
+    setUploadField(field)
+    fileInputRef.current?.click()
+  }
 
   const getDocStatus = (doc) => {
     if (!doc?.document) return "Not Uploaded";
@@ -85,10 +99,18 @@ export const ProfileDocsV2 = () => {
                          {doc.data?.document && (
                             <button onClick={() => setShowViewer({ title: doc.label, url: doc.data.document })} className="p-3 bg-gray-50 rounded-xl text-gray-600 hover:bg-gray-100 active:scale-95 transition-all"><Eye className="w-5 h-5" /></button>
                          )}
-                         <label className="p-3 bg-orange-50 rounded-xl text-orange-600 hover:bg-orange-100 active:scale-95 transition-all cursor-pointer">
+                         <button 
+                            onClick={() => handleTakeCameraPhoto(doc.field)}
+                            className="p-3 bg-gray-900 rounded-xl text-white hover:bg-black active:scale-95 transition-all cursor-pointer relative"
+                         >
                             <Camera className="w-5 h-5" />
-                            <input type="file" className="hidden" onChange={(e) => handleUpdate(doc.field, e.target.files[0])} disabled={isUpdating} />
-                         </label>
+                         </button>
+                         <button 
+                            onClick={() => handlePickFromGallery(doc.field)}
+                            className="p-3 bg-orange-50 rounded-xl text-orange-600 hover:bg-orange-100 active:scale-95 transition-all cursor-pointer relative"
+                         >
+                            <ImageIcon className="w-5 h-5" />
+                         </button>
                       </div>
                    </div>
                    {doc.data?.document && (
@@ -123,6 +145,21 @@ export const ProfileDocsV2 = () => {
              </div>
           )}
        </AnimatePresence>
+       
+       <input 
+          ref={fileInputRef}
+          type="file" 
+          className="hidden" 
+          accept="image/*"
+          onChange={(e) => {
+             if (uploadField && e.target.files[0]) {
+                handleUpdate(uploadField, e.target.files[0]);
+             }
+             e.target.value = "";
+          }} 
+       />
     </div>
   );
 };
+
+export default ProfileDocsV2;

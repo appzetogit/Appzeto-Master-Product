@@ -37,6 +37,7 @@ const pricingSchema = new mongoose.Schema(
         packagingFee: { type: Number, default: 0, min: 0 },
         deliveryFee: { type: Number, default: 0, min: 0 },
         platformFee: { type: Number, default: 0, min: 0 },
+        restaurantCommission: { type: Number, default: 0, min: 0 },
         discount: { type: Number, default: 0, min: 0 },
         total: { type: Number, required: true, min: 0 },
         currency: { type: String, default: 'INR' }
@@ -77,6 +78,17 @@ const paymentSchema = new mongoose.Schema(
             shortUrl: { type: String },
             status: { type: String },
             expiresAt: { type: Date }
+        },
+        // ✅ NEW: Added refund object to track refund status without breaking existing flow
+        refund: {
+            status: { 
+                type: String, 
+                enum: ['none', 'pending', 'processed', 'failed'], 
+                default: 'none' 
+            },
+            amount: { type: Number, default: 0 },
+            refundId: { type: String, default: '' },
+            processedAt: { type: Date }
         }
     },
     { _id: false }
@@ -167,21 +179,36 @@ const deliveryVerificationSchema = new mongoose.Schema(
 
 const orderSchema = new mongoose.Schema(
     {
+        orderType: {
+            type: String,
+            enum: ['food', 'quick'],
+            default: 'food',
+            index: true
+        },
         orderId: {
             type: String,
             required: true,
             unique: true,
             trim: true
         },
+        sessionId: {
+            type: String,
+            default: '',
+            trim: true,
+            index: true
+        },
         userId: {
             type: mongoose.Schema.Types.ObjectId,
             ref: 'FoodUser',
-            required: true
+            default: null
         },
         restaurantId: {
             type: mongoose.Schema.Types.ObjectId,
             ref: 'FoodRestaurant',
-            required: true
+            required() {
+                return this.orderType === 'food';
+            },
+            default: null
         },
         zoneId: {
             type: mongoose.Schema.Types.ObjectId,
@@ -200,7 +227,9 @@ const orderSchema = new mongoose.Schema(
         },
         deliveryAddress: {
             type: deliveryAddressSchema,
-            required: true
+            required() {
+                return this.orderType === 'food';
+            }
         },
         pricing: {
             type: pricingSchema,
@@ -217,6 +246,7 @@ const orderSchema = new mongoose.Schema(
         orderStatus: {
             type: String,
             enum: [
+                'placed',
                 'created',
                 'confirmed',
                 'preparing',
@@ -271,6 +301,7 @@ const orderSchema = new mongoose.Schema(
 
 orderSchema.index({ 'deliveryAddress.location': '2dsphere' });
 orderSchema.index({ lastRiderLocation: '2dsphere' });
+orderSchema.index({ orderType: 1, sessionId: 1, createdAt: -1 });
 orderSchema.index({ userId: 1, createdAt: -1 });
 orderSchema.index({ restaurantId: 1, orderStatus: 1, createdAt: -1 });
 orderSchema.index({ 'dispatch.deliveryPartnerId': 1, orderStatus: 1 });

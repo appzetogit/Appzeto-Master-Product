@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Star,
@@ -52,18 +52,29 @@ import { toast } from "sonner";
 import ProductCard from "../components/shared/ProductCard";
 import MainLocationHeader from "../components/shared/MainLocationHeader";
 import MiniCart from "../components/shared/MiniCart";
+import ProductDetailSheet from "../components/shared/ProductDetailSheet";
+import Footer from "../components/layout/Footer";
+import BottomNav from "../components/layout/BottomNav";
+import MobileFooterMessage from "../components/layout/MobileFooterMessage";
 import { useProductDetail } from "../context/ProductDetailContext";
 import { cn } from "@/lib/utils";
+import { Skeleton } from "@food/components/ui/skeleton";
 import CardBanner from "@/assets/CardBanner.jpg";
 import QuickCategoriesBg from "@/assets/Catagorysection_bg.png";
 import SectionRenderer from "../components/experience/SectionRenderer";
 import ExperienceBannerCarousel from "../components/experience/ExperienceBannerCarousel";
 import { useLocation } from "../context/LocationContext";
+import { resolveQuickImageUrl } from "../utils/image";
 import {
   getSideImageByKey,
   getBackgroundColorByValue,
   getBackgroundGradientByValue,
 } from "@/shared/constants/offerSectionOptions";
+import {
+  getQuickCartPath,
+  getQuickCategoriesPath,
+  getQuickCategoryPath,
+} from "../utils/routes";
 
 const DEFAULT_CATEGORY_THEME = {
   gradient: "linear-gradient(to bottom, #25D366, #4ADE80)",
@@ -393,18 +404,99 @@ const MARQUEE_MESSAGES = [
   "Save Big on Essentials!",
 ];
 
-const Home = ({ embedded = false, onThemeChange }) => {
+const QUICK_THEME_STORAGE_KEY = "food.quick.headerColor";
+const FALLBACK_QUICK_THEME_COLOR = "#065f46";
+const getStoredQuickThemeColor = () => {
+  if (typeof window === "undefined") return null;
+  const stored = window.sessionStorage.getItem(QUICK_THEME_STORAGE_KEY);
+  return stored && /^#[0-9a-fA-F]{6}$/.test(stored) ? stored : null;
+};
+
+const getQuickCategoryImage = (category = {}) => {
+  const candidate =
+    category?.image ||
+    category?.icon ||
+    category?.thumbnail ||
+    category?.imageUrl ||
+    category?.iconUrl ||
+    category?.media?.image ||
+    category?.media?.url ||
+    "";
+
+  return (
+    resolveQuickImageUrl(candidate) ||
+    "https://cdn-icons-png.flaticon.com/128/2321/2321831.png"
+  );
+};
+
+function QuickHomeLoadingState({ embedded }) {
+  return (
+    <div className={cn("pb-8", embedded ? "pt-0" : "pt-4 md:pt-6")}>
+      <div className="block md:hidden">
+        <Skeleton className="h-[190px] w-full rounded-none" />
+      </div>
+
+      <div className="px-4 py-4 md:px-8 lg:px-[50px]">
+        <div className="flex gap-3 overflow-hidden">
+          {Array.from({ length: 6 }).map((_, index) => (
+            <div
+              key={index}
+              className="flex min-w-[84px] flex-col items-center gap-2 md:min-w-[112px]">
+              <Skeleton className="h-[96px] w-[84px] rounded-[22px] md:h-[126px] md:w-[112px]" />
+              <Skeleton className="h-3 w-16 rounded-full" />
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="px-4 pb-4 md:px-8 lg:px-[50px]">
+        <div className="rounded-[28px] border border-[#0c831f]/10 bg-white/80 p-4 shadow-[0_10px_30px_rgba(15,23,42,0.06)] md:p-6">
+          <div className="mb-5 flex items-center justify-between">
+            <div className="space-y-2">
+              <Skeleton className="h-4 w-28 rounded-full" />
+              <Skeleton className="h-8 w-52 rounded-full" />
+            </div>
+            <Skeleton className="h-10 w-24 rounded-full" />
+          </div>
+
+          <div className="flex gap-3 overflow-hidden md:gap-5">
+            {Array.from({ length: 6 }).map((_, index) => (
+              <div key={index} className="w-[140px] shrink-0 space-y-3">
+                <Skeleton className="h-[132px] w-full rounded-[20px]" />
+                <Skeleton className="h-3 w-5/6 rounded-full" />
+                <Skeleton className="h-3 w-2/3 rounded-full" />
+                <Skeleton className="h-8 w-full rounded-xl" />
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const Home = ({ embedded = false, onThemeChange, embeddedHeaderColor = null }) => {
   const { scrollY } = useScroll();
   const { isOpen: isProductDetailOpen } = useProductDetail();
   const { currentLocation } = useLocation();
   const navigate = useNavigate();
+  const routePathname =
+    typeof window !== "undefined" ? window.location.pathname : "";
   const quickCatsRef = useRef(null);
 
-  const [categories, setCategories] = useState([ALL_CATEGORY]);
-  const [activeCategory, setActiveCategory] = useState(ALL_CATEGORY);
+  const initialAllCategory = {
+    ...ALL_CATEGORY,
+    headerColor: getStoredQuickThemeColor() || FALLBACK_QUICK_THEME_COLOR,
+  };
+
+  const [categories, setCategories] = useState([initialAllCategory]);
+  const [activeCategory, setActiveCategory] = useState(initialAllCategory);
   const [products, setProducts] = useState([]);
   const [quickCategories, setQuickCategories] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [hasResolvedInitialData, setHasResolvedInitialData] = useState(false);
+  const [hasResolvedInitialHeroConfig, setHasResolvedInitialHeroConfig] =
+    useState(false);
   const [experienceSections, setExperienceSections] = useState([]);
   const [headerSections, setHeaderSections] = useState([]);
   const [heroConfig, setHeroConfig] = useState({
@@ -417,6 +509,15 @@ const Home = ({ embedded = false, onThemeChange }) => {
   const [subcategoryMap, setSubcategoryMap] = useState({});
   const [pendingReturn, setPendingReturn] = useState(null);
   const [offerSections, setOfferSections] = useState([]);
+
+  useLayoutEffect(() => {
+    if (!embedded || typeof window === "undefined") return;
+
+    // The embedded quick page lives inside the food route shell, so route
+    // switches can inherit the previous food scroll position. Reset to the
+    // top so it behaves like the standalone Blinkit-style page.
+    window.scrollTo(0, 0);
+  }, [embedded, routePathname]);
 
   const scrollQuickCats = (direction) => {
     if (quickCatsRef.current) {
@@ -592,9 +693,7 @@ const Home = ({ embedded = false, onThemeChange }) => {
           .map((cat) => ({
             id: cat._id,
             name: cat.name,
-            image:
-              cat.image ||
-              "https://cdn-icons-png.flaticon.com/128/2321/2321831.png",
+            image: getQuickCategoryImage(cat),
           }));
         setQuickCategories(formattedQuickCats);
       }
@@ -640,6 +739,7 @@ const Home = ({ embedded = false, onThemeChange }) => {
       console.error("Error fetching data:", error);
     } finally {
       setIsLoading(false);
+      setHasResolvedInitialData(true);
     }
   };
 
@@ -650,9 +750,13 @@ const Home = ({ embedded = false, onThemeChange }) => {
 
   useEffect(() => {
     if (typeof onThemeChange !== "function") return;
+    const resolvedColor = activeCategory?.headerColor || ALL_CATEGORY.headerColor;
+    if (typeof window !== "undefined" && resolvedColor) {
+      window.sessionStorage.setItem(QUICK_THEME_STORAGE_KEY, resolvedColor);
+    }
     onThemeChange({
       name: activeCategory?.name || ALL_CATEGORY.name,
-      color: activeCategory?.headerColor || ALL_CATEGORY.headerColor,
+      color: resolvedColor,
     });
   }, [activeCategory, onThemeChange]);
 
@@ -720,11 +824,19 @@ const Home = ({ embedded = false, onThemeChange }) => {
       } catch (e) {
         console.error("Error fetching hero config:", e);
         setHeroConfig({ banners: { items: [] }, categoryIds: [] });
+      } finally {
+        setHasResolvedInitialHeroConfig(true);
       }
     };
 
     fetchHeroConfig();
   }, [activeCategory]);
+
+  const isInitialPageLoading =
+    !hasResolvedInitialData || !hasResolvedInitialHeroConfig;
+  const hasHeroBanners = (heroConfig.banners?.items || []).length > 0;
+  const shouldShowHeroFallback =
+    !isInitialPageLoading && !hasHeroBanners;
 
   // Autoplay for Mobile Banner Carousel (smooth, one-direction loop)
   useEffect(() => {
@@ -790,9 +902,7 @@ const Home = ({ embedded = false, onThemeChange }) => {
         .map((c) => ({
           id: c._id,
           name: c.name,
-          image:
-            c.image ||
-            "https://cdn-icons-png.flaticon.com/128/2321/2321831.png",
+          image: getQuickCategoryImage(c),
         }));
       if (resolved.length > 0) return resolved;
     }
@@ -914,7 +1024,11 @@ const Home = ({ embedded = false, onThemeChange }) => {
   };
 
   return (
-    <div className={cn("min-h-screen bg-[#F5F7F8]", embedded ? "pt-0" : "pt-[216px] md:pt-[250px]")}>
+    <div
+      className={cn(
+        "bg-[#F5F7F8]",
+        embedded ? "min-h-0 bg-white pt-0" : "min-h-screen pt-[216px] md:pt-[250px]",
+      )}>
       {/* Top Dynamic Gradient Section */}
       <div
         className={cn("contents", isProductDetailOpen && "hidden md:contents")}>
@@ -923,24 +1037,31 @@ const Home = ({ embedded = false, onThemeChange }) => {
           activeCategory={activeCategory}
           onCategorySelect={setActiveCategory}
           embedded={embedded}
+          embeddedHeaderColor={embeddedHeaderColor}
           showTopContent={!embedded}
           showSearchBar={!embedded}
         />
       </div>
 
+      {isInitialPageLoading ? (
+        <QuickHomeLoadingState embedded={embedded} />
+      ) : (
+        <>
       {/* Hero Banners (mobile): admin-configured or static fallback */}
       <>
-        <div className={cn("block md:hidden", embedded ? "mt-0" : "-mt-[26px]")}>
+        <div className={cn("block md:hidden", embedded ? "-mt-[1px]" : "-mt-[26px]")}>
           <div>
-            <div className="relative w-full overflow-hidden">
-              {heroConfig.banners?.items?.length ? (
+            <div
+              className="relative w-full overflow-hidden"
+              style={embedded ? { backgroundColor: activeCategory?.headerColor || ALL_CATEGORY.headerColor } : undefined}>
+              {hasHeroBanners ? (
                 <ExperienceBannerCarousel
                   section={{ title: "" }}
                   items={heroConfig.banners.items}
                   fullWidth
                   edgeToEdge
                 />
-              ) : (
+              ) : shouldShowHeroFallback ? (
                 <div
                   className={cn(
                     "flex",
@@ -952,7 +1073,7 @@ const Home = ({ embedded = false, onThemeChange }) => {
                   }}
                   onTransitionEnd={handleBannerTransitionEnd}>
                   <motion.div
-                    onClick={() => navigate("/category/all")}
+                    onClick={() => navigate(getQuickCategoriesPath())}
                     whileTap={{ scale: 0.96 }}
                     className="min-w-full">
                     <div className="w-full h-[190px] bg-[#E6F5EC] p-6 relative overflow-hidden flex items-center border-y border-[#0c831f]/10 shadow-[0_4px_15px_rgba(0,0,0,0.05)]">
@@ -1005,7 +1126,7 @@ const Home = ({ embedded = false, onThemeChange }) => {
                     </div>
                   </motion.div>
                   <motion.div
-                    onClick={() => navigate("/category/all")}
+                    onClick={() => navigate(getQuickCategoriesPath())}
                     whileTap={{ scale: 0.96 }}
                     className="min-w-full">
                     <div className="w-full h-[190px] bg-[#E6F5EC] p-6 relative overflow-hidden flex items-center border-y border-[#0c831f]/10 shadow-[0_4px_15px_rgba(0,0,0,0.05)]">
@@ -1045,18 +1166,41 @@ const Home = ({ embedded = false, onThemeChange }) => {
                     </div>
                   </motion.div>
                 </div>
-              )}
+              ) : null}
             </div>
           </div>
         </div>
       </>
 
       {/* Promo Marquee Strip */}
-      <div className="w-full -mt-[2px] md:-mt-[2px] mb-4">
-        <div className="relative overflow-hidden border-y border-[#e6ddc4] bg-[#f7f0df] shadow-[0_10px_30px_rgba(15,23,42,0.08)]">
-          <div className="absolute inset-y-0 left-0 w-10 bg-gradient-to-r from-[#f7f0df] via-[#f7f0df]/90 to-transparent pointer-events-none" />
-          <div className="absolute inset-y-0 right-0 w-10 bg-gradient-to-l from-[#f7f0df] via-[#f7f0df]/90 to-transparent pointer-events-none" />
-          <div className="classic-marquee-track flex w-max items-center gap-4 px-3 md:px-6 py-4 text-sm md:text-base font-semibold text-[#4b463f] -translate-y-[4px]">
+      <div className={cn("w-full md:-mt-[2px] mb-4", embedded ? "-mt-[1px]" : "-mt-[2px]")}>
+        <div
+          className={cn(
+            "relative overflow-hidden",
+            embedded
+              ? "border-y-0 shadow-none"
+              : "border-y border-[#e6ddc4] bg-[#f7f0df] shadow-[0_10px_30px_rgba(15,23,42,0.08)]",
+          )}
+          style={embedded ? { backgroundColor: activeCategory?.headerColor || ALL_CATEGORY.headerColor } : undefined}>
+          <div
+            className={cn(
+              "absolute inset-y-0 left-0 w-10 pointer-events-none",
+              embedded ? "bg-none" : "bg-gradient-to-r from-[#f7f0df] via-[#f7f0df]/90 to-transparent",
+            )}
+            style={embedded ? { backgroundImage: `linear-gradient(to right, ${activeCategory?.headerColor || ALL_CATEGORY.headerColor}, ${activeCategory?.headerColor || ALL_CATEGORY.headerColor}E6, transparent)` } : undefined}
+          />
+          <div
+            className={cn(
+              "absolute inset-y-0 right-0 w-10 pointer-events-none",
+              embedded ? "bg-none" : "bg-gradient-to-l from-[#f7f0df] via-[#f7f0df]/90 to-transparent",
+            )}
+            style={embedded ? { backgroundImage: `linear-gradient(to left, ${activeCategory?.headerColor || ALL_CATEGORY.headerColor}, ${activeCategory?.headerColor || ALL_CATEGORY.headerColor}E6, transparent)` } : undefined}
+          />
+          <div
+            className={cn(
+              "classic-marquee-track flex w-max items-center gap-4 px-3 md:px-6 py-4 text-sm md:text-base font-semibold -translate-y-[4px]",
+              embedded ? "text-white/90" : "text-[#4b463f]",
+            )}>
             {[...MARQUEE_MESSAGES, ...MARQUEE_MESSAGES].map((message, idx) => (
               <React.Fragment key={`${message}-${idx}`}>
                 <span className="whitespace-nowrap">{message}</span>
@@ -1074,10 +1218,13 @@ const Home = ({ embedded = false, onThemeChange }) => {
         <div
           className={cn(
             "w-full mb-5 overflow-hidden relative group z-20 md:mt-3",
-            embedded ? "-mt-[8px]" : "-mt-[24px]",
+            embedded ? "-mt-[3px]" : "-mt-[24px]",
           )}>
           <div
-            className="relative overflow-hidden bg-white shadow-[0_14px_28px_rgba(15,23,42,0.09)]"
+            className={cn(
+              "relative overflow-hidden bg-white",
+              embedded ? "shadow-none" : "shadow-[0_14px_28px_rgba(15,23,42,0.09)]",
+            )}
             style={{
               backgroundImage: `linear-gradient(180deg, rgba(255,255,255,0.78) 0%, rgba(255,255,255,0.65) 100%), url(${QuickCategoriesBg})`,
               backgroundSize: "cover",
@@ -1108,12 +1255,13 @@ const Home = ({ embedded = false, onThemeChange }) => {
               {effectiveQuickCategories.map((cat, idx) => {
                 const palette =
                   quickCategoryPalettes[idx % quickCategoryPalettes.length];
+                const categoryImage = getQuickCategoryImage(cat);
                 return (
                   <motion.div
                     key={cat.id}
                     whileHover={{ y: -4 }}
                     whileTap={{ scale: 0.96 }}
-                    onClick={() => navigate(`/category/${cat.id}`)}
+                    onClick={() => navigate(getQuickCategoryPath(cat.id))}
                     className="flex flex-col items-center gap-1 min-w-[84px] md:min-w-[112px] lg:min-w-[128px] cursor-pointer group/item snap-start">
                     <div
                       className="relative w-[84px] h-[96px] md:w-[112px] md:h-[126px] lg:w-[128px] lg:h-[140px] rounded-[22px] shadow-[0_10px_22px_rgba(15,23,42,0.10)] border flex items-start justify-center p-2 transition-all duration-300 group-hover/item:-translate-y-1 group-hover/item:shadow-[0_16px_30px_rgba(15,23,42,0.14)] overflow-hidden"
@@ -1125,11 +1273,17 @@ const Home = ({ embedded = false, onThemeChange }) => {
                         className="absolute inset-0 opacity-40 pointer-events-none"
                         style={{ backgroundColor: palette.glowColor }}
                       />
-                      <img
-                        src={cat.image}
-                        alt={cat.name}
-                        className="absolute left-1/2 top-3 z-10 h-[68px] w-[68px] -translate-x-1/2 object-contain drop-shadow-[0_5px_12px_rgba(0,0,0,0.10)] mix-blend-multiply group-hover/item:scale-110 transition-transform duration-500"
-                      />
+                      {categoryImage ? (
+                        <img
+                          src={categoryImage}
+                          alt={cat.name}
+                          className="absolute left-1/2 top-3 z-10 h-[68px] w-[68px] -translate-x-1/2 object-contain drop-shadow-[0_5px_12px_rgba(0,0,0,0.10)] mix-blend-multiply group-hover/item:scale-110 transition-transform duration-500"
+                        />
+                      ) : (
+                        <div className="absolute left-1/2 top-3 z-10 flex h-[68px] w-[68px] -translate-x-1/2 items-center justify-center rounded-[20px] bg-white/55 text-2xl font-black uppercase text-slate-400">
+                          {(cat.name || "?").charAt(0)}
+                        </div>
+                      )}
                       <div className="absolute inset-x-2 bottom-1.5 z-20 text-center">
                         <span className="block text-[10px] md:text-[11px] lg:text-[12px] font-semibold text-[#1f2b20] leading-tight whitespace-nowrap overflow-hidden text-ellipsis drop-shadow-[0_1px_0_rgba(255,255,255,0.65)] group-hover/item:text-[#0c831f] transition-colors">
                           {cat.name}
@@ -1159,7 +1313,7 @@ const Home = ({ embedded = false, onThemeChange }) => {
       <div
         className={cn(
           "mb-4 md:mb-8",
-          embedded ? "-mt-[10px] md:-mt-[24px]" : "-mt-[40px] md:-mt-[40px]",
+          embedded ? "-mt-[2px] md:-mt-[12px]" : "-mt-[40px] md:-mt-[40px]",
         )}>
         <div className="relative overflow-hidden bg-linear-to-br from-[#0c831f]/10 via-[#0c831f]/5 to-transparent py-7 md:py-16 border-y border-[#0c831f]/10 shadow-sm md:shadow-[inset_0_-10px_40px_rgba(0,0,0,0.02)]">
           {/* Background Decoration */}
@@ -1180,7 +1334,7 @@ const Home = ({ embedded = false, onThemeChange }) => {
                 </div>
               </div>
               <motion.div
-                onClick={() => navigate("/category/all")}
+                onClick={() => navigate(getQuickCategoriesPath())}
                 whileHover={{ x: 5, scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
                 className="flex items-center gap-1 md:gap-2 bg-white px-3 py-1.5 md:px-6 md:py-3 rounded-full text-[#0c831f] font-bold text-[10px] md:text-sm cursor-pointer shadow-sm md:shadow-lg border border-[#0c831f]/5 transition-all">
@@ -1346,7 +1500,11 @@ const Home = ({ embedded = false, onThemeChange }) => {
 
       {/* Main Content Area – show admin-configured sections (hero/categories already shown above are skipped) */}
       {sectionsForRenderer.length > 0 && (
-        <div className="container mx-auto px-4 md:px-8 lg:px-[50px] py-10 md:py-16">
+        <div
+          className={cn(
+            "container mx-auto px-4 md:px-8 lg:px-[50px]",
+            embedded ? "pt-2 pb-24 md:pt-6 md:pb-16" : "py-10 md:py-16",
+          )}>
           <SectionRenderer
             sections={sectionsForRenderer}
             productsById={productsById}
@@ -1357,7 +1515,27 @@ const Home = ({ embedded = false, onThemeChange }) => {
       )}
 
       {embedded && (
-        <MiniCart position="bottom-right" linkTo="/food/user/cart" />
+        <>
+          <div className="hidden md:block">
+            <Footer />
+          </div>
+          <div className="md:hidden">
+            <MobileFooterMessage />
+            <BottomNav />
+          </div>
+        </>
+      )}
+
+      {embedded && (
+        <>
+          <MiniCart
+            position="bottom-right"
+            linkTo={getQuickCartPath(routePathname)}
+          />
+          <ProductDetailSheet />
+        </>
+      )}
+        </>
       )}
     </div>
   );

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useLayoutEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation as useRouterLocation, useNavigate } from "react-router-dom";
 import { motion, useScroll, useTransform } from "framer-motion";
 import Lottie from "lottie-react";
 import LocationDrawer from "./LocationDrawer";
@@ -13,6 +13,13 @@ import {
   buildSearchBarBackgroundColor,
   shiftHex,
 } from "../../utils/headerTheme";
+import {
+  getQuickCartPath,
+  getQuickHomePath,
+  getQuickProfilePath,
+  getQuickSearchPath,
+  getQuickWishlistPath,
+} from "../../utils/routes";
 import LogoImage from "@/assets/Logo.png";
 import shoppingCartAnimation from "@/assets/lottie/shopping-cart.json";
 
@@ -25,6 +32,21 @@ import ChevronDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import FavoriteBorderOutlinedIcon from "@mui/icons-material/FavoriteBorderOutlined";
 import ShoppingCartOutlinedIcon from "@mui/icons-material/ShoppingCartOutlined";
 import AccountCircleOutlinedIcon from "@mui/icons-material/AccountCircleOutlined";
+
+const lightenHex = (hex, amount = 0.18) => {
+  const normalized = String(hex || "").replace("#", "");
+  if (!/^[0-9a-fA-F]{6}$/.test(normalized)) return hex;
+
+  const clamp = (value) => Math.max(0, Math.min(255, value));
+  const toHex = (value) => clamp(value).toString(16).padStart(2, "0");
+  const mix = (channel) => Math.round(channel + (255 - channel) * amount);
+
+  const r = parseInt(normalized.slice(0, 2), 16);
+  const g = parseInt(normalized.slice(2, 4), 16);
+  const b = parseInt(normalized.slice(4, 6), 16);
+
+  return `#${toHex(mix(r))}${toHex(mix(g))}${toHex(mix(b))}`;
+};
 
 /** Full-width bottom stroke + tab curve; l/r are 0–100% of column where the inner bump sits. */
 function buildActiveTabPath(l, r) {
@@ -146,6 +168,7 @@ const MainLocationHeader = ({
   activeCategory,
   onCategorySelect,
   embedded = false,
+  embeddedHeaderColor = null,
   showTopContent = true,
   showSearchBar = true,
 }) => {
@@ -158,15 +181,21 @@ const MainLocationHeader = ({
   const appName = settings?.appName || "App";
   const logoUrl = settings?.logoUrl || LogoImage;
   const navigate = useNavigate();
+  const routerLocation = useRouterLocation();
+  const cartPath = getQuickCartPath(routerLocation.pathname);
+  const homePath = getQuickHomePath(routerLocation.pathname);
+  const searchPath = getQuickSearchPath();
+  const profilePath = getQuickProfilePath();
+  const wishlistPath = getQuickWishlistPath();
 
   // Search Logic
   const handleSearchClick = () => {
-    navigate("/search");
+    navigate(searchPath);
   };
 
   const handleSearchKeyDown = (e) => {
     if (e.key === "Enter") {
-      navigate("/search", { state: { query: e.target.value } });
+      navigate(searchPath, { state: { query: e.target.value } });
     }
   };
 
@@ -276,22 +305,27 @@ const MainLocationHeader = ({
 
   const headerTopPadding = embedded ? 16 : rawHeaderTopPadding;
   const headerBottomPadding = embedded ? 4 : rawHeaderBottomPadding;
-  const headerRoundness = embedded ? 24 : rawHeaderRoundness;
+  const headerRoundness = embedded ? 0 : rawHeaderRoundness;
   const bgOpacity = embedded ? 1 : rawBgOpacity;
   const contentHeight = embedded ? "64px" : rawContentHeight;
   const contentOpacity = embedded ? 1 : rawContentOpacity;
   const navHeight = embedded ? "60px" : rawNavHeight;
   const navOpacity = embedded ? 1 : rawNavOpacity;
-  const navMargin = embedded ? 4 : rawNavMargin;
-  const categorySpacing = embedded ? 3 : rawCategorySpacing;
+  const navMargin = embedded ? 0 : rawNavMargin;
+  const categorySpacing = embedded ? -2 : rawCategorySpacing;
   const cartOpacity = embedded ? 1 : rawCartOpacity;
   const cartScale = embedded ? 1 : rawCartScale;
   const displayContent = embedded ? "block" : rawDisplayContent;
   const displayNav = embedded ? "flex" : rawDisplayNav;
   const displayCart = embedded ? "block" : rawDisplayCart;
 
-  const baseHeaderColor = activeCategory?.headerColor || "#2f7a46";
-  const headerGradient = buildHeaderGradient(baseHeaderColor);
+  const baseHeaderColor =
+    (embedded && embeddedHeaderColor) ||
+    activeCategory?.headerColor ||
+    "#2f7a46";
+  const headerGradient = embedded
+    ? `linear-gradient(180deg, ${baseHeaderColor} 0%, ${lightenHex(baseHeaderColor, 0.2)} 100%)`
+    : buildHeaderGradient(baseHeaderColor);
   const searchBarBg = buildSearchBarBackgroundColor(baseHeaderColor);
   const categoryAccent = "#111111";
 
@@ -325,11 +359,32 @@ const MainLocationHeader = ({
             backgroundImage: headerGradient,
           }}
           className={cn(
-            "px-4 shadow-[0_4px_20px_rgba(0,0,0,0.15)] overflow-hidden transition-all duration-300",
-            embedded ? "rounded-b-[28px]" : "sticky top-0",
+            "px-4 overflow-hidden transition-all duration-300",
+            embedded
+              ? "shadow-none"
+              : "sticky top-0 shadow-[0_4px_20px_rgba(0,0,0,0.15)]",
           )}>
           {/* Subtle Glow Overlay */}
-          <div className="absolute inset-0 bg-white/8 pointer-events-none" />
+          {embedded ? (
+            <>
+              <div className="absolute inset-0 pointer-events-none overflow-hidden opacity-10">
+                <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-full w-full">
+                  <circle cx="10%" cy="10%" r="20" fill="white" />
+                  <circle cx="90%" cy="20%" r="15" fill="white" />
+                  <circle cx="50%" cy="80%" r="25" fill="white" />
+                  <path d="M 0 50 Q 25 30 50 50 T 100 50" stroke="white" strokeWidth="0.5" fill="none" />
+                  <path d="M 0 70 Q 25 50 50 70 T 100 70" stroke="white" strokeWidth="0.5" fill="none" />
+                </svg>
+              </div>
+              <div
+                className="absolute top-0 left-1/4 h-24 w-24 rounded-full blur-[48px] pointer-events-none"
+                style={{ backgroundColor: "rgba(255,255,255,0.22)" }}
+              />
+              <div className="absolute bottom-0 right-1/4 h-28 w-28 rounded-full bg-yellow-400/10 blur-[64px] pointer-events-none" />
+            </>
+          ) : (
+            <div className="absolute inset-0 bg-white/8 pointer-events-none" />
+          )}
 
           {/* Desktop/Tablet Header Layout (md and above) */}
           {(showTopContent || showSearchBar) && (
@@ -337,7 +392,7 @@ const MainLocationHeader = ({
             {/* Left Section: Logo + Location row */}
             <div className="flex items-center gap-4 lg:gap-8">
               <div
-                onClick={() => navigate("/")}
+                onClick={() => navigate(homePath)}
                 className="flex items-center gap-3 cursor-pointer group shrink-0">
                 <div className="group-hover:scale-110 transition-all duration-300 drop-shadow-[0_2px_8px_rgba(255,255,255,0.2)]">
                   <img
@@ -409,7 +464,7 @@ const MainLocationHeader = ({
                   }}
                   type="button"
                   aria-label="Open cart"
-                  onClick={() => navigate("/checkout")}
+                  onClick={() => navigate(cartPath)}
                   className="group relative h-12 w-12 shrink-0 rounded-2xl border border-white/55 bg-white/28 shadow-[0_16px_35px_rgba(15,23,42,0.16)] backdrop-blur-xl transition-all duration-300 hover:bg-white/42 hover:shadow-[0_18px_40px_rgba(15,23,42,0.2)]">
                   <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-white/30 via-transparent to-black/5 pointer-events-none" />
                   <div className="absolute inset-x-2 top-1 h-px bg-white/70 pointer-events-none" />
@@ -427,7 +482,7 @@ const MainLocationHeader = ({
               <motion.button
                 whileHover={{ scale: 1.15, rotate: 5 }}
                 whileTap={{ scale: 0.9 }}
-                onClick={() => navigate("/wishlist")}
+                onClick={() => navigate(wishlistPath)}
                 className="text-slate-900 hover:text-red-500 transition-all">
                 <FavoriteBorderOutlinedIcon sx={{ fontSize: 24 }} />
               </motion.button>
@@ -435,7 +490,7 @@ const MainLocationHeader = ({
               <motion.button
                 whileHover={{ scale: 1.15, rotate: -5 }}
                 whileTap={{ scale: 0.9 }}
-                onClick={() => navigate("/checkout")}
+                onClick={() => navigate(cartPath)}
                 className="text-slate-900 hover:text-slate-700 transition-all relative group">
                 <ShoppingCartOutlinedIcon sx={{ fontSize: 24 }} />
                 <span className="absolute -top-1.5 -right-1.5 bg-yellow-400 text-emerald-900 text-[9px] font-black w-4.5 h-4.5 rounded-full flex items-center justify-center border-2 border-green-800 shadow-sm transition-transform group-hover:-translate-y-0.5">
@@ -446,7 +501,7 @@ const MainLocationHeader = ({
               <motion.button
                 whileHover={{ scale: 1.15 }}
                 whileTap={{ scale: 0.9 }}
-                onClick={() => navigate("/profile")}
+                onClick={() => navigate(profilePath)}
                 className="text-slate-900 lg:bg-white/30 p-1.5 lg:rounded-full hover:bg-white hover:text-slate-900 transition-all">
                 <AccountCircleOutlinedIcon sx={{ fontSize: 28 }} />
               </motion.button>
@@ -502,7 +557,7 @@ const MainLocationHeader = ({
           </div>}
 
           {/* Search Bar (MOBILE ONLY) */}
-          {showSearchBar && <div className="relative z-10 mt-[1.5px] flex items-center gap-2.5 md:hidden">
+          {showSearchBar && <div className="relative z-10 mt-0 flex items-center gap-2.5 md:hidden">
             <motion.div
               onClick={handleSearchClick}
               whileTap={{ scale: 0.98 }}
@@ -531,7 +586,7 @@ const MainLocationHeader = ({
               }}
               type="button"
               aria-label="Open cart"
-              onClick={() => navigate("/checkout")}
+              onClick={() => navigate(cartPath)}
               className="group relative h-11 w-11 shrink-0 overflow-hidden rounded-[14px] border border-white/55 bg-white/28 shadow-[0_12px_28px_rgba(15,23,42,0.14)] backdrop-blur-xl transition-all duration-300 hover:bg-white/42">
               <div className="absolute inset-0 bg-gradient-to-br from-white/30 via-transparent to-black/5 pointer-events-none" />
               <Lottie
@@ -561,7 +616,10 @@ const MainLocationHeader = ({
                 display: displayNav,
                 overflowY: "hidden",
               }}
-              className="relative flex items-end md:justify-center gap-0 overflow-x-auto no-scrollbar -mx-2 px-2 md:mx-0 md:px-0 z-10 snap-x pt-1 min-h-[68px] md:min-h-[76px] pb-0.5">
+              className={cn(
+                "relative flex items-end md:justify-center gap-0 overflow-x-auto no-scrollbar -mx-2 px-2 md:mx-0 md:px-0 z-10 snap-x min-h-[68px] md:min-h-[76px] pb-0.5",
+                embedded ? "pt-0" : "pt-1",
+              )}>
               {categories.slice(0, 10).map((cat) => {
                 const isActive = activeCategory?.id === cat.id;
                 return (

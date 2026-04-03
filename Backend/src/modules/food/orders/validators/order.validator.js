@@ -40,12 +40,21 @@ const pricingSchema = z.object({
 
 export function validateCalculateOrderDto(body) {
     const schema = z.object({
+        orderType: z.enum(['food', 'quick']).optional().default('food'),
         items: z.array(orderItemSchema).min(1, 'At least one item required'),
-        restaurantId: z.string().min(1, 'Restaurant id required'),
+        restaurantId: z.string().optional(),
         deliveryAddressId: z.string().optional(),
         zoneId: z.string().optional(),
         couponCode: z.string().optional(),
         deliveryFleet: z.string().optional()
+    }).superRefine((data, ctx) => {
+        if (data.orderType !== 'quick' && !data.restaurantId) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: ['restaurantId'],
+                message: 'Restaurant id required'
+            });
+        }
     });
     const result = schema.safeParse(body);
     if (!result.success) {
@@ -59,9 +68,10 @@ export function validateCalculateOrderDto(body) {
 
 export function validateCreateOrderDto(body) {
     const schema = z.object({
+        orderType: z.enum(['food', 'quick']).optional().default('food'),
         items: z.array(orderItemSchema).min(1, 'At least one item required'),
-        address: addressSchema,
-        restaurantId: z.string().min(1, 'Restaurant id required'),
+        address: addressSchema.optional(),
+        restaurantId: z.string().optional(),
         restaurantName: z.string().optional(),
         pricing: pricingSchema,
         deliveryFleet: z.string().optional(),
@@ -70,6 +80,21 @@ export function validateCreateOrderDto(body) {
         // 'razorpay_qr' means COD-style flow, but payment is collected via Razorpay QR at delivery.
         paymentMethod: z.enum(['cash', 'razorpay', 'razorpay_qr', 'card', 'wallet']),
         zoneId: z.string().nullable().optional()
+    }).superRefine((data, ctx) => {
+        if (data.orderType !== 'quick' && !data.restaurantId) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: ['restaurantId'],
+                message: 'Restaurant id required'
+            });
+        }
+        if (data.orderType !== 'quick' && !data.address) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: ['address'],
+                message: 'Address is required'
+            });
+        }
     });
     const result = schema.safeParse(body);
     if (!result.success) {

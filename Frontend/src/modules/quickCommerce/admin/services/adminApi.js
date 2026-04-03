@@ -303,13 +303,18 @@ export const adminApi = {
   deleteProduct: (id) => axiosInstance.delete(`/quick-commerce/admin/products/${id}`),
 
   getOrders: (params) => axiosInstance.get('/quick-commerce/admin/orders', { params }),
+  getZones: (params) => axiosInstance.get('/quick-commerce/admin/zones', { params }),
+  getZoneById: (id) => axiosInstance.get(`/quick-commerce/admin/zones/${id}`),
+  createZone: (body) => axiosInstance.post('/quick-commerce/admin/zones', body ?? {}),
+  updateZone: (id, body) => axiosInstance.patch(`/quick-commerce/admin/zones/${id}`, body ?? {}),
+  deleteZone: (id) => axiosInstance.delete(`/quick-commerce/admin/zones/${id}`),
 
   getOrderDetails: () => emptyResponse({}),
   updateOrderStatus: () => emptyResponse({ updated: false }),
 
   getUsers: () => emptyResponse({ items: [], total: 0, page: 1 }),
   getUserById: () => emptyResponse({}),
-  approveSeller: () => emptyResponse({}),
+  approveSeller: (sellerId, data = {}) => axiosInstance.put(`/quick-commerce/admin/seller-requests/${sellerId}/approve`, data),
   getAdminWalletData: () => emptyResponse({}),
   getReports: () => emptyResponse([]),
   getPlatformSettings: () => emptyResponse({}),
@@ -321,7 +326,14 @@ export const adminApi = {
   getFinancePayouts: () => emptyResponse({ items: [], total: 0 }),
   processFinancePayouts: () => emptyResponse({}),
   exportFinanceStatement: () => emptyResponse({}),
-  getSellers: () => emptyResponse([]),
+  getSellers: async () => {
+    const response = await axiosInstance.get('/quick-commerce/admin/seller-requests', {
+      params: { status: 'approved', limit: 100 },
+    });
+    return response;
+  },
+  getSellerRequests: (params) => axiosInstance.get('/quick-commerce/admin/seller-requests', { params }),
+  rejectSeller: (sellerId, data = {}) => axiosInstance.put(`/quick-commerce/admin/seller-requests/${sellerId}/reject`, data),
   getTickets: () => emptyResponse({ items: [], total: 0 }),
   updateTicketStatus: () => emptyResponse({}),
   replyTicket: () => emptyResponse({}),

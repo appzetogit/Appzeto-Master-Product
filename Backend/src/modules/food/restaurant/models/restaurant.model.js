@@ -197,6 +197,10 @@ const restaurantSchema = new mongoose.Schema(
       ref: "FoodZone",
       index: true,
     },
+    businessModel: {
+      type: String,
+      trim: true,
+    },
     panImage: {
       type: String,
     },

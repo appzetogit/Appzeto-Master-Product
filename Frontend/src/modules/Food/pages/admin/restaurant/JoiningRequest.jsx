@@ -421,7 +421,7 @@ export default function JoiningRequest() {
                   filteredRequests.map((request, index) => (
                     <tr key={request._id || request.id || `${request.restaurantName}-${index}`} className="hover:bg-slate-50 transition-colors">
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <span className="text-sm font-medium text-slate-700">{index + 1}</span>
+                        <span className="text-sm font-medium text-slate-700">{request.sl ?? index + 1}</span>
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
@@ -449,7 +449,7 @@ export default function JoiningRequest() {
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <span className="text-sm text-slate-700">{request.zone}</span>
+                        <span className="text-sm text-slate-700">{request.zone || "—"}</span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className="text-sm text-slate-700">{request.businessModel || "—"}</span>

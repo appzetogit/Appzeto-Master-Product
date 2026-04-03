@@ -81,18 +81,29 @@ export default function RestaurantReviews() {
     date: "Date & Time",
   }
 
-  const formatDateTime = (dateString) => {
-    if (!dateString) return 'N/A'
-    try {
-      const date = new Date(dateString)
-      const day = date.getDate().toString().padStart(2, '0')
-      const month = date.toLocaleDateString('en-US', { month: 'short' }).toUpperCase()
-      const year = date.getFullYear()
-      const time = date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })
-      return `${day} ${month} ${year}, ${time}`
-    } catch (e) {
-      return 'Invalid Date'
+  const getRatingBadge = (rating) => {
+    const stars = []
+    const count = Math.floor(rating || 0)
+    for (let i = 0; i < count; i++) {
+      stars.push(<Star key={i} className="w-3.5 h-3.5 fill-amber-500 text-amber-500" />)
     }
+    return (
+      <div className="flex items-center gap-2 px-3 py-1.5 bg-amber-50 border border-amber-200 rounded-lg w-fit">
+        <div className="flex items-center gap-0.5">
+          {stars}
+        </div>
+        <span className="text-xs font-bold text-amber-700 leading-none">{rating}</span>
+      </div>
+    )
+  }
+
+  const renderStars = (rating) => {
+    const stars = []
+    const count = Math.floor(rating || 0)
+    for (let i = 0; i < count; i++) {
+      stars.push(<Star key={i} className="w-5 h-5 fill-amber-500 text-amber-500" />)
+    }
+    return stars
   }
 
   useEffect(() => {
@@ -236,10 +247,7 @@ export default function RestaurantReviews() {
                       )}
                       {visibleColumns.rating && (
                         <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="flex items-center gap-1">
-                            <Star className="w-4 h-4 fill-orange-500 text-orange-500" />
-                            <span className="text-sm font-medium text-slate-900">{review.rating}</span>
-                          </div>
+                          {getRatingBadge(review.rating)}
                         </td>
                       )}
                       {visibleColumns.date && <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-700">{formatDateTime(review.submittedAt)}</td>}
@@ -265,7 +273,17 @@ export default function RestaurantReviews() {
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="bg-purple-50 rounded-lg p-4"><p className="text-xs text-purple-600 mb-1">Customer</p><p className="text-sm font-semibold text-purple-700">{selectedReview.customer}</p></div>
-                <div className="bg-orange-50 rounded-lg p-4"><p className="text-xs text-orange-600 mb-2">Rating</p><div className="flex items-center gap-2"><Star className="w-5 h-5 fill-orange-500 text-orange-500" /><span className="text-lg font-bold text-orange-700">{selectedReview.rating} / 5</span></div></div>
+                <div className="bg-orange-50 rounded-lg p-4">
+                  <p className="text-xs text-orange-600 mb-2 font-semibold">Rating</p>
+                  <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-1">
+                      {renderStars(selectedReview.rating)}
+                    </div>
+                    <span className="text-lg font-bold text-orange-700">
+                      {selectedReview.rating} / 5
+                    </span>
+                  </div>
+                </div>
               </div>
               <div className="bg-slate-50 rounded-lg p-4"><p className="text-xs text-slate-600 mb-2 font-semibold">Review Feedback</p><p className="text-sm text-slate-800 leading-relaxed whitespace-pre-wrap">{selectedReview.review || 'No review text provided'}</p></div>
               <div className="bg-slate-50 rounded-lg p-4"><p className="text-xs text-slate-600 mb-1">Submitted At</p><p className="text-sm font-medium text-slate-900">{formatDateTime(selectedReview.submittedAt)}</p></div>

@@ -6,11 +6,6 @@ import {
   Package,
   MessageSquare,
   Compass,
-  TrendingUp,
-  Utensils,
-  Wallet,
-  ArrowRightLeft,
-  Building2,
 } from "lucide-react"
 
 const getOrdersTabs = (basePath = "/restaurant") => [
@@ -18,11 +13,6 @@ const getOrdersTabs = (basePath = "/restaurant") => [
   { id: "inventory", label: "Inventory", icon: Package, route: `${basePath}/inventory` },
   { id: "feedback", label: "Feedback", icon: MessageSquare, route: `${basePath}/feedback` },
   { id: "explore", label: "Explore", icon: Compass, route: `${basePath}/explore` },
-]
-
-const getHubTabs = (basePath = "/restaurant") => [
-  { id: "menu", label: "Menu", icon: Utensils, route: `${basePath}/hub-menu` },
-  { id: "finance", label: "Finance", icon: Wallet, route: `${basePath}/hub-finance` },
 ]
 
 const findActiveTab = (tabs, pathname) =>
@@ -35,34 +25,23 @@ export default function BottomNavOrders() {
   const navigate = useNavigate()
   const { pathname } = useLocation()
 
-  // The restaurant module is mounted under /food/restaurant in this app.
-  // Some legacy paths (or redirects) may use /restaurant, so treat those as /food/restaurant too.
   const basePath = pathname.startsWith("/food/restaurant")
     ? "/food/restaurant"
     : pathname.startsWith("/restaurant")
     ? "/food/restaurant"
     : "/restaurant"
 
-  const ordersTabs = useMemo(() => getOrdersTabs(basePath), [basePath])
-  const hubTabs = useMemo(() => getHubTabs(basePath), [basePath])
+  const tabs = useMemo(() => getOrdersTabs(basePath), [basePath])
 
   const isInternalPage = pathname.includes("/create-offers")
   if (isInternalPage) {
     return null
   }
 
-  const isHubMode = useMemo(() => {
-    return pathname.includes("/hub-")
-  }, [pathname])
-
-  const tabs = useMemo(() => {
-    return isHubMode ? hubTabs : ordersTabs
-  }, [isHubMode, hubTabs, ordersTabs])
-
   const activeTab = useMemo(() => {
     const match = findActiveTab(tabs, pathname)
-    return match?.id || (isHubMode ? "menu" : "orders")
-  }, [tabs, pathname, isHubMode])
+    return match?.id || "orders"
+  }, [tabs, pathname])
 
   const handleTabClick = (tab) => {
     if (tab.route && tab.route !== pathname) {
@@ -70,30 +49,11 @@ export default function BottomNavOrders() {
     }
   }
 
-  const handleToggleMode = () => {
-    const targetRoute = isHubMode ? basePath : `${basePath}/hub-menu`
-    navigate(targetRoute)
-  }
-
-  const railPaddingClass = isHubMode ? "pl-2 pr-3" : "pl-3 pr-2"
-
   return (
     <div className="sticky bottom-0 z-40 px-2 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
       <div className="mx-auto flex w-full max-w-md items-end gap-2">
-        {isHubMode && (
-          <button
-            onClick={handleToggleMode}
-            className="flex min-w-[78px] flex-col items-center justify-center gap-1 rounded-[22px] bg-black px-3 py-3 text-white shadow-[0_12px_28px_rgba(0,0,0,0.28)] active:scale-95"
-          >
-            <ArrowRightLeft className="h-4 w-4" />
-            <span className="text-[11px]">To Orders</span>
-          </button>
-        )}
-
         <div className="flex-1 min-w-0">
-          <div
-            className={`relative overflow-visible rounded-[30px] bg-black py-2 shadow-[0_16px_40px_rgba(0,0,0,0.28)] ${railPaddingClass}`}
-          >
+          <div className="relative overflow-visible rounded-[30px] bg-black py-2 pl-3 pr-2 shadow-[0_16px_40px_rgba(0,0,0,0.28)]">
             <div className="relative flex items-end justify-around gap-1">
               {tabs.map((tab) => {
                 const Icon = tab.icon
@@ -104,7 +64,7 @@ export default function BottomNavOrders() {
                     key={tab.id}
                     onClick={() => handleTabClick(tab)}
                     aria-current={isActive ? "page" : undefined}
-                    className={`relative z-10 flex min-w-0 flex-1 flex-col items-center justify-center gap-1 overflow-visible rounded-full px-2 py-2`}
+                    className="relative z-10 flex min-w-0 flex-1 flex-col items-center justify-center gap-1 overflow-visible rounded-full px-2 py-2"
                     whileTap={{ scale: 0.95 }}
                   >
                     {isActive && (
@@ -112,20 +72,14 @@ export default function BottomNavOrders() {
                         layoutId="bottomNavActive"
                         className="absolute inset-0 -z-10 rounded-full bg-white/16"
                         initial={false}
-                        transition={{
-                          type: "spring",
-                          stiffness: 500,
-                          damping: 30,
-                        }}
+                        transition={{ type: "spring", stiffness: 500, damping: 30 }}
                       />
                     )}
-
                     <Icon
                       className={`relative z-10 h-[18px] w-[18px] transition-colors duration-300 ease-in-out ${
                         isActive ? "text-white" : "text-white/78"
                       }`}
                     />
-
                     <span
                       className={`relative z-10 whitespace-nowrap text-[11px] leading-none transition-colors duration-300 ease-in-out ${
                         isActive ? "text-white" : "text-white/78"
@@ -139,16 +93,6 @@ export default function BottomNavOrders() {
             </div>
           </div>
         </div>
-
-        {!isHubMode && (
-          <button
-            onClick={handleToggleMode}
-            className="flex min-w-[78px] flex-col items-center justify-center gap-1 rounded-[22px] bg-black px-3 py-3 text-white shadow-[0_12px_28px_rgba(0,0,0,0.28)] active:scale-95"
-          >
-            <ArrowRightLeft className="h-4 w-4" />
-            <span className="text-[11px]">Hub</span>
-          </button>
-        )}
       </div>
     </div>
   )

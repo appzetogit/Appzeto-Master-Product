@@ -76,6 +76,7 @@ export default function Profile() {
   // Popup states
   const [vegModeOpen, setVegModeOpen] = useState(false);
   const [appearanceOpen, setAppearanceOpen] = useState(false);
+  const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [referralReward, setReferralReward] = useState(0);
   const [walletBalance, setWalletBalance] = useState(0);
@@ -275,7 +276,7 @@ export default function Profile() {
 
   const handleShareReferral = async () => {
     if (!referralLink) return;
-    const rewardText = referralReward > 0 ? `₹${referralReward}` : "rewards";
+    const rewardText = referralReward > 0 ? `\u20B9${referralReward}` : "rewards";
     const shareText = `Join ${companyName} and earn ${rewardText}.`;
     try {
       if (navigator.share) {
@@ -398,6 +399,11 @@ export default function Profile() {
     }
   };
 
+  const handleLogoutClick = () => {
+    if (isLoggingOut) return;
+    setLogoutConfirmOpen(true);
+  };
+
   return (
     <AnimatedPage className="min-h-screen bg-[#f5f5f5] dark:bg-[#0a0a0a]">
       <div className="max-w-md md:max-w-2xl lg:max-w-4xl xl:max-w-5xl mx-auto px-4 sm:px-6 md:px-8 lg:px-10 xl:px-12 py-4 sm:py-6 md:py-8 lg:py-10 pb-20 sm:pb-24">
@@ -484,7 +490,7 @@ export default function Profile() {
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-base font-semibold text-green-600 dark:text-green-400">
-                      ₹{Number(walletBalance || 0).toFixed(0)}
+                      {"\u20B9"}{Number(walletBalance || 0).toFixed(0)}
                     </span>
                     <motion.div
                       whileHover={{ x: 4 }}
@@ -551,9 +557,10 @@ export default function Profile() {
             </motion.div>
           </Link>
 
-          <motion.div
-            whileHover={{ x: 4, scale: 1.01 }}
-            transition={{ duration: 0.2, type: "spring", stiffness: 300 }}>
+          <Link to="/user/profile/refer-earn" className="block">
+            <motion.div
+              whileHover={{ x: 4, scale: 1.01 }}
+              transition={{ duration: 0.2, type: "spring", stiffness: 300 }}>
             <Card className="bg-white dark:bg-[#1a1a1a] py-0 rounded-xl shadow-sm border-0 dark:border-gray-800">
               <CardContent className="p-4">
                 <div className="flex items-center justify-between mb-2">
@@ -565,12 +572,12 @@ export default function Profile() {
                       <Tag className="h-5 w-5 text-gray-700 dark:text-gray-300" />
                     </motion.div>
                     <span className="text-base font-medium text-gray-900 dark:text-white">
-                      Share & Earn
+                      Refer & Earn
                     </span>
                   </div>
                   {referralReward > 0 && (
                     <span className="text-xs font-semibold px-2 py-1 rounded bg-green-100 text-green-700 dark:bg-green-900/20 dark:text-green-300">
-                      Earn ₹{referralReward}
+                      Earn {"\u20B9"}{referralReward}
                     </span>
                   )}
                 </div>
@@ -589,12 +596,13 @@ export default function Profile() {
                     className="inline-flex items-center gap-1 text-xs text-[#EB590E] font-medium ml-2 px-2 py-1 rounded-md"
                     disabled={!referralLink}>
                     <Share2 className="h-3.5 w-3.5" />
-                    Share
+                    Refer
                   </button>
                 </div>
               </CardContent>
             </Card>
-          </motion.div>
+            </motion.div>
+          </Link>
 
           <motion.div
             whileHover={{ x: 4, scale: 1.01 }}
@@ -911,7 +919,7 @@ export default function Profile() {
               transition={{ duration: 0.2, type: "spring", stiffness: 300 }}>
               <Card
                 className="bg-white dark:bg-[#1a1a1a] py-0 rounded-xl shadow-sm border-0 dark:border-gray-800 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                onClick={handleLogout}>
+                onClick={handleLogoutClick}>
                 <CardContent className="p-4 flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <motion.div
@@ -1006,6 +1014,42 @@ export default function Profile() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Logout Confirmation Popup */}
+      {logoutConfirmOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 px-4">
+          <div className="w-full max-w-sm rounded-2xl bg-white dark:bg-[#1a1a1a] p-5 shadow-2xl border border-gray-200 dark:border-gray-800">
+            <h3 className="text-lg font-bold text-gray-900 dark:text-white">
+              Log out?
+            </h3>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              Are you sure you want to log out?
+            </p>
+            <div className="mt-5 flex items-center gap-3">
+              <Button
+                type="button"
+                variant="outline"
+                className="flex-1 rounded-xl"
+                onClick={() => setLogoutConfirmOpen(false)}
+                disabled={isLoggingOut}
+              >
+                No
+              </Button>
+              <Button
+                type="button"
+                className="flex-1 rounded-xl bg-[#CB202D] hover:bg-[#b01c27] text-white"
+                onClick={() => {
+                  setLogoutConfirmOpen(false);
+                  handleLogout();
+                }}
+                disabled={isLoggingOut}
+              >
+                Yes
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Appearance Popup */}
       <Dialog open={appearanceOpen} onOpenChange={setAppearanceOpen}>

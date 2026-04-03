@@ -100,7 +100,7 @@ export async function globalSearch(query = '') {
     const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const regex = { $regex: escaped, $options: 'i' };
 
-    const [orders, users, restaurants, items] = await Promise.all([
+    const [orders, users, restaurants, items, categories, addons] = await Promise.all([
         FoodOrder.find({
             $or: [{ orderId: regex }, { orderStatus: regex }]
         })
@@ -125,6 +125,14 @@ export async function globalSearch(query = '') {
         })
             .limit(5)
             .select('name description price')
+            .lean(),
+        FoodCategory.find({ name: regex })
+            .limit(3)
+            .select('name image')
+            .lean(),
+        FoodAddon.find({ name: regex })
+            .limit(3)
+            .select('name price')
             .lean()
     ]);
 
@@ -135,7 +143,7 @@ export async function globalSearch(query = '') {
         type: 'Order',
         title: `#${o.orderId}`,
         description: `Status: ${o.orderStatus}`,
-        path: `/admin/food/orders/${o._id}`
+        path: `/admin/food/orders/all?orderId=${o._id}`
     }));
 
     users.forEach(u => results.push({
@@ -143,7 +151,7 @@ export async function globalSearch(query = '') {
         type: 'User',
         title: u.name || 'Unnamed',
         description: `${u.email || u.phone || ''}`,
-        path: `/admin/food/customers/${u._id}`
+        path: `/admin/food/customers?userId=${u._id}`
     }));
 
     restaurants.forEach(r => results.push({
@@ -151,7 +159,7 @@ export async function globalSearch(query = '') {
         type: 'Restaurant',
         title: r.restaurantName,
         description: `${r.area || ''}, ${r.city || ''} (${r.status})`,
-        path: `/admin/food/restaurants/${r._id}`
+        path: `/admin/food/restaurants?restaurantId=${r._id}`
     }));
 
     items.forEach(i => results.push({
@@ -159,7 +167,23 @@ export async function globalSearch(query = '') {
         type: 'Product',
         title: i.name,
         description: `Price: ₹${i.price}`,
-        path: `/admin/food/foods`
+        path: `/admin/food/foods?productId=${i._id}`
+    }));
+
+    categories.forEach(c => results.push({
+        id: c._id,
+        type: 'Category',
+        title: c.name,
+        description: 'Menu Category',
+        path: `/admin/food/categories`
+    }));
+
+    addons.forEach(a => results.push({
+        id: a._id,
+        type: 'Addon',
+        title: a.name,
+        description: `Price: ₹${a.price}`,
+        path: `/admin/food/addons`
     }));
 
     return results;
@@ -255,7 +279,12 @@ export async function getDashboardStats(query = {}) {
         ? new mongoose.Types.ObjectId(query.zoneId)
         : null;
 
-    const orderMatch = {};
+    const orderMatch = {
+        $or: [
+            { "payment.method": { $in: ["cash", "wallet"] } },
+            { "payment.status": { $in: ["paid", "authorized", "captured", "settled", "refunded"] } },
+        ],
+    };
     if (periodRange) {
         orderMatch.createdAt = { $gte: periodRange.start, $lte: periodRange.end };
     }
@@ -303,17 +332,11 @@ export async function getDashboardStats(query = {}) {
                         }
                     },
                     revenueTotal: { $sum: { $ifNull: ['$pricing.total', 0] } },
-                    commissionTotal: {
-                        $sum: {
-                            $ifNull: [
-                                '$platformProfit',
-                                { $ifNull: ['$pricing.platformFee', 0] }
-                            ]
-                        }
-                    },
+                    commissionTotal: { $sum: { $ifNull: ['$pricing.restaurantCommission', 0] } },
                     platformFeeTotal: { $sum: { $ifNull: ['$pricing.platformFee', 0] } },
                     deliveryFeeTotal: { $sum: { $ifNull: ['$pricing.deliveryFee', 0] } },
-                    gstTotal: { $sum: { $ifNull: ['$pricing.tax', 0] } }
+                    gstTotal: { $sum: { $ifNull: ['$pricing.tax', 0] } },
+                    adminNetProfit: { $sum: { $ifNull: ['$platformProfit', 0] } }
                 }
             }
         ]),
@@ -356,9 +379,21 @@ export async function getDashboardStats(query = {}) {
         FoodUser.countDocuments({}),
         FoodRestaurant.find({ status: 'pending' }).sort({ createdAt: -1 }).limit(5).select('restaurantName createdAt').lean(),
         FoodDeliveryPartner.find({ status: 'pending' }).sort({ createdAt: -1 }).limit(5).select('name createdAt').lean(),
-        FoodOrder.find({ orderStatus: { $in: PENDING_ORDER_STATUSES } }).sort({ createdAt: -1 }).limit(5).select('orderId createdAt').lean(),
+        FoodOrder.find({ 
+            orderStatus: { $in: PENDING_ORDER_STATUSES },
+            $or: [
+                { "payment.method": { $in: ["cash", "wallet"] } },
+                { "payment.status": { $in: ["paid", "authorized", "captured", "settled", "refunded"] } },
+            ],
+        }).sort({ createdAt: -1 }).limit(5).select('orderId createdAt').lean(),
         FoodOrder.find({ orderStatus: 'delivered' }).sort({ updatedAt: -1 }).limit(5).select('orderId updatedAt').lean(),
-        FoodOrder.find({ orderStatus: { $in: CANCELLED_ORDER_STATUSES } }).sort({ updatedAt: -1 }).limit(5).select('orderId updatedAt').lean(),
+        FoodOrder.find({ 
+            orderStatus: { $in: CANCELLED_ORDER_STATUSES },
+            $or: [
+                { "payment.method": { $in: ["cash", "wallet"] } },
+                { "payment.status": { $in: ["paid", "authorized", "captured", "settled", "refunded"] } },
+            ],
+        }).sort({ updatedAt: -1 }).limit(5).select('orderId updatedAt').lean(),
         FoodUser.find({}).sort({ createdAt: -1 }).limit(5).select('name createdAt').lean()
     ]);
 
@@ -467,11 +502,8 @@ export async function getDashboardStats(query = {}) {
         platformFee: { total: Number(totals.platformFeeTotal || 0) },
         deliveryFee: { total: Number(totals.deliveryFeeTotal || 0) },
         gst: { total: Number(totals.gstTotal || 0) },
-        totalAdminEarnings:
-            Number(totals.commissionTotal || 0) +
-            Number(totals.platformFeeTotal || 0) +
-            Number(totals.deliveryFeeTotal || 0) +
-            Number(totals.gstTotal || 0),
+        totalAdminEarnings: Number(totals.adminNetProfit || 0) + Number(totals.gstTotal || 0),
+        deliveryProfit: Number(totals.adminNetProfit || 0) - Number(totals.commissionTotal || 0) - Number(totals.platformFeeTotal || 0),
         restaurants: {
             total: Number(restaurantsTotal || 0),
             pendingRequests: Number(restaurantsPending || 0)
@@ -638,7 +670,7 @@ export async function getRestaurantReport(query = {}) {
         return null;
     };
 
-    const formatCurrency = (value) => `₹${Number(value || 0).toFixed(2)}`;
+    const formatCurrency = (value) => `â‚¹${Number(value || 0).toFixed(2)}`;
 
     const limit = Math.min(Math.max(parseInt(query.limit, 10) || 1000, 1), 5000);
     const page = Math.max(parseInt(query.page, 10) || 1, 1);
@@ -716,7 +748,11 @@ export async function getRestaurantReport(query = {}) {
 
     const orderCreatedAtFilter = parseTimeRange(query.time);
     const orderMatch = {
-        restaurantId: { $in: restaurantIds }
+        restaurantId: { $in: restaurantIds },
+        $or: [
+            { "payment.method": { $in: ["cash", "wallet"] } },
+            { "payment.status": { $in: ["paid", "authorized", "captured", "settled", "refunded"] } },
+        ],
     };
     if (orderCreatedAtFilter) {
         orderMatch.createdAt = orderCreatedAtFilter;
@@ -860,8 +896,8 @@ export async function getTaxReport(query = {}) {
             sl: index + 1,
             id: item._id,
             incomeSource: item.incomeSource,
-            totalIncome: `₹${item.totalIncome.toFixed(2)}`,
-            totalTax: `₹${item.totalTax.toFixed(2)}`,
+            totalIncome: `â‚¹${item.totalIncome.toFixed(2)}`,
+            totalTax: `â‚¹${item.totalTax.toFixed(2)}`,
             orderCount: item.orderCount
         };
     });
@@ -869,8 +905,8 @@ export async function getTaxReport(query = {}) {
     return {
         reports,
         stats: {
-            totalIncome: `₹${stats.totalIncome.toFixed(2)}`,
-            totalTax: `₹${stats.totalTax.toFixed(2)}`
+            totalIncome: `â‚¹${stats.totalIncome.toFixed(2)}`,
+            totalTax: `â‚¹${stats.totalTax.toFixed(2)}`
         }
     };
 }
@@ -902,8 +938,8 @@ export async function getTaxReportDetail(restaurantId, query = {}) {
         orders: orders.map(o => ({
             id: o._id,
             orderId: o.orderId,
-            totalAmount: `₹${(o.pricing?.total || 0).toFixed(2)}`,
-            taxAmount: `₹${(o.pricing?.tax || 0).toFixed(2)}`,
+            totalAmount: `â‚¹${(o.pricing?.total || 0).toFixed(2)}`,
+            taxAmount: `â‚¹${(o.pricing?.tax || 0).toFixed(2)}`,
             date: o.createdAt
         }))
     };
@@ -1973,10 +2009,15 @@ export async function updateRestaurantMenuById(id, menu) {
 }
 
 export async function getPendingRestaurants() {
-    return FoodRestaurant.find({ status: 'pending' })
+    const restaurants = await FoodRestaurant.find({ status: { $in: ['pending', 'rejected'] } })
         .populate('zoneId', 'name zoneName serviceLocation')
         .sort({ createdAt: -1 })
         .lean();
+    return restaurants.map((r, i) => ({
+        ...r,
+        sl: i + 1,
+        zone: r.zoneId?.serviceLocation || r.zoneId?.zoneName || r.zoneId?.name || null,
+    }));
 }
 
 export async function updateRestaurantById(id, body = {}) {
@@ -2392,11 +2433,11 @@ export async function approveRestaurantAddon(addonId) {
 
     if (updated?.restaurantId) {
         try {
-            const { notifyOwnersSafely } = await import('../../../core/notifications/firebase.service.js');
+            const { notifyOwnersSafely } = await import('../../../../core/notifications/firebase.service.js');
             await notifyOwnersSafely(
                 [{ ownerType: 'RESTAURANT', ownerId: updated.restaurantId }],
                 {
-                    title: 'Addon Approved! ✅',
+                    title: 'Addon Approved! âœ…',
                     body: `Your addon "${updated.published?.name || 'New Addon'}" has been approved and is now live.`,
                     image: 'https://i.ibb.co/3m2Yh7r/Appzeto-Brand-Image.png',
                     data: {
@@ -2435,11 +2476,11 @@ export async function rejectRestaurantAddon(addonId, reason) {
 
     if (updated?.restaurantId) {
         try {
-            const { notifyOwnersSafely } = await import('../../../core/notifications/firebase.service.js');
+            const { notifyOwnersSafely } = await import('../../../../core/notifications/firebase.service.js');
             await notifyOwnersSafely(
                 [{ ownerType: 'RESTAURANT', ownerId: updated.restaurantId }],
                 {
-                    title: 'Addon Rejected ❌',
+                    title: 'Addon Rejected âŒ',
                     body: `Your addon request for "${updated.draft?.name || 'New Addon'}" was rejected. Reason: ${rejectionReason}`,
                     image: 'https://i.ibb.co/3m2Yh7r/Appzeto-Brand-Image.png',
                     data: {
@@ -2673,11 +2714,11 @@ export async function approveRestaurant(id) {
 
     if (updated) {
         try {
-            const { notifyOwnersSafely } = await import('../../../core/notifications/firebase.service.js');
+            const { notifyOwnersSafely } = await import('../../../../core/notifications/firebase.service.js');
             await notifyOwnersSafely(
                 [{ ownerType: 'RESTAURANT', ownerId: updated._id }],
                 {
-                    title: 'Congratulations! 🎉',
+                    title: 'Congratulations! ðŸŽ‰',
                     body: `Your restaurant "${updated.restaurantName}" has been approved. You can now start receiving orders!`,
                     image: updated.profileImage || 'https://i.ibb.co/3m2Yh7r/Appzeto-Brand-Image.png',
                     data: {
@@ -2710,11 +2751,11 @@ export async function rejectRestaurant(id, reason) {
 
     if (updated) {
         try {
-            const { notifyOwnersSafely } = await import('../../../core/notifications/firebase.service.js');
+            const { notifyOwnersSafely } = await import('../../../../core/notifications/firebase.service.js');
             await notifyOwnersSafely(
                 [{ ownerType: 'RESTAURANT', ownerId: updated._id }],
                 {
-                    title: 'Update on Registration 📋',
+                    title: 'Update on Registration ðŸ“‹',
                     body: `Your restaurant registration for "${updated.restaurantName}" has been rejected. Reason: ${reason || 'Incomplete documents'}.`,
                     image: 'https://i.ibb.co/3m2Yh7r/Appzeto-Brand-Image.png',
                     data: {
@@ -2805,11 +2846,11 @@ export async function createAdminOffer(body) {
 
     if (doc.restaurantScope === 'selected' && doc.restaurantId) {
         try {
-            const { notifyOwnersSafely } = await import('../../../core/notifications/firebase.service.js');
+            const { notifyOwnersSafely } = await import('../../../../core/notifications/firebase.service.js');
             await notifyOwnersSafely(
                 [{ ownerType: 'RESTAURANT', ownerId: doc.restaurantId }],
                 {
-                    title: 'New Campaign Invitation! 📢',
+                    title: 'New Campaign Invitation! ðŸ“¢',
                     body: `You have been invited to join a new campaign: "${doc.couponCode}". Check it out now!`,
                     image: 'https://i.ibb.co/3m2Yh7r/Appzeto-Brand-Image.png',
                     data: {
@@ -3157,12 +3198,12 @@ export async function addDeliveryPartnerBonus(body, adminUser) {
     });
 
     try {
-        const { notifyOwnerSafely } = await import('../../../core/notifications/firebase.service.js');
+        const { notifyOwnerSafely } = await import('../../../../core/notifications/firebase.service.js');
         await notifyOwnerSafely(
             { ownerType: 'DELIVERY_PARTNER', ownerId: body.deliveryPartnerId },
             {
-                title: 'Bonus Credited! 🎊',
-                body: `You have received a bonus of ₹${body.amount}. ${body.reference || 'Great job!'}`,
+                title: 'Bonus Credited! ðŸŽŠ',
+                body: `You have received a bonus of â‚¹${body.amount}. ${body.reference || 'Great job!'}`,
                 image: 'https://i.ibb.co/3m2Yh7r/Appzeto-Brand-Image.png',
                 data: {
                     type: 'bonus_credited',
@@ -3514,11 +3555,11 @@ export async function creditEarningAddonHistory(historyId, notes) {
     }
 
     try {
-        const { notifyOwnerSafely } = await import('../../../core/notifications/firebase.service.js');
+        const { notifyOwnerSafely } = await import('../../../../core/notifications/firebase.service.js');
         await notifyOwnerSafely(
             { ownerType: 'DELIVERY_PARTNER', ownerId: doc.deliveryPartnerId },
             {
-                title: 'Incentive Credited! 🎯',
+                title: 'Incentive Credited! ðŸŽ¯',
                 body: `Your incentive for "${doc.offerId?.title || 'Earning Addon'}" has been approved and moved to your pocket.`,
                 image: 'https://i.ibb.co/3m2Yh7r/Appzeto-Brand-Image.png',
                 data: {
@@ -3546,11 +3587,11 @@ export async function cancelEarningAddonHistory(historyId, reason) {
     await doc.save();
 
     try {
-        const { notifyOwnerSafely } = await import('../../../core/notifications/firebase.service.js');
+        const { notifyOwnerSafely } = await import('../../../../core/notifications/firebase.service.js');
         await notifyOwnerSafely(
             { ownerType: 'DELIVERY_PARTNER', ownerId: doc.deliveryPartnerId },
             {
-                title: 'Incentive Update 📋',
+                title: 'Incentive Update ðŸ“‹',
                 body: `Your incentive request for "${doc.offerId?.title || 'Earning Addon'}" was not approved. Reason: ${doc.cancelReason || 'Ineligible'}`,
                 image: 'https://i.ibb.co/3m2Yh7r/Appzeto-Brand-Image.png',
                 data: {
@@ -3752,11 +3793,11 @@ export async function approveDeliveryPartner(id) {
     await partner.save();
 
     try {
-        const { notifyOwnerSafely } = await import('../../../core/notifications/firebase.service.js');
+        const { notifyOwnerSafely } = await import('../../../../core/notifications/firebase.service.js');
         await notifyOwnerSafely(
             { ownerType: 'DELIVERY_PARTNER', ownerId: partner._id },
             {
-                title: 'Welcome Aboard! 🚲',
+                title: 'Welcome Aboard! ðŸš²',
                 body: `Your delivery partner application has been approved. You can now go online and start earning!`,
                 image: 'https://i.ibb.co/3m2Yh7r/Appzeto-Brand-Image.png',
                 data: {
@@ -3833,11 +3874,11 @@ export async function rejectDeliveryPartner(id, reason) {
 
     if (updated) {
         try {
-            const { notifyOwnerSafely } = await import('../../../core/notifications/firebase.service.js');
+            const { notifyOwnerSafely } = await import('../../../../core/notifications/firebase.service.js');
             await notifyOwnerSafely(
                 { ownerType: 'DELIVERY_PARTNER', ownerId: updated._id },
                 {
-                    title: 'Onboarding Update 📋',
+                    title: 'Onboarding Update ðŸ“‹',
                     body: `Your application to join as a delivery partner was rejected. Reason: ${reason || 'Incomplete documents'}.`,
                     image: 'https://i.ibb.co/3m2Yh7r/Appzeto-Brand-Image.png',
                     data: {
@@ -4238,3 +4279,4 @@ export async function getSidebarBadges() {
         return {};
     }
 }
+

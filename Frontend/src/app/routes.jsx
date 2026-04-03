@@ -1,12 +1,16 @@
-import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
-import { Suspense, lazy, useEffect } from 'react'
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { Suspense, lazy } from 'react'
 import { AppShellSkeleton } from '@food/components/ui/loading-skeletons'
+import ProtectedRoute from '@core/guards/ProtectedRoute'
+import RoleGuard from '@core/guards/RoleGuard'
+import { UserRole } from '@core/constants/roles'
 
 // Lazy load the Food service module (Quick-spicy app)
 const FoodApp = lazy(() => import('../modules/Food/routes'))
 const AuthApp = lazy(() => import('../modules/auth/routes'))
 const QuickCommerceApp = lazy(() => import('../modules/quickCommerce/routes'))
-import ProtectedRoute from '@food/components/ProtectedRoute'
+const SellerAuthPage = lazy(() => import('../modules/seller/pages/Auth'))
+const SellerApp = lazy(() => import('../modules/seller/routes'))
 
 const PageLoader = () => <AppShellSkeleton />
 
@@ -34,6 +38,26 @@ const RedirectToFood = () => {
   return <Navigate to={`/food${location.pathname}${location.search}`} replace />;
 };
 
+const SellerAuthEntry = () => {
+  return (
+    <Suspense fallback={<PageLoader />}>
+      <SellerAuthPage />
+    </Suspense>
+  )
+}
+
+const SellerAppWrapper = () => {
+  return (
+    <Suspense fallback={<PageLoader />}>
+      <ProtectedRoute>
+        <RoleGuard allowedRoles={[UserRole.SELLER]}>
+          <SellerApp />
+        </RoleGuard>
+      </ProtectedRoute>
+    </Suspense>
+  )
+}
+
 const MasterLandingPage = lazy(() => import('./MasterLandingPage'))
 const AdminRouter = lazy(() => import('../modules/Food/components/admin/AdminRouter'))
 
@@ -59,6 +83,11 @@ const AppRoutes = () => {
         }
       />
       <Route path="/qc/*" element={<Navigate to="/quick-commerce" replace />} />
+
+      {/* Seller Module */}
+      <Route path="/seller" element={<SellerAppWrapper />} />
+      <Route path="/seller/auth" element={<SellerAuthEntry />} />
+      <Route path="/seller/*" element={<SellerAppWrapper />} />
 
       {/* Global Admin Portal - AdminRouter handles its own protection for sub-routes */}
       <Route path="/admin/*" element={<AdminRouter />} />

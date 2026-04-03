@@ -15,6 +15,9 @@ const buildCacheKey = (url, params = {}) => {
 export const getWithDedupe = async (url, params = {}, options = {}) => {
     const ttl = options.ttl || DEFAULT_CACHE_TTL_MS;
     const forceRefresh = options.forceRefresh || false;
+    const requestConfig = { ...options };
+    delete requestConfig.ttl;
+    delete requestConfig.forceRefresh;
     const key = buildCacheKey(url, params);
     const now = Date.now();
 
@@ -30,7 +33,7 @@ export const getWithDedupe = async (url, params = {}, options = {}) => {
         return inFlight;
     }
 
-    const request = axiosInstance.get(url, { params })
+    const request = axiosInstance.get(url, { ...requestConfig, params })
         .then((response) => {
             apiCache.set(key, { ts: Date.now(), response });
             return response;

@@ -4,10 +4,14 @@ import { ChevronRight } from 'lucide-react';
 import { useCart } from '../../context/CartContext';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
+import {
+    getQuickCheckoutPath,
+    isEmbeddedQuickPath,
+} from '../../utils/routes';
 
 const MiniCart = ({
     position = "center",
-    linkTo = "/quick-commerce/user/checkout",
+    linkTo,
     className = "",
 }) => {
     const { cart, cartCount } = useCart();
@@ -17,18 +21,21 @@ const MiniCart = ({
     const displayItems = cart.slice(0, 2);
 
     const path = location.pathname.replace(/\/$/, '') || '/';
+    const normalizedQuickPath = path.replace(/^\/quick-commerce\/user/, '') || '/';
+    const isEmbedded = isEmbeddedQuickPath(path);
+    const resolvedLinkTo = linkTo || getQuickCheckoutPath(path);
 
     // Hide MiniCart on checkout page, order details page, profile page, wallet, transactions, wishlist, addresses, support, privacy, and about page
-    const isCheckoutPage = path === '/checkout';
-    const isOrderDetailsPage = path.startsWith('/orders');
-    const isProfilePage = path === '/profile';
-    const isWalletPage = path === '/wallet';
-    const isTransactionsPage = path === '/transactions';
-    const isWishlistPage = path.startsWith('/wishlist');
-    const isAddressesPage = path.startsWith('/addresses');
-    const isSupportPage = path.startsWith('/support');
-    const isPrivacyPage = path.startsWith('/privacy');
-    const isAboutPage = path.startsWith('/about');
+    const isCheckoutPage = isEmbedded ? path === '/food/user/cart' : normalizedQuickPath === '/checkout';
+    const isOrderDetailsPage = isEmbedded ? false : normalizedQuickPath.startsWith('/orders');
+    const isProfilePage = isEmbedded ? false : normalizedQuickPath === '/profile';
+    const isWalletPage = isEmbedded ? false : normalizedQuickPath === '/wallet';
+    const isTransactionsPage = isEmbedded ? false : normalizedQuickPath === '/transactions';
+    const isWishlistPage = isEmbedded ? false : normalizedQuickPath.startsWith('/wishlist');
+    const isAddressesPage = isEmbedded ? false : normalizedQuickPath.startsWith('/addresses');
+    const isSupportPage = isEmbedded ? false : normalizedQuickPath.startsWith('/support');
+    const isPrivacyPage = isEmbedded ? false : normalizedQuickPath.startsWith('/privacy');
+    const isAboutPage = isEmbedded ? false : normalizedQuickPath.startsWith('/about');
     const isBottomRight = position === "bottom-right";
 
     return (
@@ -56,7 +63,7 @@ const MiniCart = ({
                         )}
                     >
                         <Link
-                            to={linkTo}
+                            to={resolvedLinkTo}
                             style={{
                                 backgroundColor: "var(--customer-mini-cart-color, #1d7440)",
                             }}

@@ -237,7 +237,7 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
 
   const helpOptions = [
     { title: "Support tickets", subtitle: "Check status of tickets raised", icon: <Clock className="text-gray-600" />, path: "/food/delivery/help/tickets" },
-    { title: "Show ID card", subtitle: `See your ${companyName} ID card`, icon: <UserIcon className="text-gray-600" />, path: "/food/delivery/id-card" },
+    { title: "Show ID card", subtitle: `See your ${companyName} ID card`, icon: <UserIcon className="text-gray-600" />, path: "/food/delivery/help/id-card" },
   ];
 
   // Reset simulation when path, order or mode changes
@@ -493,7 +493,18 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
                 <img src={profileImage || "https://i.ibb.co/3m2Yh7r/Appzeto-Brand-Image.png"} alt="Profile" className="w-full h-full object-cover rounded-full" />
              </div>
              <button 
-               onClick={toggleOnline}
+               onClick={async () => {
+                 const nextState = !isOnline;
+                 toggleOnline(); // Store action
+                 if (nextState) {
+                    // Try to get location and sync immediately so we are visible for dispatch right away
+                    navigator.geolocation.getCurrentPosition((pos) => {
+                        deliveryAPI.updateLocation(pos.coords.latitude, pos.coords.longitude, true).catch(() => {});
+                    }, (err) => console.warn('Online sync position failed:', err), { enableHighAccuracy: true });
+                 } else {
+                    deliveryAPI.updateOnlineStatus(false).catch(() => {});
+                 }
+               }}
                className={`relative w-[92px] h-8 rounded-full p-1 transition-all duration-500 flex items-center ${isOnline ? 'bg-green-500 shadow-lg shadow-green-500/20' : 'bg-gray-400'}`}
              >
                <div className={`flex items-center justify-between w-full px-2 text-[8.5px] font-black uppercase tracking-widest text-white`}>
@@ -506,7 +517,7 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
           <div className="flex items-center gap-3">
              <button onClick={() => setShowEmergencyPopup(true)} className="w-9 h-9 rounded-full bg-red-500/10 flex items-center justify-center text-red-500 border border-red-500/20 active:scale-95 transition-all shadow-lg"><AlertTriangle className="w-4 h-4" /></button>
              <button onClick={() => setShowHelpPopup(true)} className="w-9 h-9 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-500 border border-blue-500/20 active:scale-95 transition-all shadow-lg"><HelpCircle className="w-4 h-4" /></button>
-             <button onClick={() => toast.info('Ordering Support...')} className="w-9 h-9 rounded-full bg-white/10 flex items-center justify-center text-white border border-white/10 active:scale-95 transition-all shadow-lg"><Headset className="w-4 h-4" /></button>
+             <button onClick={() => navigate('/food/delivery/help/tickets')} className="w-9 h-9 rounded-full bg-white/10 flex items-center justify-center text-white border border-white/10 active:scale-95 transition-all shadow-lg"><Headset className="w-4 h-4" /></button>
           </div>
         </div>
 
@@ -554,7 +565,7 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
                   </div>
                 </div>
               ) : (
-                <div className="bg-white/5 rounded-2xl p-4 flex items-center justify-between border border-white/5 shadow-sm backdrop-blur-md">
+                <div className="bg-white/5 rounded-2xl p-4 flex items-center border border-white/5 shadow-sm backdrop-blur-md">
                   <div className="flex items-center gap-4">
                     <div className="w-10 h-10 bg-green-500/10 rounded-full flex items-center justify-center">
                       <div className={`w-2 h-2 rounded-full ${isOnline ? 'bg-green-500 animate-pulse' : 'bg-gray-500'}`} />
@@ -563,9 +574,6 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
                       <h3 className="text-white font-black text-[11px] uppercase tracking-widest leading-none mb-1">{isOnline ? 'System Online' : 'System Offline'}</h3>
                       <p className="text-gray-400 text-[10px] font-bold uppercase tracking-tight">{isOnline ? 'Waiting for order requests' : 'Go online to receive jobs'}</p>
                     </div>
-                  </div>
-                  <div className="bg-white/5 h-9 w-9 border border-white/10 rounded-xl flex items-center justify-center text-white/50 shadow-sm">
-                    <LayoutGrid className="w-4 h-4" />
                   </div>
                 </div>
               )}
@@ -610,10 +618,10 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
                </div>
              )}
 
-             <div className="absolute right-4 top-1/2 -translate-y-1/2 flex flex-col gap-4 z-50">
-                <div className="flex flex-col bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden">
-                   <button onClick={() => setZoom(z => Math.min(22, z + 1))} className="p-3 hover:bg-gray-50 border-b border-gray-50 text-gray-400 active:scale-90 transition-all"><Plus className="w-6 h-6" /></button>
-                   <button onClick={() => setZoom(z => Math.max(8, z - 1))} className="p-3 hover:bg-gray-50 text-gray-400 active:scale-90 transition-all"><Minus className="w-6 h-6" /></button>
+             <div className="absolute right-4 bottom-28 md:bottom-32 flex flex-col gap-4 z-[120]">
+                <div className="flex flex-col bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden">
+                   <button onClick={() => setZoom(z => Math.min(22, z + 1))} className="p-3 hover:bg-gray-50 border-b border-gray-100 text-gray-900 active:scale-90 transition-all" aria-label="Zoom in"><Plus className="w-5 h-5 stroke-[2.75]" /></button>
+                   <button onClick={() => setZoom(z => Math.max(8, z - 1))} className="p-3 hover:bg-gray-50 text-gray-900 active:scale-90 transition-all" aria-label="Zoom out"><Minus className="w-5 h-5 stroke-[2.75]" /></button>
                 </div>
                 <button 
                   onClick={() => {
@@ -734,9 +742,8 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
                 {showVerification && (
                   <DeliveryVerificationModal 
                     order={activeOrder} 
-                    onComplete={(otp) => {
-                      setShowVerification(false);
-                      completeDelivery(otp);
+                    onComplete={async (otp) => {
+                      return await completeDelivery(otp);
                     }}
                     onClose={() => setShowVerification(false)}
                   />

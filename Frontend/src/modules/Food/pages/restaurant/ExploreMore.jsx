@@ -763,7 +763,7 @@ export default function ExploreMore() {
     { title: "Settings", items: settingsItems, key: "settings" },
     { title: "Orders", items: ordersItems, key: "orders" },
     { title: "Help", items: helpItems, key: "help" },
-    { title: "Accounting", items: accountingItems, key: "accounting" },
+    { title: "Finance", items: accountingItems, key: "accounting" },
   ]
 
   // Filter logic

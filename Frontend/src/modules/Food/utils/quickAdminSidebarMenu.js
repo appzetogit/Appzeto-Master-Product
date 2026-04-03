@@ -10,6 +10,12 @@ export const quickAdminSidebarMenu = [
     label: "CORE MANAGEMENT",
     items: [
       {
+        type: "link",
+        label: "Seller Requests",
+        path: "/admin/quick-commerce/seller-requests",
+        icon: "ClipboardCheck",
+      },
+      {
         type: "expandable",
         label: "Categories",
         icon: "FolderTree",

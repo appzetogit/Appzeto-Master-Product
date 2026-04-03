@@ -17,12 +17,15 @@ if (!targetUri) {
 const COLLECTION_MAPPINGS = [
   { source: 'categories', target: 'quick_categories' },
   { source: 'products', target: 'quick_products' },
-  { source: 'settings', target: 'settings' },
-  { source: 'heroconfigs', target: 'heroconfigs' },
-  { source: 'offersections', target: 'offersections' },
-  { source: 'experiencesections', target: 'experiencesections' },
-  { source: 'offers', target: 'offers' },
-  { source: 'coupons', target: 'coupons' },
+  { source: 'settings', target: 'quick_settings' },
+  { source: 'heroconfigs', target: 'quick_hero_configs' },
+  { source: 'offersections', target: 'quick_offer_sections' },
+  { source: 'experiencesections', target: 'quick_experience_sections' },
+  { source: 'offers', target: 'quick_offers' },
+  { source: 'coupons', target: 'quick_coupons' },
+  { source: 'faqs', target: 'quick_faqs', optional: true },
+  { source: 'notifications', target: 'quick_notifications', optional: true },
+  { source: 'reviews', target: 'quick_reviews', optional: true },
 ];
 
 function sanitizeProduct(doc) {
@@ -65,6 +68,14 @@ function sanitizeDoc(mapping, doc) {
 }
 
 async function copyCollection(sourceDb, targetDb, mapping) {
+  const sourceCollections = await sourceDb.listCollections({ name: mapping.source }, { nameOnly: true }).toArray();
+  if (sourceCollections.length === 0) {
+    if (mapping.optional) {
+      return { ...mapping, count: 0, skipped: true };
+    }
+    throw new Error(`Source collection not found: ${mapping.source}`);
+  }
+
   const sourceDocs = await sourceDb.collection(mapping.source).find({}).toArray();
   const targetCollection = targetDb.collection(mapping.target);
 
@@ -87,7 +98,8 @@ async function main() {
     for (const mapping of COLLECTION_MAPPINGS) {
       const result = await copyCollection(sourceConn.db, targetConn.db, mapping);
       results.push(result);
-      console.log(`Copied ${result.count} docs: ${mapping.source} -> ${mapping.target}`);
+      const prefix = result.skipped ? 'Skipped' : 'Copied';
+      console.log(`${prefix} ${result.count} docs: ${mapping.source} -> ${mapping.target}`);
     }
 
     console.log('\nImport complete.');

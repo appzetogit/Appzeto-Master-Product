@@ -2,7 +2,7 @@ import { useState, useMemo, useRef, useEffect, startTransition, useDeferredValue
 import { useParams, Link, useNavigate } from "react-router-dom"
 import { createPortal } from "react-dom"
 import { motion, AnimatePresence } from "framer-motion"
-import { ArrowLeft, Star, Clock, Search, SlidersHorizontal, ChevronDown, Bookmark, BadgePercent, Mic, MapPin, ArrowDownUp, Timer, IndianRupee, UtensilsCrossed, ShieldCheck, X, Loader2, Grid2x2 } from "lucide-react"
+import { ArrowLeft, Star, Clock, Search, SlidersHorizontal, ChevronDown, Bookmark, BadgePercent, MapPin, ArrowDownUp, Timer, IndianRupee, UtensilsCrossed, ShieldCheck, X, Loader2, Grid2x2 } from "lucide-react"
 import { Card, CardContent } from "@food/components/ui/card"
 import { Button } from "@food/components/ui/button"
 import { Input } from "@food/components/ui/input"
@@ -21,10 +21,6 @@ import { useProfile } from "@food/context/ProfileContext"
 import { useLocation } from "@food/hooks/useLocation"
 import { useZone } from "@food/hooks/useZone"
 import { useDelayedLoading } from "@food/hooks/useDelayedLoading"
-const debugLog = (...args) => {}
-const debugWarn = (...args) => {}
-const debugError = (...args) => {}
-
 
 // Filter options
 const filterOptions = [
@@ -36,6 +32,8 @@ const filterOptions = [
 ]
 
 // Mock data removed - using backend data only
+
+
 
 export default function CategoryPage() {
   const { category } = useParams()
@@ -62,22 +60,19 @@ export default function CategoryPage() {
   const [categories, setCategories] = useState([])
   const [loadingCategories, setLoadingCategories] = useState(true)
 
-  // State for restaurants from backend
   const [restaurantsData, setRestaurantsData] = useState([])
   const [loadingRestaurants, setLoadingRestaurants] = useState(true)
+  const [isEnrichingMenus, setIsEnrichingMenus] = useState(false)
   const [categoryKeywords, setCategoryKeywords] = useState({})
   const showCategorySkeleton = useDelayedLoading(loadingCategories)
-  const showRestaurantSkeleton = useDelayedLoading(
-    isLoadingFilterResults || loadingRestaurants,
-    { delay: 140, minDuration: 360 }
-  )
   const deferredSearchQuery = useDeferredValue(searchQuery)
   const BACKEND_ORIGIN = useMemo(() => API_BASE_URL.replace(/\/api\/?$/, ""), [])
   const slugify = (value) => String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "")
   const uniqueByRestaurant = (list) => {
     const seen = new Set()
     return list.filter((row) => {
-      const key = row.dishId || row.restaurantId || row.id || slugify(row.name)
+      // Use distinct keys for dishes vs restaurants to prevent collisions
+      const key = row.dishId ? `dish-${row.dishId}` : (row.restaurantId || row.id || `raw-${slugify(row.name)}`)
       if (!key || seen.has(key)) return false
       seen.add(key)
       return true
@@ -497,91 +492,77 @@ export default function CategoryPage() {
             setRestaurantsData(restaurantsWithIds)
           })
 
-          const enrichmentRequestId = ++menuEnrichmentRequestRef.current
-
+          setIsEnrichingMenus(true)
           void (async () => {
-            const transformedRestaurants = []
+            try {
+              const transformedRestaurants = []
 
-            for (let index = 0; index < restaurantsWithIds.length; index += 4) {
-              const batchRestaurants = restaurantsWithIds.slice(index, index + 4)
-              const batchResults = await Promise.all(
-                batchRestaurants.map(async (restaurant) => {
-                  try {
-                    const menuResponse = await restaurantAPI.getMenuByRestaurantId(restaurant.restaurantId)
-                    if (menuResponse.data && menuResponse.data.success && menuResponse.data.data && menuResponse.data.data.menu) {
-                      const menu = menuResponse.data.data.menu
-                      const hasPaneer = checkCategoryInMenu(menu, 'paneer-tikka')
+              for (let index = 0; index < restaurantsWithIds.length; index += 4) {
+                const batchRestaurants = restaurantsWithIds.slice(index, index + 4)
+                const batchResults = await Promise.all(
+                  batchRestaurants.map(async (restaurant) => {
+                    try {
+                      const menuResponse = await restaurantAPI.getMenuByRestaurantId(restaurant.restaurantId)
+                      if (menuResponse.data && menuResponse.data.success && menuResponse.data.data && menuResponse.data.data.menu) {
+                        const menu = menuResponse.data.data.menu
+                        const hasPaneer = checkCategoryInMenu(menu, 'paneer-tikka')
 
-                      let featuredDish = restaurant.featuredDish
-                      let featuredPrice = restaurant.featuredPrice
+                        let featuredDish = restaurant.featuredDish
+                        let featuredPrice = restaurant.featuredPrice
 
-                      if (!featuredDish || !featuredPrice) {
-                        for (const section of (menu.sections || [])) {
-                          if (section.items && section.items.length > 0) {
-                            const firstItem = section.items[0]
-                            if (!featuredDish) featuredDish = firstItem.name
-                            if (!featuredPrice) {
-                              const originalPrice = firstItem.originalPrice || firstItem.price || 0
-                              const discountPercent = firstItem.discountPercent || 0
-                              featuredPrice = discountPercent > 0
-                                ? Math.round(originalPrice * (1 - discountPercent / 100))
-                                : originalPrice
+                        if (!featuredDish || !featuredPrice) {
+                          for (const section of (menu.sections || [])) {
+                            if (section.items && section.items.length > 0) {
+                              const firstItem = section.items[0]
+                              if (!featuredDish) featuredDish = firstItem.name
+                              if (!featuredPrice) {
+                                const originalPrice = firstItem.originalPrice || firstItem.price || 0
+                                const discountPercent = firstItem.discountPercent || 0
+                                featuredPrice = discountPercent > 0
+                                  ? Math.round(originalPrice * (1 - discountPercent / 100))
+                                  : originalPrice
+                              }
+                              break
                             }
-                            break
                           }
                         }
-                      }
 
-                      return {
-                        ...restaurant,
-                        menu: menu,
-                        hasPaneer: hasPaneer,
-                        featuredDish: featuredDish || null,
-                        featuredPrice: featuredPrice || null,
-                        categoryMatches: {},
+                        return {
+                          ...restaurant,
+                          menu: menu,
+                          hasPaneer: hasPaneer,
+                          featuredDish: featuredDish || null,
+                          featuredPrice: featuredPrice || null,
+                          categoryMatches: {},
+                        }
                       }
+                    } catch (error) {
+                      debugWarn(`Failed to fetch menu for restaurant ${restaurant.restaurantId}:`, error)
                     }
-                  } catch (error) {
-                    debugWarn(`Failed to fetch menu for restaurant ${restaurant.restaurantId}:`, error)
-                  }
 
-                  return {
-                    ...restaurant,
-                    menu: null,
-                    hasPaneer: false,
-                    categoryMatches: {},
-                  }
+                    return {
+                      ...restaurant,
+                      menu: null,
+                      hasPaneer: false,
+                      categoryMatches: {},
+                    }
+                  })
+                )
+
+                if (enrichmentRequestId !== menuEnrichmentRequestRef.current) return
+                transformedRestaurants.push(...batchResults)
+              }
+
+              if (enrichmentRequestId === menuEnrichmentRequestRef.current) {
+                startTransition(() => {
+                  setRestaurantsData(transformedRestaurants)
                 })
-              )
-
-              if (enrichmentRequestId !== menuEnrichmentRequestRef.current) return
-              transformedRestaurants.push(...batchResults)
+              }
+            } finally {
+              if (enrichmentRequestId === menuEnrichmentRequestRef.current) {
+                setIsEnrichingMenus(false)
+              }
             }
-
-            startTransition(() => {
-              setRestaurantsData(transformedRestaurants)
-            })
-
-            const sectionStatsMap = new Map()
-            transformedRestaurants.forEach((restaurant) => {
-              const sections = restaurant?.menu?.sections
-              if (!Array.isArray(sections)) return
-              const seenInRestaurant = new Set()
-              sections.forEach((section) => {
-                const rawName = String(section?.name || "").trim()
-                if (!rawName) return
-                const key = slugify(rawName)
-                if (!key || seenInRestaurant.has(key)) return
-                seenInRestaurant.add(key)
-
-                const existing = sectionStatsMap.get(key) || { name: rawName, count: 0 }
-                existing.count += 1
-                sectionStatsMap.set(key, existing)
-              })
-            })
-
-            // Keep category list coming from admin categories API.
-            // Do not generate "fake" category images from local assets.
           })()
         } else {
           setRestaurantsData([])
@@ -683,7 +664,6 @@ export default function CategoryPage() {
     // Filter by category - Dynamic filtering based on menu items
     if (selectedCategory && selectedCategory !== 'all') {
       const expandedDishes = []
-      const keywords = getCategoryKeywords(selectedCategory)
 
       filtered.forEach(r => {
         if (r.menu) {
@@ -708,25 +688,6 @@ export default function CategoryPage() {
                   categoryDishImage: dishForCard.image,
                 })
               })
-            }
-          }
-        } else {
-          // No menu - check other criteria
-          if (r.category === selectedCategory) {
-            expandedDishes.push(r)
-          } else if (selectedCategory === 'paneer-tikka' && r.hasPaneer) {
-            expandedDishes.push(r)
-          } else if (keywords.length > 0) {
-            const featuredDishLower = (r.featuredDish || '').toLowerCase()
-            const cuisineLower = (r.cuisine || '').toLowerCase()
-            const nameLower = (r.name || '').toLowerCase()
-
-            if (keywords.some(keyword =>
-              featuredDishLower.includes(keyword) ||
-              cuisineLower.includes(keyword) ||
-              nameLower.includes(keyword)
-            )) {
-              expandedDishes.push(r)
             }
           }
         }
@@ -771,7 +732,6 @@ export default function CategoryPage() {
     // If category is selected, expand restaurants into dish cards (one card per matching dish)
     if (selectedCategory && selectedCategory !== 'all') {
       const expandedDishes = []
-      const keywords = getCategoryKeywords(selectedCategory)
 
       filtered.forEach(r => {
         if (r.menu) {
@@ -796,25 +756,6 @@ export default function CategoryPage() {
                   categoryDishImage: dishForCard.image,
                 })
               })
-            }
-          }
-        } else {
-          // No menu - check other criteria
-          if (r.category === selectedCategory) {
-            expandedDishes.push(r)
-          } else if (selectedCategory === 'paneer-tikka' && r.hasPaneer) {
-            expandedDishes.push(r)
-          } else if (keywords.length > 0) {
-            const featuredDishLower = (r.featuredDish || '').toLowerCase()
-            const cuisineLower = (r.cuisine || '').toLowerCase()
-            const nameLower = (r.name || '').toLowerCase()
-
-            if (keywords.some(keyword =>
-              featuredDishLower.includes(keyword) ||
-              cuisineLower.includes(keyword) ||
-              nameLower.includes(keyword)
-            )) {
-              expandedDishes.push(r)
             }
           }
         }
@@ -854,6 +795,11 @@ export default function CategoryPage() {
     return uniqueByRestaurant(filtered)
   }, [selectedCategory, activeFilters, deferredSearchQuery, restaurantsData, categoryKeywords, vegMode])
 
+  const showRestaurantSkeleton = useDelayedLoading(
+    isLoadingFilterResults || loadingRestaurants || (isEnrichingMenus && selectedCategory !== 'all' && filteredRecommended.length === 0),
+    { delay: 140, minDuration: 360 }
+  )
+
   const handleCategorySelect = (category) => {
     const categorySlug = category.slug || category.id
     setSelectedCategory(categorySlug)
@@ -888,11 +834,8 @@ export default function CategoryPage() {
                 placeholder="Restaurant name or a dish..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10 pr-10 h-11 md:h-12 rounded-lg border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-[#1a1a1a] focus:bg-white dark:focus:bg-[#2a2a2a] focus:border-gray-500 dark:focus:border-gray-600 text-sm md:text-base dark:text-white placeholder:text-gray-600 dark:placeholder:text-gray-400"
+                className="pl-10 pr-4 h-11 md:h-12 rounded-lg border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-[#1a1a1a] focus:bg-white dark:focus:bg-[#2a2a2a] focus:border-gray-500 dark:focus:border-gray-600 text-sm md:text-base dark:text-white placeholder:text-gray-600 dark:placeholder:text-gray-400"
               />
-              <button className="absolute right-3 top-1/2 -translate-y-1/2">
-                <Mic className="h-4 w-4 text-gray-500" />
-              </button>
             </div>
           </div>
 
@@ -1288,9 +1231,15 @@ export default function CategoryPage() {
                   variant="outline"
                   className="mt-4 md:mt-6"
                   onClick={() => {
+                    setIsLoadingFilterResults(true)
                     setActiveFilters(new Set())
                     setSearchQuery("")
-                    setSelectedCategory('all')
+                    setSortBy(null)
+                    setSelectedCuisine(null)
+                    // Trigger a gentle refresh to ensure data freshness
+                    const enrichmentRequestId = ++menuEnrichmentRequestRef.current
+                    setIsEnrichingMenus(false)
+                    setTimeout(() => setIsLoadingFilterResults(false), 500)
                   }}
                 >
                   Clear all filters
@@ -1320,9 +1269,11 @@ export default function CategoryPage() {
                     <h2 className="text-lg md:text-xl font-bold text-gray-900 dark:text-white">Filters and sorting</h2>
                     <button
                       onClick={() => {
+                        setIsLoadingFilterResults(true)
                         setActiveFilters(new Set())
                         setSortBy(null)
                         setSelectedCuisine(null)
+                        setTimeout(() => setIsLoadingFilterResults(false), 500)
                       }}
                       className="text-[#EB590E] font-medium text-sm md:text-base hover:underline"
                     >

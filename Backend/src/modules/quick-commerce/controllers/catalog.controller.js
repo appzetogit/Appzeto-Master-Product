@@ -1,6 +1,14 @@
 import { QuickCategory } from '../models/category.model.js';
 import { QuickProduct } from '../models/product.model.js';
 import { ensureQuickCommerceSeedData } from '../services/seed.service.js';
+import {
+  getQuickCoupons,
+  getQuickExperienceSections,
+  getQuickHeroConfig,
+  getQuickOfferSections,
+  getQuickOffers,
+  getQuickSettings,
+} from '../services/content.service.js';
 
 const setNoCache = (res) => {
   res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
@@ -55,57 +63,100 @@ export const getHomeData = async (req, res) => {
   setNoCache(res);
   await ensureQuickCommerceSeedData();
 
-  const [categories, products] = await Promise.all([
+  const pageType = req.query?.pageType || 'home';
+  const headerId = req.query?.headerId || null;
+
+  const [categories, products, settings, heroConfig, experienceSections, offerSections] = await Promise.all([
     QuickCategory.find({ isActive: true }).sort({ sortOrder: 1, name: 1 }).lean(),
     QuickProduct.find({ isActive: true }).sort({ createdAt: -1 }).limit(18).lean(),
+    getQuickSettings(),
+    getQuickHeroConfig({ pageType, headerId }),
+    getQuickExperienceSections({ pageType, headerId }),
+    getQuickOfferSections(),
   ]);
 
-  const homeData = {
-    categories: categories.map(mapCategory),
-    bestSellers: products.map(mapProduct),
-    hero: {
-      title: 'Blinkit style quick delivery',
-      subtitle: 'Groceries delivered in minutes',
-      banners: [
+  const fallbackHero = {
+    title: 'Blinkit style quick delivery',
+    subtitle: 'Groceries delivered in minutes',
+    banners: {
+      items: [
         {
-          id: '1',
-          image: '/assets/ExperienceBanner.png',
-          link: '/category/all',
-        }
-      ]
+          imageUrl: '/assets/ExperienceBanner.png',
+          title: '',
+          subtitle: '',
+          linkType: 'none',
+          linkValue: '',
+          status: 'active',
+        },
+      ],
     },
-    sections: [
-      {
-        _id: 'best-sellers-section',
-        title: 'Best Sellers',
-        displayType: 'products',
-        config: {
-          products: {
-            productIds: products.slice(0, 6).map(p => p._id),
-            rows: 1,
-            columns: 2,
-            singleRowScrollable: true
-          }
-        }
-      }
-    ]
+    categoryIds: categories.slice(0, 5).map((category) => String(category._id)),
   };
 
-  const { pageType, sectionId } = req.query;
+  const fallbackSections = [
+    {
+      _id: 'best-sellers-section',
+      title: 'Best Sellers',
+      displayType: 'products',
+      config: {
+        products: {
+          productIds: products.slice(0, 6).map((product) => String(product._id)),
+          rows: 1,
+          columns: 2,
+          singleRowScrollable: true,
+        },
+      },
+    },
+  ];
+
+  const resolvedHero = heroConfig
+    ? {
+        ...heroConfig,
+        banners: heroConfig.banners || { items: [] },
+        categoryIds: Array.isArray(heroConfig.categoryIds) ? heroConfig.categoryIds : [],
+      }
+    : fallbackHero;
+
+  const resolvedSections = experienceSections.length ? experienceSections : fallbackSections;
+
+  const homeData = {
+    settings: settings || {},
+    categories: categories.map(mapCategory),
+    bestSellers: products.map(mapProduct),
+    hero: resolvedHero,
+    sections: resolvedSections,
+    offerSections,
+  };
 
   // Partial returns for specialized frontend calls
   if (req.path.includes('/hero')) {
-    return res.json({ success: true, result: homeData.hero });
+    return res.json({ success: true, result: resolvedHero });
   }
 
-  if (req.path.includes('/experience') && pageType === 'home') {
-     return res.json({ success: true, result: homeData.sections });
+  if (req.path.includes('/experience')) {
+    return res.json({ success: true, result: resolvedSections });
+  }
+
+  if (req.path.includes('/offer-sections')) {
+    return res.json({ success: true, results: offerSections });
   }
 
   return res.json({
     success: true,
     result: homeData,
   });
+};
+
+export const getCoupons = async (_req, res) => {
+  setNoCache(res);
+  const coupons = await getQuickCoupons();
+  return res.json({ success: true, results: coupons });
+};
+
+export const getOffers = async (_req, res) => {
+  setNoCache(res);
+  const offers = await getQuickOffers();
+  return res.json({ success: true, results: offers });
 };
 
 export const getCategories = async (_req, res) => {
@@ -147,4 +198,20 @@ export const getProductById = async (req, res) => {
   }
 
   return res.json({ success: true, result: mapProduct(product) });
+};
+
+export const getProductReviews = async (req, res) => {
+  setNoCache(res);
+  await ensureQuickCommerceSeedData();
+
+  const product = await QuickProduct.findOne({ _id: req.params.productId, isActive: true }).lean();
+
+  if (!product) {
+    return res.status(404).json({ success: false, message: 'Product not found' });
+  }
+
+  return res.json({
+    success: true,
+    results: [],
+  });
 };

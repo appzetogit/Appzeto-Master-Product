@@ -1,19 +1,37 @@
 import express from 'express';
 import { upload } from '../../../middleware/upload.js';
-import { getCategories, getHomeData, getProductById, getProducts } from '../controllers/catalog.controller.js';
+import {
+  getCategories,
+  getCoupons,
+  getHomeData,
+  getOffers,
+  getProductById,
+  getProductReviews,
+  getProducts,
+} from '../controllers/catalog.controller.js';
 import { addToCart, clearCart, getCart, removeCartItem, updateCartItem } from '../controllers/cart.controller.js';
 import { getMyOrders, placeOrder } from '../controllers/order.controller.js';
+import { addToWishlist, getWishlist, removeFromWishlist, toggleWishlist } from '../controllers/wishlist.controller.js';
 import {
+  approveAdminSellerRequest,
+  getAdminSellerRequests,
   createCategory,
   createProduct,
   getAdminCategories,
   getAdminOrders,
   getAdminProducts,
   getAdminStats,
+  rejectAdminSellerRequest,
   removeCategory,
   removeProduct,
   updateCategory,
   updateProduct,
+  getAdminZones,
+  getAdminZoneById,
+  createAdminZone,
+  updateAdminZone,
+  deleteAdminZone,
+  listPublicZones,
 } from '../controllers/admin.controller.js';
 
 import { verifyAccessToken } from '../../../core/auth/token.util.js';
@@ -40,9 +58,13 @@ router.get('/home', getHomeData);
 router.get('/experience', getHomeData); // Bridge experience to home data for now
 router.get('/experience/hero', getHomeData); // Bridge hero to home data for now
 router.get('/offer-sections', getHomeData); // Bridge offer-sections
+router.get('/offers', getOffers);
+router.get('/coupons', getCoupons);
 router.get('/categories', getCategories);
 router.get('/products', getProducts);
+router.get('/products/:productId/reviews', getProductReviews);
 router.get('/products/:productId', getProductById);
+router.get('/zones/public', listPublicZones);
 
 router.get('/cart', optionalAuth, getCart);
 router.post('/cart/add', optionalAuth, addToCart);
@@ -52,6 +74,11 @@ router.delete('/cart/clear', optionalAuth, clearCart);
 
 router.post('/orders', optionalAuth, placeOrder);
 router.get('/orders', optionalAuth, getMyOrders);
+
+router.get('/wishlist', optionalAuth, getWishlist);
+router.post('/wishlist/add', optionalAuth, addToWishlist);
+router.delete('/wishlist/remove/:productId', optionalAuth, removeFromWishlist);
+router.post('/wishlist/toggle', optionalAuth, toggleWishlist);
 
 // Admin endpoints (quick-commerce dashboard)
 router.get('/admin/stats', getAdminStats);
@@ -70,5 +97,13 @@ router.put('/admin/products/:productId', upload.fields([
 ]), updateProduct);
 router.delete('/admin/products/:productId', removeProduct);
 router.get('/admin/orders', getAdminOrders);
+router.get('/admin/seller-requests', getAdminSellerRequests);
+router.put('/admin/seller-requests/:sellerId/approve', approveAdminSellerRequest);
+router.put('/admin/seller-requests/:sellerId/reject', rejectAdminSellerRequest);
+router.get('/admin/zones', getAdminZones);
+router.get('/admin/zones/:zoneId', getAdminZoneById);
+router.post('/admin/zones', createAdminZone);
+router.patch('/admin/zones/:zoneId', updateAdminZone);
+router.delete('/admin/zones/:zoneId', deleteAdminZone);
 
 export default router;
