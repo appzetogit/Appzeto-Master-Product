@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom"
 import { Search, Menu, ChevronRight, MapPin, X, Bell } from "lucide-react"
 import { restaurantAPI } from "@food/api"
 import { getCachedSettings, loadBusinessSettings } from "@food/utils/businessSettings"
+import useNotificationInbox from "@food/hooks/useNotificationInbox"
 
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
@@ -32,6 +33,7 @@ export default function RestaurantNavbar({
   const [loading, setLoading] = useState(true)
   const [companyName, setCompanyName] = useState("")
   const [logoUrl, setLogoUrl] = useState(null)
+  const { unreadCount } = useNotificationInbox("restaurant", { limit: 20, pollMs: 5 * 60 * 1000 })
 
   // Load business settings for branding
   useEffect(() => {
@@ -385,14 +387,17 @@ export default function RestaurantNavbar({
 
         {/* Notifications Icon */}
         {showNotifications && (
-          <button
-            onClick={handleNotificationsClick}
-            className="p-2 ml-1 hover:bg-gray-100 rounded-full transition-colors"
-            aria-label="Notifications"
-          >
-            <Bell className="w-5 h-5 text-gray-700" />
-          </button>
-        )}
+            <button
+              onClick={handleNotificationsClick}
+              className="relative p-2 ml-1 hover:bg-gray-100 rounded-full transition-colors"
+              aria-label="Notifications"
+            >
+              <Bell className="w-5 h-5 text-gray-700" />
+              {unreadCount > 0 && (
+                <span className="absolute top-2 right-2 w-2.5 h-2.5 rounded-full bg-red-500 border border-white" />
+              )}
+            </button>
+          )}
 
         {/* Hamburger Menu Icon */}
         <button

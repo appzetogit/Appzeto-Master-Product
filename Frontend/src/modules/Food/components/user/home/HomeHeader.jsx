@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MapPin, ChevronDown, Search, Mic, Bell, CheckCircle2, Tag, Gift, AlertCircle, Clock, BellOff, X } from 'lucide-react';
@@ -13,6 +13,7 @@ import foodIcon from "@food/assets/category-icons/food.png";
 import quickIcon from "@food/assets/category-icons/quick.png";
 import taxiIcon from "@food/assets/category-icons/taxi.png";
 import hotelIcon from "@food/assets/category-icons/hotel.png";
+import useNotificationInbox from "@food/hooks/useNotificationInbox";
 
 const ICON_MAP = {
   CheckCircle2,
@@ -35,6 +36,11 @@ export default function HomeHeader({
     const saved = localStorage.getItem('food_user_notifications');
     return saved ? JSON.parse(saved) : [];
   });
+  const {
+    items: broadcastNotifications,
+    unreadCount: broadcastUnreadCount,
+    dismiss: dismissBroadcastNotification,
+  } = useNotificationInbox("user", { limit: 20 });
 
   useEffect(() => {
     const syncNotifications = () => {
@@ -58,9 +64,41 @@ export default function HomeHeader({
     { id: "hotel", name: "Hotel", icon: hotelIcon, bgColor: "bg-white dark:bg-[#1a1a1a]" },
   ];
 
-  const unreadCount = notifications.filter(n => !n.read).length;
+  const mergedNotifications = useMemo(() => {
+    const localItems = Array.isArray(notifications)
+      ? notifications.map((item) => ({ ...item, source: "local" }))
+      : [];
+    const broadcastItems = (broadcastNotifications || []).map((item) => ({
+      ...item,
+      source: "broadcast",
+      time: item.createdAt
+        ? new Date(item.createdAt).toLocaleString("en-IN", {
+            day: "2-digit",
+            month: "short",
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: true,
+          })
+        : "Just now",
+      type: "broadcast",
+      icon: "Bell",
+      iconColor: "text-blue-600",
+    }));
 
-  const handleDeleteNotification = (id) => {
+    return [...broadcastItems, ...localItems].sort(
+      (a, b) =>
+        new Date(b.createdAt || b.timestamp || 0).getTime() -
+        new Date(a.createdAt || a.timestamp || 0).getTime()
+    );
+  }, [broadcastNotifications, notifications]);
+
+  const unreadCount = notifications.filter(n => !n.read).length + broadcastUnreadCount;
+
+  const handleDeleteNotification = (id, source = "local") => {
+    if (source === "broadcast") {
+      dismissBroadcastNotification(id);
+      return;
+    }
     setNotifications((prev) => {
       const next = prev.filter((notification) => notification.id !== id);
       localStorage.setItem('food_user_notifications', JSON.stringify(next));
@@ -126,12 +164,12 @@ export default function HomeHeader({
                   )}
                 </h3>
                 <Link to="/food/user/notifications" className="text-xs font-bold text-orange-600 hover:text-orange-700">
-                  {notifications.length > 0 ? "View All" : ""}
+                  {mergedNotifications.length > 0 ? "View All" : ""}
                 </Link>
               </div>
               <div className="max-h-96 overflow-y-auto">
-                {notifications.length > 0 ? (
-                  notifications.slice(0, 5).map((notif) => {
+                {mergedNotifications.length > 0 ? (
+                  mergedNotifications.slice(0, 5).map((notif) => {
                     const Icon = ICON_MAP[notif.icon] || Bell;
                     return (
                       <div 
@@ -152,7 +190,7 @@ export default function HomeHeader({
                                 onClick={(e) => {
                                   e.preventDefault();
                                   e.stopPropagation();
-                                  handleDeleteNotification(notif.id);
+                                  handleDeleteNotification(notif.id, notif.source);
                                 }}
                                 className="rounded-full p-1 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
                               >
@@ -176,7 +214,7 @@ export default function HomeHeader({
               </div>
               <div className="p-3 bg-gray-50/50 dark:bg-gray-800/50 text-center">
                 <Link to="/food/user/notifications" className="text-xs font-bold text-gray-400 hover:text-gray-600">
-                  {notifications.length > 0 ? "Manage Settings" : "Check Notifications Page"}
+                  {mergedNotifications.length > 0 ? "Manage Settings" : "Check Notifications Page"}
                 </Link>
               </div>
             </div>

@@ -4,6 +4,7 @@ import { API_BASE_URL } from '@food/api/config';
 import { deliveryAPI } from '@food/api';
 import alertSound from '@food/assets/audio/alert.mp3';
 import originalSound from '@food/assets/audio/original.mp3';
+import { dispatchNotificationInboxRefresh } from '@food/hooks/useNotificationInbox';
 
 const shouldLogDeliverySocket = () => {
   if (typeof window === 'undefined') return import.meta.env.DEV;
@@ -926,6 +927,11 @@ export const useDeliveryNotifications = () => {
         activeOrderRef.current = null;
         setNewOrder(null);
       }
+    });
+
+    socketRef.current.on('admin_notification', (payload) => {
+      debugLog('Admin broadcast received via socket', payload);
+      dispatchNotificationInboxRefresh();
     });
 
     // Auth change/refresh listeners

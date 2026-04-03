@@ -143,6 +143,20 @@ export const supportAPI = {
     }),
 };
 
+export const notificationAPI = {
+  getInbox: (params = {}, config = {}) =>
+    apiClient.get("/food/notifications/inbox", {
+      params,
+      ...config,
+    }),
+  markAsRead: (id, config = {}) =>
+    apiClient.patch(`/food/notifications/${String(id)}/read`, {}, config),
+  dismiss: (id, config = {}) =>
+    apiClient.delete(`/food/notifications/${String(id)}`, config),
+  dismissAll: (config = {}) =>
+    apiClient.delete("/food/notifications/inbox/all", config),
+};
+
 /** Admin API - new backend only (GET /auth/me, PATCH /auth/admin/profile, POST /auth/admin/change-password) */
 export const adminAPI = {
   getSidebarBadges: () =>
@@ -320,6 +334,11 @@ export const adminAPI = {
       params,
       contextModule: "admin",
     }),
+  getExpiredFssaiNotifications: (params = {}) =>
+    apiClient.get("/food/admin/notifications/fssai-expired", {
+      params,
+      contextModule: "admin",
+    }),
   /** GET /food/admin/delivery/support-tickets/stats - counts by status. */
   getDeliverySupportTicketStats: () =>
     apiClient.get("/food/admin/delivery/support-tickets/stats", {
@@ -328,6 +347,19 @@ export const adminAPI = {
   /** PATCH /food/admin/delivery/support-tickets/:id - update adminResponse, status. */
   updateDeliverySupportTicket: (id, body) =>
     apiClient.patch(`/food/admin/delivery/support-tickets/${id}`, body ?? {}, {
+      contextModule: "admin",
+    }),
+  createBroadcastNotification: (body = {}) =>
+    apiClient.post("/food/admin/notifications/broadcast", body ?? {}, {
+      contextModule: "admin",
+    }),
+  getBroadcastNotifications: (params = {}) =>
+    apiClient.get("/food/admin/notifications/broadcast", {
+      params,
+      contextModule: "admin",
+    }),
+  deleteBroadcastNotification: (id) =>
+    apiClient.delete(`/food/admin/notifications/broadcast/${String(id)}`, {
       contextModule: "admin",
     }),
   /** List restaurants for admin. Requires admin auth. */

@@ -3,6 +3,7 @@ import io from 'socket.io-client';
 import { API_BASE_URL } from '@food/api/config';
 import { restaurantAPI } from '@food/api';
 import alertSound from '@food/assets/audio/alert.mp3';
+import { dispatchNotificationInboxRefresh } from '@food/hooks/useNotificationInbox';
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -619,6 +620,11 @@ export const useRestaurantNotifications = () => {
     socketRef.current.on('order_status_update', (data) => {
       debugLog('?? Order status update:', data);
       // You can handle status updates here if needed
+    });
+
+    socketRef.current.on('admin_notification', (payload) => {
+      debugLog('?? Admin broadcast received:', payload);
+      dispatchNotificationInboxRefresh();
     });
 
     // Load notification sound

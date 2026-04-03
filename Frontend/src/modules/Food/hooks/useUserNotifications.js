@@ -3,6 +3,7 @@ import io from 'socket.io-client';
 import { toast } from 'sonner';
 import { API_BASE_URL } from '@food/api/config';
 import { userAPI } from '@food/api';
+import { dispatchNotificationInboxRefresh } from '@food/hooks/useNotificationInbox';
 
 const debugLog = (...args) => {
   if (import.meta.env.DEV) {
@@ -132,6 +133,14 @@ export const useUserNotifications = () => {
         description: parts.join(' — ') || 'Handover OTP from your delivery partner.',
         duration: 90_000
       });
+    });
+
+    socketRef.current.on('admin_notification', (payload) => {
+      toast.message(payload?.title || 'Notification', {
+        description: payload?.message || 'New broadcast notification received.',
+        duration: 8000
+      });
+      dispatchNotificationInboxRefresh();
     });
 
     socketRef.current.on('connect_error', (error) => {

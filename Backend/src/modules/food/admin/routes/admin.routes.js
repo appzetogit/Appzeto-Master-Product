@@ -5,6 +5,7 @@ import * as foodApprovalController from '../controllers/foodApproval.controller.
 import * as addonsApprovalController from '../controllers/addonsApproval.controller.js';
 import * as businessSettingsController from '../controllers/businessSettings.controller.js';
 import * as feedbackExperienceController from '../controllers/feedbackExperience.controller.js';
+import * as notificationBroadcastController from '../controllers/notificationBroadcast.controller.js';
 import * as diningAdminController from '../../dining/controllers/diningAdmin.controller.js';
 import * as orderController from '../../orders/controllers/order.controller.js';
 import { getAdminPageController, upsertAdminPageController } from '../controllers/pageContent.controller.js';
@@ -24,6 +25,11 @@ const requireAdmin = (req, _res, next) => {
 };
 
 router.use(requireAdmin);
+
+// ----- Broadcast Notifications -----
+router.post('/notifications/broadcast', notificationBroadcastController.createBroadcastNotificationController);
+router.get('/notifications/broadcast', notificationBroadcastController.getBroadcastNotificationsController);
+router.delete('/notifications/broadcast/:id', notificationBroadcastController.deleteBroadcastNotificationController);
 
 // ----- Customers -----
 router.get('/customers', adminController.getCustomers);
@@ -194,5 +200,6 @@ router.get('/pages-social-media/:key', getAdminPageController);
 router.put('/pages-social-media/:key', upsertAdminPageController);
 
 router.get('/sidebar-badges', adminController.getSidebarBadges);
+router.get('/notifications/fssai-expired', adminController.getExpiredFssaiNotifications);
 
 export default router;

@@ -1412,3 +1412,17 @@ export async function getSidebarBadges(req, res, next) {
         next(error);
     }
 }
+
+export async function getExpiredFssaiNotifications(req, res, next) {
+    try {
+        const { listExpiredFssaiRestaurants } = await import('../../restaurant/services/fssaiExpiry.service.js');
+        const items = await listExpiredFssaiRestaurants();
+        res.status(200).json({
+            success: true,
+            message: 'Expired FSSAI notifications fetched successfully',
+            data: { items }
+        });
+    } catch (error) {
+        next(error);
+    }
+}

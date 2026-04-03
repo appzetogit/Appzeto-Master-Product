@@ -23,7 +23,7 @@ import ProfileV2 from '@/modules/DeliveryV2/pages/ProfileV2';
 
 // Icons
 import { 
-  Bell, HelpCircle, Headset, AlertTriangle, 
+  Bell, HelpCircle, AlertTriangle, 
   Wallet, History, User as UserIcon, LayoutGrid,
   Plus, Minus, Navigation2, Target, Play, CheckCircle2, Clock, ChevronDown,
   Contact, Package
@@ -32,6 +32,7 @@ import {
 import { getHaversineDistance, calculateETA, calculateHeading } from '@/modules/DeliveryV2/utils/geo';
 import { useCompanyName } from "@food/hooks/useCompanyName";
 import { useNavigate } from 'react-router-dom';
+import useNotificationInbox from "@food/hooks/useNotificationInbox";
 
 /** Minimal bottom-sheet popup (Restored from legacy FeedNavbar) */
 function BottomPopup({ isOpen, onClose, title, children }) {
@@ -70,6 +71,7 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
   const { acceptOrder, reachPickup, pickUpOrder, reachDrop, completeDelivery, resetTrip } = useOrderManager();
   const { newOrder, clearNewOrder, orderStatusUpdate, clearOrderStatusUpdate, isConnected: isSocketConnected, emitLocation } = useDeliveryNotifications();
   const companyName = useCompanyName();
+  const { unreadCount: notificationUnreadCount } = useNotificationInbox("delivery", { limit: 20 });
 
   const [incomingOrder, setIncomingOrder] = useState(null);
   const [currentTab, setCurrentTab] = useState(tab);
@@ -597,7 +599,7 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
           <div className="flex items-center gap-3">
              <button onClick={() => setShowEmergencyPopup(true)} className="w-9 h-9 rounded-full bg-red-500/10 flex items-center justify-center text-red-500 border border-red-500/20 active:scale-95 transition-all shadow-lg"><AlertTriangle className="w-4 h-4" /></button>
              <button onClick={() => navigate('/food/delivery/help/id-card')} className="w-9 h-9 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-500 border border-blue-500/20 active:scale-95 transition-all shadow-lg"><Contact className="w-4 h-4" /></button>
-             <button onClick={() => navigate('/food/delivery/help/tickets')} className="w-9 h-9 rounded-full bg-white/10 flex items-center justify-center text-white border border-white/10 active:scale-95 transition-all shadow-lg"><Headset className="w-4 h-4" /></button>
+             <button onClick={() => navigate('/food/delivery/notifications')} className="relative w-9 h-9 rounded-full bg-white/10 flex items-center justify-center text-white border border-white/10 active:scale-95 transition-all shadow-lg"><Bell className="w-4 h-4" />{notificationUnreadCount > 0 && <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-orange-400 border border-[#1f1f1f]" />}</button>
           </div>
         </div>
 
