@@ -16,6 +16,30 @@ const setNoCache = (res) => {
   res.set('Expires', '0');
 };
 
+const approvedOrLegacyFilter = {
+  $or: [
+    { approvalStatus: { $exists: false } },
+    { approvalStatus: 'approved' },
+  ],
+};
+
+const publicCategoryFilter = {
+  isActive: true,
+  $and: [
+    {
+      $or: [
+        { type: { $ne: 'subcategory' } },
+        approvedOrLegacyFilter,
+      ],
+    },
+  ],
+};
+
+const publicProductFilter = {
+  isActive: true,
+  ...approvedOrLegacyFilter,
+};
+
 const mapCategory = (category) => ({
   id: category._id,
   _id: category._id,
@@ -30,6 +54,7 @@ const mapCategory = (category) => ({
   handlingFees: Number(category.handlingFees || 0),
   adminCommission: Number(category.adminCommission || 0),
   color: category.accentColor,
+  approvalStatus: category.approvalStatus || 'approved',
 });
 
 const mapProduct = (product) => ({
@@ -57,6 +82,7 @@ const mapProduct = (product) => ({
   deliveryTime: product.deliveryTime,
   rating: product.rating,
   badge: product.badge,
+  approvalStatus: product.approvalStatus || 'approved',
 });
 
 export const getHomeData = async (req, res) => {
@@ -67,8 +93,8 @@ export const getHomeData = async (req, res) => {
   const headerId = req.query?.headerId || null;
 
   const [categories, products, settings, heroConfig, experienceSections, offerSections] = await Promise.all([
-    QuickCategory.find({ isActive: true }).sort({ sortOrder: 1, name: 1 }).lean(),
-    QuickProduct.find({ isActive: true }).sort({ createdAt: -1 }).limit(18).lean(),
+    QuickCategory.find(publicCategoryFilter).sort({ sortOrder: 1, name: 1 }).lean(),
+    QuickProduct.find(publicProductFilter).sort({ createdAt: -1 }).limit(18).lean(),
     getQuickSettings(),
     getQuickHeroConfig({ pageType, headerId }),
     getQuickExperienceSections({ pageType, headerId }),
@@ -162,7 +188,7 @@ export const getOffers = async (_req, res) => {
 export const getCategories = async (_req, res) => {
   setNoCache(res);
   await ensureQuickCommerceSeedData();
-  const categories = await QuickCategory.find({ isActive: true }).sort({ sortOrder: 1, name: 1 }).lean();
+  const categories = await QuickCategory.find(publicCategoryFilter).sort({ sortOrder: 1, name: 1 }).lean();
   return res.json({ success: true, results: categories.map(mapCategory) });
 };
 
@@ -171,7 +197,7 @@ export const getProducts = async (req, res) => {
   await ensureQuickCommerceSeedData();
 
   const { categoryId, search, limit } = req.query;
-  const query = { isActive: true };
+  const query = { ...publicProductFilter };
 
   if (categoryId) query.categoryId = categoryId;
   if (search) query.name = { $regex: String(search).trim(), $options: 'i' };
@@ -191,7 +217,7 @@ export const getProductById = async (req, res) => {
   setNoCache(res);
   await ensureQuickCommerceSeedData();
 
-  const product = await QuickProduct.findOne({ _id: req.params.productId, isActive: true }).lean();
+  const product = await QuickProduct.findOne({ _id: req.params.productId, ...publicProductFilter }).lean();
 
   if (!product) {
     return res.status(404).json({ success: false, message: 'Product not found' });
@@ -204,7 +230,7 @@ export const getProductReviews = async (req, res) => {
   setNoCache(res);
   await ensureQuickCommerceSeedData();
 
-  const product = await QuickProduct.findOne({ _id: req.params.productId, isActive: true }).lean();
+  const product = await QuickProduct.findOne({ _id: req.params.productId, ...publicProductFilter }).lean();
 
   if (!product) {
     return res.status(404).json({ success: false, message: 'Product not found' });

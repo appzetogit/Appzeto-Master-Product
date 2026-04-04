@@ -4,11 +4,61 @@ const orderItemSchema = new mongoose.Schema(
     {
         itemId: { type: String, required: true, trim: true },
         name: { type: String, required: true, trim: true },
+        type: { type: String, enum: ['food', 'quick'], required: true },
+        sourceId: { type: String, required: true, trim: true },
+        sourceName: { type: String, default: '', trim: true },
         price: { type: Number, required: true, min: 0 },
         quantity: { type: Number, required: true, min: 1 },
         isVeg: { type: Boolean, default: true },
         image: { type: String, default: '' },
         notes: { type: String, default: '' }
+    },
+    { _id: false }
+);
+
+const pickupPointSchema = new mongoose.Schema(
+    {
+        pickupType: { type: String, enum: ['food', 'quick'], required: true },
+        sourceId: { type: String, required: true, trim: true },
+        sourceName: { type: String, default: '', trim: true },
+        address: { type: String, default: '', trim: true },
+        location: {
+            type: { type: String, enum: ['Point'], default: 'Point' },
+            coordinates: { type: [Number], default: undefined }
+        },
+        itemIds: { type: [String], default: [] }
+    },
+    { _id: false }
+);
+
+const dispatchLegSchema = new mongoose.Schema(
+    {
+        legId: { type: String, required: true, trim: true },
+        pickupType: { type: String, enum: ['food', 'quick'], required: true },
+        sourceId: { type: String, required: true, trim: true },
+        sourceName: { type: String, default: '', trim: true },
+        deliveryPartnerId: { type: mongoose.Schema.Types.ObjectId, ref: 'FoodDeliveryPartner', default: null },
+        assignedAt: { type: Date, default: null },
+        partnerCandidates: [{
+            partnerId: { type: mongoose.Schema.Types.ObjectId, ref: 'FoodDeliveryPartner' },
+            distanceKm: { type: Number, min: 0, default: null }
+        }]
+    },
+    { _id: false }
+);
+
+const dispatchPlanSchema = new mongoose.Schema(
+    {
+        strategy: {
+            type: String,
+            enum: ['single', 'split', 'express_split'],
+            default: 'single'
+        },
+        combinedPickupEligible: { type: Boolean, default: false },
+        pickupDistanceKm: { type: Number, default: null },
+        sameDirection: { type: Boolean, default: false },
+        reason: { type: String, default: '', trim: true },
+        legs: { type: [dispatchLegSchema], default: [] }
     },
     { _id: false }
 );
@@ -181,7 +231,7 @@ const orderSchema = new mongoose.Schema(
     {
         orderType: {
             type: String,
-            enum: ['food', 'quick'],
+            enum: ['food', 'quick','mixed'],
             default: 'food',
             index: true
         },
@@ -225,10 +275,14 @@ const orderSchema = new mongoose.Schema(
             required: true,
             validate: (v) => Array.isArray(v) && v.length > 0
         },
+        pickupPoints: {
+            type: [pickupPointSchema],
+            default: []
+        },
         deliveryAddress: {
             type: deliveryAddressSchema,
             required() {
-                return this.orderType === 'food';
+                return this.orderType === 'food' || this.orderType === 'quick' || this.orderType === 'mixed';
             }
         },
         pricing: {
@@ -261,6 +315,10 @@ const orderSchema = new mongoose.Schema(
         },
         dispatch: {
             type: dispatchSchema,
+            default: () => ({})
+        },
+        dispatchPlan: {
+            type: dispatchPlanSchema,
             default: () => ({})
         },
         deliveryState: {

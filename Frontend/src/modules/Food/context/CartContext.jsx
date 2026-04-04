@@ -41,6 +41,13 @@ const defaultCartContext = {
 const CartContext = createContext(defaultCartContext)
 
 const getItemOrderType = (item) => (item?.orderType === "quick" ? "quick" : "food")
+const getItemSourceId = (item, orderType) =>
+  String(
+    item?.sourceId ||
+      (orderType === "quick"
+        ? item?.quickStoreId || item?.storeId || item?.sellerId || item?.restaurantId || "quick-commerce"
+        : item?.restaurantId || item?.sourceRestaurantId || ""),
+  )
 
 const normalizeCartData = (rawCart) => {
   if (!Array.isArray(rawCart)) return []
@@ -91,6 +98,8 @@ const normalizeCartData = (rawCart) => {
       const parsedVariantPrice = Number(
         item.variantPrice ?? item.variant?.price ?? item.price,
       )
+      const orderType = item.orderType === "quick" ? "quick" : "food"
+      const sourceId = getItemSourceId(item, orderType)
       const lineItemId =
         item.lineItemId ||
         item.cartLineId ||
@@ -106,7 +115,14 @@ const normalizeCartData = (rawCart) => {
         variantName,
         variantPrice: Number.isFinite(parsedVariantPrice) ? parsedVariantPrice : 0,
         name: item.name || item.product?.name || "Item",
-        orderType: item.orderType === "quick" ? "quick" : "food",
+        orderType,
+        type: orderType,
+        sourceId,
+        sourceName:
+          item.sourceName ||
+          (orderType === "quick"
+            ? item.quickStoreName || item.storeName || item.sellerName || "Quick Commerce"
+            : normalizedRestaurantName),
         quantity:
           Number.isFinite(parsedQuantity) && parsedQuantity > 0
             ? Math.floor(parsedQuantity)

@@ -240,14 +240,31 @@ const parseProductPayload = (req, existingProduct = null) => {
       str(req.body?.mainImage) ||
       existingProduct?.mainImage ||
       "",
+    image:
+      toDataUrl(mainUpload) ||
+      str(req.body?.mainImage) ||
+      existingProduct?.mainImage ||
+      existingProduct?.image ||
+      "",
     galleryImages:
       galleryUploads.length > 0
         ? galleryUploads.map(toDataUrl).filter(Boolean)
         : arr(existingProduct?.galleryImages),
+    mrp: num(
+      req.body?.mrp,
+      req.body?.salePrice ?? req.body?.price ?? existingProduct?.mrp ?? firstVariant?.salePrice ?? firstVariant?.price ?? 0,
+    ),
+    unit: str(req.body?.unit) || str(req.body?.weight) || existingProduct?.unit || "",
     status:
       str(req.body?.status).toLowerCase() === "inactive"
         ? "inactive"
         : "active",
+    isActive: str(req.body?.status).toLowerCase() === "inactive" ? false : true,
+    approvalStatus: existingProduct?.approvalStatus || "pending",
+    approvedAt:
+      (existingProduct?.approvalStatus || "pending") === "approved"
+        ? existingProduct?.approvedAt || new Date()
+        : null,
     variants,
   };
 };
@@ -626,6 +643,7 @@ export const adjustSellerStockController = async (req, res) => {
     const nextStock = Math.max(0, num(product.stock) + quantity);
     product.stock = nextStock;
     product.status = nextStock === 0 ? "inactive" : "active";
+    product.isActive = nextStock > 0;
     if (Array.isArray(product.variants) && product.variants.length > 0) {
       product.variants[0].stock = nextStock;
     }

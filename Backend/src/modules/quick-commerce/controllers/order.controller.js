@@ -2,6 +2,14 @@ import { QuickOrder } from '../models/order.model.js';
 import { QuickCart } from '../models/cart.model.js';
 import { QuickProduct } from '../models/product.model.js';
 
+const approvedProductFilter = {
+  isActive: true,
+  $or: [
+    { approvalStatus: { $exists: false } },
+    { approvalStatus: 'approved' },
+  ],
+};
+
 const resolveId = (req) => {
   if (req.user?.userId) return { userId: req.user.userId };
   const sessionId = String(req.headers['x-quick-session'] || req.body.sessionId || req.query.sessionId || '').trim();
@@ -21,7 +29,7 @@ export const placeOrder = async (req, res) => {
   }
 
   const productIds = cart.items.map((item) => item.productId);
-  const products = await QuickProduct.find({ _id: { $in: productIds }, isActive: true }).lean();
+  const products = await QuickProduct.find({ _id: { $in: productIds }, ...approvedProductFilter }).lean();
   const productMap = products.reduce((acc, product) => {
     acc[String(product._id)] = product;
     return acc;

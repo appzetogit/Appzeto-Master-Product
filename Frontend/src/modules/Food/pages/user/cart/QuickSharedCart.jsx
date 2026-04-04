@@ -37,6 +37,9 @@ const mapCartItemsToPayload = (cart) =>
   cart.map((item) => ({
     itemId: String(item.id || item._id),
     name: item.name || "Item",
+    type: "quick",
+    sourceId: item.sourceId || item.quickStoreId || item.storeId || item.sellerId || "quick-commerce",
+    sourceName: item.sourceName || item.quickStoreName || item.storeName || "Quick Commerce",
     quantity: Number(item.quantity || 1),
     price: Number(item.price || 0),
     image: item.image || item.imageUrl || "",

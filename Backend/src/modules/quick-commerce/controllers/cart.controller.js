@@ -3,6 +3,14 @@ import { QuickCart } from '../models/cart.model.js';
 import { QuickProduct } from '../models/product.model.js';
 import { ensureQuickCommerceSeedData } from '../services/seed.service.js';
 
+const approvedProductFilter = {
+  isActive: true,
+  $or: [
+    { approvalStatus: { $exists: false } },
+    { approvalStatus: 'approved' },
+  ],
+};
+
 const resolveId = (req) => {
   if (req.user?.userId) return { userId: req.user.userId };
   const sessionId = String(req.headers['x-quick-session'] || req.query.sessionId || req.body.sessionId || '').trim();
@@ -19,7 +27,7 @@ const mapCart = async (idQuery) => {
     .map((item) => item.productId)
     .filter((id) => mongoose.isValidObjectId(id));
 
-  const products = await QuickProduct.find({ _id: { $in: productIds }, isActive: true }).lean();
+  const products = await QuickProduct.find({ _id: { $in: productIds }, ...approvedProductFilter }).lean();
   const productMap = products.reduce((acc, product) => {
     acc[String(product._id)] = product;
     return acc;
@@ -77,7 +85,7 @@ export const addToCart = async (req, res) => {
     return res.status(400).json({ success: false, message: 'sessionId/userId and productId are required' });
   }
 
-  const product = await QuickProduct.findOne({ _id: productId, isActive: true }).lean();
+  const product = await QuickProduct.findOne({ _id: productId, ...approvedProductFilter }).lean();
   if (!product) {
     return res.status(404).json({ success: false, message: 'Product not found' });
   }

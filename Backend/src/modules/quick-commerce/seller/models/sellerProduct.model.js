@@ -85,18 +85,18 @@ const sellerProductSchema = new mongoose.Schema(
     },
     headerId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "SellerCategory",
-      required: true,
+      ref: "quick_category",
+      default: null,
     },
     categoryId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "SellerCategory",
+      ref: "quick_category",
       required: true,
     },
     subcategoryId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "SellerCategory",
-      required: true,
+      ref: "quick_category",
+      default: null,
     },
     status: {
       type: String,
@@ -109,7 +109,7 @@ const sellerProductSchema = new mongoose.Schema(
     },
   },
   {
-    collection: "seller_products",
+    collection: "quick_products",
     timestamps: true,
   },
 );

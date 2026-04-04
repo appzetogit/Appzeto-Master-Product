@@ -28,6 +28,8 @@ const quickProductSchema = new mongoose.Schema({
   lowStockAlert: { type: Number, default: 5 },
   salePrice: { type: Number, default: 0 },
   status: { type: String, default: 'active', index: true },
+  approvalStatus: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'approved', index: true },
+  approvedAt: { type: Date, default: null },
   isFeatured: { type: Boolean, default: false },
   tags: { type: [String], default: [] },
   variants: { type: [quickVariantSchema], default: [] },
@@ -38,5 +40,6 @@ const quickProductSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 quickProductSchema.index({ name: 'text' });
+quickProductSchema.index({ approvalStatus: 1, isActive: 1, categoryId: 1, subcategoryId: 1 });
 
 export const QuickProduct = mongoose.model('quick_product', quickProductSchema, 'quick_products');

@@ -24,6 +24,8 @@ const toCategory = (category) => ({
   headerColor: category.headerColor || category.accentColor,
   sortOrder: category.sortOrder,
   isActive: category.isActive,
+  approvalStatus: category.approvalStatus || 'approved',
+  approvedAt: category.approvedAt || null,
 });
 
 const toProduct = (product) => ({
@@ -52,6 +54,8 @@ const toProduct = (product) => ({
   isFeatured: Boolean(product.isFeatured),
   badge: product.badge,
   isActive: product.isActive,
+  approvalStatus: product.approvalStatus || 'approved',
+  approvedAt: product.approvedAt || null,
 });
 
 const slugify = (value = '') =>
@@ -196,6 +200,7 @@ export const getAdminCategories = async (_req, res) => {
   const {
     type,
     search,
+    approvalStatus,
     tree,
     flat,
     page = 1,
@@ -205,6 +210,7 @@ export const getAdminCategories = async (_req, res) => {
   const query = {};
   if (type) query.type = String(type);
   if (search) query.name = { $regex: String(search).trim(), $options: 'i' };
+  if (approvalStatus && approvalStatus !== 'all') query.approvalStatus = String(approvalStatus);
 
   const currentPage = Math.max(1, parseInt(page, 10) || 1);
   const perPage = Math.max(1, Math.min(parseInt(limit, 10) || 50, 100));
@@ -246,6 +252,7 @@ export const createCategory = async (req, res) => {
     description,
     type,
     status,
+    approvalStatus,
     parentId,
     iconId,
     adminCommission,
@@ -269,6 +276,14 @@ export const createCategory = async (req, res) => {
     description: description || '',
     type: type || 'header',
     status: status || 'active',
+    approvalStatus:
+      type === 'subcategory'
+        ? (approvalStatus || 'pending')
+        : (approvalStatus || 'approved'),
+    approvedAt:
+      (type === 'subcategory' ? approvalStatus || 'pending' : approvalStatus || 'approved') === 'approved'
+        ? new Date()
+        : null,
     parentId: mongoose.isValidObjectId(parentId) ? parentId : null,
     iconId: iconId || '',
     adminCommission: parseNumber(adminCommission, 0),
@@ -297,6 +312,7 @@ export const updateCategory = async (req, res) => {
     description,
     type,
     status,
+    approvalStatus,
     parentId,
     iconId,
     adminCommission,
@@ -312,6 +328,10 @@ export const updateCategory = async (req, res) => {
   if (status !== undefined) {
     category.status = status;
     category.isActive = status === 'active';
+  }
+  if (approvalStatus !== undefined) {
+    category.approvalStatus = approvalStatus || 'pending';
+    category.approvedAt = category.approvalStatus === 'approved' ? new Date() : null;
   }
   if (accentColor !== undefined) category.accentColor = accentColor || '#0c831f';
   if (headerColor !== undefined) category.headerColor = headerColor || category.accentColor;
@@ -350,6 +370,7 @@ export const getAdminProducts = async (req, res) => {
     category,
     search,
     status,
+    approvalStatus,
     page = 1,
     limit = 50,
   } = req.query || {};
@@ -368,6 +389,7 @@ export const getAdminProducts = async (req, res) => {
     query.status = status;
     query.isActive = status === 'active';
   }
+  if (approvalStatus && approvalStatus !== 'all') query.approvalStatus = approvalStatus;
 
   const currentPage = Math.max(1, parseInt(page, 10) || 1);
   const perPage = Math.max(1, Math.min(parseInt(limit, 10) || 50, 100));
@@ -408,6 +430,7 @@ export const createProduct = async (req, res) => {
     stock,
     lowStockAlert,
     status,
+    approvalStatus,
     brand,
     weight,
     sku,
@@ -451,6 +474,8 @@ export const createProduct = async (req, res) => {
     stock: parseNumber(stock, 0),
     lowStockAlert: parseNumber(lowStockAlert, 5),
     status: status || 'active',
+    approvalStatus: approvalStatus || 'approved',
+    approvedAt: (approvalStatus || 'approved') === 'approved' ? new Date() : null,
     isFeatured: parseBool(isFeatured, false),
     tags: String(tags || '')
       .split(',')
@@ -496,6 +521,10 @@ export const updateProduct = async (req, res) => {
   if (body.status !== undefined) {
     product.status = body.status || 'active';
     product.isActive = product.status === 'active';
+  }
+  if (body.approvalStatus !== undefined) {
+    product.approvalStatus = body.approvalStatus || 'pending';
+    product.approvedAt = product.approvalStatus === 'approved' ? new Date() : null;
   }
   if (body.isFeatured !== undefined) product.isFeatured = parseBool(body.isFeatured, false);
   if (body.tags !== undefined) {
