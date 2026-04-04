@@ -23,6 +23,10 @@ const foodDeliveryCashDepositSchema = new mongoose.Schema({
         default: 'Pending',
         index: true
     },
+    razorpayOrderId: {
+        type: String,
+        default: ''
+    },
     razorpayPaymentId: String,
     adminId: {
         type: mongoose.Schema.Types.ObjectId,

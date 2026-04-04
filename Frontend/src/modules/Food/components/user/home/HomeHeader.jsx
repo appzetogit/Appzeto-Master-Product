@@ -133,13 +133,13 @@ export default function HomeHeader({
   const searchBarStyle = isFoodTheme
     ? {
         background: '#ffffff',
-        border: '2px solid rgba(246,136,31,0.30)',
-        boxShadow: '0 4px 20px rgba(0,0,0,0.18), 0 2px 8px rgba(246,136,31,0.18)',
-        glowShadow: '0 8px 32px rgba(246,136,31,0.32), 0 2px 8px rgba(0,0,0,0.18)',
+        border: '1px solid rgba(246,136,31,0.18)',
+        boxShadow: '0 6px 18px rgba(15,23,42,0.10)',
+        glowShadow: '0 8px 22px rgba(15,23,42,0.12)',
         stripe: 'linear-gradient(180deg, #F6881F, #FF5E3A)',
-        placeholder: '#aab0bb',
-        divider: 'rgba(253, 186, 116, 0.9)',
-        actionBg: 'linear-gradient(135deg, rgba(246,136,31,0.15), rgba(255,94,58,0.10))',
+        placeholder: '#9ca3af',
+        divider: 'rgba(246,136,31,0.18)',
+        actionBg: 'rgba(246,136,31,0.10)',
         actionBorder: 'none',
         actionIcon: currentTheme.searchMic,
         quickActionBg: 'rgba(255,255,255,0.15)',
@@ -172,19 +172,20 @@ export default function HomeHeader({
     <motion.div
       id="home-header-main"
       className={`relative overflow-hidden transition-all duration-700 ${
-        activeTab === 'food' ? 'min-h-[560px]' : 'min-h-[90px]'
+        activeTab === 'food' ? 'min-h-[450px]' : 'min-h-[90px]'
       }`}
       style={{
-        background: activeTab === 'food' ? '#6f2a24' : currentTheme.topBg,
+        background: activeTab === 'food' ? 'transparent' : currentTheme.topBg,
         color: currentTheme.textColor || '#ffffff',
       }}
     >
       {/* Background Banner Content (Video/Images) */}
       {activeTab === 'food' && bannerContent && (
-        <div className="absolute inset-x-0 top-[34px] bottom-0 z-0 flex justify-center overflow-hidden bg-[#7f2d25]">
+        <div className="absolute inset-0 z-0 flex justify-center overflow-hidden bg-transparent">
           {bannerContent}
           {/* Gradients for readability */}
-          <div className="absolute inset-0 bg-gradient-to-b from-black/45 via-black/12 to-black/28 pointer-events-none" />
+          <div className="absolute inset-0 bg-gradient-to-b from-[#7f2d25]/88 via-[#7f2d25]/18 via-[28%] to-black/22 pointer-events-none" />
+          <div className="absolute inset-0 bg-gradient-to-b from-black/18 via-transparent to-black/16 pointer-events-none" />
         </div>
       )}
 
@@ -459,7 +460,7 @@ export default function HomeHeader({
         <div className="flex items-center gap-2 mb-2">
           {/* Search Bar â€” crisp white with warm glow */}
           <div
-            className="flex-1 rounded-[14px] h-[52px] flex items-center px-3 search-bar-glow active:scale-[0.99] transition-all cursor-pointer relative overflow-hidden"
+            className={`flex-1 rounded-[12px] h-[46px] flex items-center px-3 active:scale-[0.99] transition-all cursor-pointer relative overflow-hidden ${isFoodTheme ? '' : 'search-bar-glow'}`}
             style={{
               background: searchBarStyle.background,
               border: searchBarStyle.border,
@@ -476,9 +477,9 @@ export default function HomeHeader({
             onClick={handleSearchFocus}
           >
             {/* orange left accent stripe */}
-            <div className="absolute left-0 top-0 bottom-0 w-[3.5px] rounded-l-[14px]" style={{ background: searchBarStyle.stripe }} />
-            <Search className="h-[17px] w-[17px] ml-2 mr-2.5 flex-shrink-0" style={{ color: currentTheme.searchMic }} strokeWidth={2.5} />
-            <div className="flex-1 overflow-hidden relative h-[22px]">
+            <div className="absolute left-0 top-0 bottom-0 w-[2.5px] rounded-l-[12px]" style={{ background: searchBarStyle.stripe }} />
+            <Search className="h-[16px] w-[16px] ml-1.5 mr-2 flex-shrink-0" style={{ color: currentTheme.searchMic }} strokeWidth={2.3} />
+            <div className="flex-1 overflow-hidden relative h-[20px]">
               <AnimatePresence mode="wait">
                 <motion.span
                   key={placeholderIndex}
@@ -488,8 +489,8 @@ export default function HomeHeader({
                   transition={{ duration: 0.3 }}
                   className="absolute inset-0 whitespace-nowrap leading-[22px]"
                   style={{
-                    fontSize: '13px',
-                    fontWeight: 600,
+                    fontSize: '12.5px',
+                    fontWeight: 500,
                     color: searchBarStyle.placeholder,
                     fontFamily: "'Inter', 'Outfit', sans-serif",
                   }}
@@ -499,15 +500,15 @@ export default function HomeHeader({
               </AnimatePresence>
             </div>
             <div className="flex items-center gap-1.5">
-              <div className="w-[1px] h-[18px]" style={{ backgroundColor: searchBarStyle.divider }} />
+              <div className="w-[1px] h-[16px]" style={{ backgroundColor: searchBarStyle.divider }} />
               <div
-                className="h-[32px] w-[32px] rounded-full flex items-center justify-center"
+                className="h-[28px] w-[28px] rounded-full flex items-center justify-center"
                 style={{
                   background: searchBarStyle.actionBg,
                   border: searchBarStyle.actionBorder,
                 }}
               >
-                <Mic className="h-[16px] w-[16px]" style={{ color: searchBarStyle.actionIcon }} strokeWidth={2.5} />
+                <Mic className="h-[14px] w-[14px]" style={{ color: searchBarStyle.actionIcon }} strokeWidth={2.3} />
               </div>
             </div>
           </div>

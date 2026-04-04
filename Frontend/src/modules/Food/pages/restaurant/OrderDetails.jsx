@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import { useNavigate, useParams } from "react-router-dom"
+import useRestaurantBackNavigation from "@food/hooks/useRestaurantBackNavigation"
 import Lenis from "lenis"
 import { jsPDF } from "jspdf"
 import autoTable from "jspdf-autotable"
@@ -14,7 +15,9 @@ import {
   CheckCircle,
   XCircle,
   Loader2,
+  Volume2,
 } from "lucide-react"
+import ResendNotificationButton from "@food/components/restaurant/ResendNotificationButton"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -45,6 +48,7 @@ const formatDiscount = (value) => `-₹${Math.abs(Number(value || 0)).toFixed(2)
 
 export default function OrderDetails() {
   const navigate = useNavigate()
+  const goBack = useRestaurantBackNavigation()
   const { orderId } = useParams()
   
   // State for order data
@@ -220,6 +224,8 @@ export default function OrderDetails() {
               paidAmount,
               paymentStatus
             },
+            deliveryPartnerId: order.deliveryPartnerId || order.dispatch?.deliveryPartnerId || null,
+            dispatchStatus: order.dispatch?.status || null,
             reason: order.cancellationReason || '',
             timeline: [
               { event: 'Order placed', timestamp: new Date(order.createdAt).toLocaleString('en-GB'), status: 'completed' },
@@ -648,7 +654,7 @@ export default function OrderDetails() {
       <div className="bg-white  px-4 py-3 sticky top-0 z-50">
         <div className="flex items-center gap-3">
           <button
-            onClick={() => navigate(-1)}
+            onClick={goBack}
             className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
             aria-label="Go back"
           >
@@ -686,10 +692,22 @@ export default function OrderDetails() {
         <div className="bg-white rounded-lg p-4">
           {/* Status and Order ID Row */}
           <div className="flex items-start justify-between mb-3">
-            <span className={`px-2.5 py-1 rounded text-xs font-bold ${getStatusColor(orderData.status)}`}>
-              {orderData.status}
-            </span>
-            <span className="text-xs text-gray-500">{orderData.date}, {orderData.time}</span>
+            <div className="flex flex-col items-end gap-1">
+              <span className={`px-2.5 py-1 rounded text-xs font-bold ${getStatusColor(orderData.status)}`}>
+                {orderData.status}
+              </span>
+              <span className="text-xs text-gray-500">{orderData.date}, {orderData.time}</span>
+              {/* Resend button for order details */}
+              {(orderData.status === "PREPARING" || orderData.status === "READY" || orderData.status === "CONFIRMED") && 
+                orderData.dispatchStatus !== "accepted" && (
+                <div className="mt-2">
+                  <ResendNotificationButton 
+                    orderId={orderId} 
+                    onSuccess={() => window.location.reload()} 
+                  />
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Order ID */}
@@ -914,4 +932,5 @@ export default function OrderDetails() {
     </div>
   )
 }
+
 

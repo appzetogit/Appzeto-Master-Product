@@ -1,7 +1,8 @@
 import { useState } from "react"
 import { useNavigate } from "react-router-dom"
+import useRestaurantBackNavigation from "@food/hooks/useRestaurantBackNavigation"
 import { motion, AnimatePresence } from "framer-motion"
-import { X } from "lucide-react"
+import { CheckCircle2, X } from "lucide-react"
 import { adminAPI } from "@food/api"
 import { API_ENDPOINTS } from "@food/api/config"
 import api from "@food/api"
@@ -15,6 +16,7 @@ const debugError = (...args) => {}
 export default function ShareFeedback() {
   const companyName = useCompanyName()
   const navigate = useNavigate()
+  const goBack = useRestaurantBackNavigation()
   const [rating, setRating] = useState(null)
   const [showThanks, setShowThanks] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -22,7 +24,7 @@ export default function ShareFeedback() {
   const numbers = Array.from({ length: 11 }, (_, i) => i)
 
   const handleClose = () => {
-    navigate(-1)
+    goBack()
   }
 
   const handleContinue = async () => {
@@ -164,7 +166,7 @@ export default function ShareFeedback() {
             exit={{ opacity: 0 }}
             onClick={() => {
               setShowThanks(false)
-              navigate(-1)
+              goBack()
             }}
           >
             <motion.div
@@ -177,7 +179,7 @@ export default function ShareFeedback() {
             >
               <div className="flex flex-col items-center text-center">
                 <div className="mb-3 h-12 w-12 rounded-full bg-green-100 flex items-center justify-center">
-                  <span className="text-2xl">?</span>
+                  <CheckCircle2 className="w-7 h-7 text-green-600" />
                 </div>
                 <h2 className="text-base font-semibold text-gray-900 mb-1">
                   Thanks for your feedback
@@ -190,7 +192,7 @@ export default function ShareFeedback() {
                   className="w-full py-2.5 rounded-full bg-black text-white text-sm font-medium"
                   onClick={() => {
                     setShowThanks(false)
-                    navigate(-1)
+                    goBack()
                   }}
                 >
                   Done

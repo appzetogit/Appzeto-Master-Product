@@ -21,7 +21,8 @@ export const PickupActionModal = ({
   distanceToTarget,
   eta,
   onReachedPickup, 
-  onPickedUp 
+  onPickedUp,
+  onMinimize
 }) => {
   const [showItems, setShowItems] = useState(false);
   const [isUploadingBill, setIsUploadingBill] = useState(false);
@@ -45,7 +46,7 @@ export const PickupActionModal = ({
       if (res?.data?.success && res?.data?.data) {
         setBillImageUrl(res.data.data.url || res.data.data.secure_url);
         setBillImageUploaded(true);
-        toast.success('Bill image uploaded!');
+        // toast.success('Bill image uploaded!');
       } else {
         throw new Error('Upload failed');
       }
@@ -90,7 +91,12 @@ export const PickupActionModal = ({
         animate={{ y: 0 }}
         className="w-full bg-white rounded-t-[2.5rem] shadow-[0_-20px_60px_rgba(0,0,0,0.3)] p-6 pb-12"
       >
-        <div className="w-12 h-1.5 bg-gray-200 rounded-full mx-auto mb-6" />
+        {/* Handle / Minimize */}
+        <div className="w-full flex justify-center pb-4 pt-1">
+          <button onClick={onMinimize} className="p-1 hover:bg-gray-100 active:scale-95 transition-all rounded-full flex flex-col items-center">
+             <ChevronDown className="w-6 h-6 text-gray-400 stroke-[3]" />
+          </button>
+        </div>
 
         {/* Restaurant Header */}
         <div className="flex items-start justify-between mb-8 pb-4 border-b border-gray-50">
@@ -205,6 +211,17 @@ export const PickupActionModal = ({
                   onConfirm={() => onPickedUp(billImageUrl)}
                   color="bg-orange-500"
                 />
+              </div>
+            </div>
+          )}
+
+          {/* Delivery Instructions (User Note) */}
+          {order?.note && (
+            <div className="bg-orange-50 border border-orange-100 rounded-2xl p-4 flex gap-3 items-start">
+              <ChefHat className="w-5 h-5 text-orange-500 mt-0.5 shrink-0" />
+              <div>
+                <p className="text-[10px] font-bold text-orange-600 uppercase tracking-widest mb-1.5">User Instructions</p>
+                <p className="text-sm font-bold text-gray-800 leading-snug">"{order.note}"</p>
               </div>
             </div>
           )}

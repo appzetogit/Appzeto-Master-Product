@@ -20,26 +20,26 @@ import { authRateLimiter } from '../../middleware/rateLimit.js';
 
 const router = express.Router();
 
-router.use(authRateLimiter);
+// router.use(authRateLimiter); // Removed global application to avoid rate-limiting /me or /refresh-token too strictly
 
 // User OTP login
-router.post('/user/request-otp', requestUserOtpController);
-router.post('/user/verify-otp', verifyUserOtpController);
+router.post('/user/request-otp', authRateLimiter, requestUserOtpController);
+router.post('/user/verify-otp', authRateLimiter, verifyUserOtpController);
 
 // Restaurant OTP login
-router.post('/restaurant/request-otp', requestRestaurantOtpController);
-router.post('/restaurant/verify-otp', verifyRestaurantOtpController);
+router.post('/restaurant/request-otp', authRateLimiter, requestRestaurantOtpController);
+router.post('/restaurant/verify-otp', authRateLimiter, verifyRestaurantOtpController);
 
 // Delivery partner OTP login
-router.post('/delivery/request-otp', requestDeliveryOtpController);
-router.post('/delivery/verify-otp', verifyDeliveryOtpController);
+router.post('/delivery/request-otp', authRateLimiter, requestDeliveryOtpController);
+router.post('/delivery/verify-otp', authRateLimiter, verifyDeliveryOtpController);
 
 // Admin login
-router.post('/admin/login', adminLoginController);
+router.post('/admin/login', authRateLimiter, adminLoginController);
 
 // Admin forgot password (no auth required)
-router.post('/admin/forgot-password/request-otp', requestAdminForgotPasswordOtpController);
-router.post('/admin/forgot-password/reset', resetAdminPasswordWithOtpController);
+router.post('/admin/forgot-password/request-otp', authRateLimiter, requestAdminForgotPasswordOtpController);
+router.post('/admin/forgot-password/reset', authRateLimiter, resetAdminPasswordWithOtpController);
 
 // Refresh token
 router.post('/refresh-token', refreshTokenController);

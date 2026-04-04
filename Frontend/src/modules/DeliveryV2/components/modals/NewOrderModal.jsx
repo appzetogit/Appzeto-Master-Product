@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { User, MapPin, FastForward, Clock, Phone, ChefHat } from 'lucide-react';
+import { User, MapPin, FastForward, Clock, Phone, ChefHat, ChevronDown } from 'lucide-react';
 import { ActionSlider } from '@/modules/DeliveryV2/components/ui/ActionSlider';
 import { useDeliveryStore } from '@/modules/DeliveryV2/store/useDeliveryStore';
 import { getHaversineDistance, calculateETA } from '@/modules/DeliveryV2/utils/geo';
@@ -9,7 +9,7 @@ import { getHaversineDistance, calculateETA } from '@/modules/DeliveryV2/utils/g
  * NewOrderModal - Ported to Original 1:1 Theme with Slider Accept.
  * Matches the Zomato/Swiggy style Green Header + White Card.
  */
-export const NewOrderModal = ({ order, onAccept, onReject }) => {
+export const NewOrderModal = ({ order, onAccept, onReject, onMinimize }) => {
   const { riderLocation } = useDeliveryStore();
   const [timeLeft, setTimeLeft] = useState(30);
 
@@ -25,15 +25,21 @@ export const NewOrderModal = ({ order, onAccept, onReject }) => {
   const { distanceKm, etaMins } = useMemo(() => {
     if (!order) return { distanceKm: null, etaMins: null };
 
-    // A. Use provided data if available
-    if (order.pickupDistanceKm) return { 
-      distanceKm: Number(order.pickupDistanceKm).toFixed(1), 
-      etaMins: order.estimatedTime || order.duration || 15 
-    };
+    // A. Use provided data if available (Direct distance from socket)
+    const rawDist = order.pickupDistanceKm || order.distanceKm;
+    const rawEta = order.estimatedTime || order.duration || order.eta;
+    
+    if (rawDist != null) {
+      return { 
+        distanceKm: Number(rawDist).toFixed(1), 
+        etaMins: rawEta && rawEta > 0 ? Math.ceil(rawEta) : Math.ceil((rawDist * 1000) / 416) + 5
+      };
+    }
 
-    // B. Calculate from locations
-    const resLat = parseFloat(order.restaurant_lat || order.restaurantLat || order.latitude || (order.restaurantId?.location?.latitude));
-    const resLng = parseFloat(order.restaurant_lng || order.restaurantLng || order.longitude || (order.restaurantId?.location?.longitude));
+    // B. Calculate from locations (Local calculation fallback)
+    const rest = order.restaurantLocation || order.restaurantId?.location || {};
+    const resLat = parseFloat(order.restaurant_lat || order.restaurantLat || rest.latitude || rest.lat);
+    const resLng = parseFloat(order.restaurant_lng || order.restaurantLng || rest.longitude || rest.lng);
 
     if (riderLocation && !isNaN(resLat) && !isNaN(resLng)) {
       const distM = getHaversineDistance(
@@ -58,14 +64,50 @@ export const NewOrderModal = ({ order, onAccept, onReject }) => {
   const earnings = order.earnings || order.riderEarning || (order.orderAmount ? order.orderAmount * 0.1 : 0);
   const restaurantName = order.restaurantName || order.restaurant_name || (order.restaurantId?.name) || 'Restaurant';
   const restaurantAddress = order.restaurantAddress || order.restaurant_address || (order.restaurantId?.location?.address) || 'Address not available';
-  const customerAddress = order.customerAddress || order.customer_address || order.deliveryAddress?.formattedAddress || order.deliveryAddress?.addressLine1 || 'Calculating destination...';
+  const deliveryAddress = order?.deliveryAddress || {};
+
+  const geoCoords =
+    Array.isArray(deliveryAddress?.location?.coordinates) &&
+    deliveryAddress.location.coordinates.length >= 2
+      ? {
+          lng: deliveryAddress.location.coordinates[0],
+          lat: deliveryAddress.location.coordinates[1],
+        }
+      : null;
+
+  const customerLocation = order.customerLocation || order.deliveryLocation || geoCoords || null;
+
+  const addressPartsFromSchema = [
+    deliveryAddress.street,
+    deliveryAddress.additionalDetails,
+    deliveryAddress.city,
+    deliveryAddress.state,
+    deliveryAddress.zipCode,
+  ]
+    .map((v) => String(v || '').trim())
+    .filter(Boolean);
+
+  const customerAddress =
+    order.customerAddress ||
+    order.customer_address ||
+    (addressPartsFromSchema.length ? addressPartsFromSchema.join(', ') : '') ||
+    (customerLocation?.lat != null && customerLocation?.lng != null
+      ? `Lat ${Number(customerLocation.lat).toFixed(5)}, Lng ${Number(customerLocation.lng).toFixed(5)}`
+      : 'Location not available');
+
+  const mapsLink =
+    customerLocation?.lat != null && customerLocation?.lng != null
+      ? `https://www.google.com/maps?q=${encodeURIComponent(
+          `${customerLocation.lat},${customerLocation.lng}`,
+        )}`
+      : null;
 
   return (
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="absolute inset-x-0 bottom-0 h-full z-[150] bg-black/60 flex items-end justify-center p-0"
+      className="absolute inset-x-0 bottom-0 h-full z-150 bg-black/60 flex items-end justify-center p-0"
     >
       <motion.div 
         initial={{ y: '100%' }}
@@ -73,8 +115,12 @@ export const NewOrderModal = ({ order, onAccept, onReject }) => {
         exit={{ y: '100%' }}
         className="w-full max-w-lg bg-white rounded-t-[3rem] overflow-hidden shadow-[0_-20px_60px_rgba(0,0,0,0.5)] flex flex-col pt-2"
       >
-        {/* Handle */}
-        <div className="w-12 h-1.5 bg-gray-200 rounded-full mx-auto mb-2" />
+        {/* Handle / Minimize */}
+        <div className="w-full flex justify-center pb-2 pt-1 bg-white relative z-10 rounded-t-[3rem] -mb-[4px]">
+          <button onClick={onMinimize} className="p-1 hover:bg-gray-100 active:scale-95 transition-all rounded-full flex flex-col items-center">
+             <ChevronDown className="w-6 h-6 text-gray-400 stroke-3" />
+          </button>
+        </div>
 
         {/* Header Ribbon (Old Green Style) */}
         <div className="bg-green-500 p-8 flex justify-between items-center text-white border-b border-green-600/20">
@@ -111,6 +157,16 @@ export const NewOrderModal = ({ order, onAccept, onReject }) => {
                 </div>
                 <p className="text-gray-950 font-bold text-xl leading-tight">Customer Location</p>
                 <p className="text-gray-500 text-sm font-medium line-clamp-2">{customerAddress}</p>
+                {mapsLink && (
+                  <a
+                    href={mapsLink}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex mt-2 text-[10px] font-bold uppercase tracking-widest text-blue-600 hover:text-blue-700"
+                  >
+                    Open in Google Maps
+                  </a>
+                )}
               </div>
             </div>
           </div>

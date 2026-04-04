@@ -435,35 +435,31 @@ export const logout = async (refreshToken, fcmToken, platform) => {
     throw new ValidationError("Refresh token is required");
   }
 
-  const tokenDoc = await FoodRefreshToken.findOne({ token: refreshToken });
-
-  if (tokenDoc && fcmToken) {
-    // Try to remove FCM token from the user if provided
+  // 1. Remove specific FCM token from ALL collections if provided
+  if (fcmToken) {
+    console.log(`[FCM-Logout] Starting logout-driven token removal: platform=${platform}, tokenPreview=${fcmToken?.slice(0, 10)}...`);
+    
+    // We try to remove the token from all 4 possible models regardless of the user ID, 
+    // ensuring no stale connections are left across any role or app the user was logged into.
+    const field = platform === "mobile" ? "fcmTokenMobile" : "fcmTokens";
+    const models = [FoodUser, FoodRestaurant, FoodDeliveryPartner, FoodAdmin];
+    
     try {
-      const user = await FoodUser.findById(tokenDoc.userId);
-      if (user) {
-        let isModified = false;
-        if (platform === "mobile" && Array.isArray(user.fcmTokenMobile)) {
-          const originalLength = user.fcmTokenMobile.length;
-          user.fcmTokenMobile = user.fcmTokenMobile.filter(
-            (t) => t !== fcmToken,
-          );
-          if (user.fcmTokenMobile.length !== originalLength) isModified = true;
-        } else if (Array.isArray(user.fcmTokens)) {
-          const originalLength = user.fcmTokens.length;
-          user.fcmTokens = user.fcmTokens.filter((t) => t !== fcmToken);
-          if (user.fcmTokens.length !== originalLength) isModified = true;
-        }
-
-        if (isModified) {
-          await user.save();
-        }
-      }
+      await Promise.all(
+        models.map((model) =>
+          model.updateMany(
+            { [field]: fcmToken },
+            { $pull: { [field]: fcmToken } },
+          ),
+        ),
+      );
+      console.log("[FCM-Logout] Token removed from all collections successfully");
     } catch (err) {
-      logger?.warn?.({ err }, "Failed to remove FCM token during logout");
+      logger.warn({ err }, "Failed to remove FCM token from all collections during logout");
     }
   }
 
+  // 2. Invalidate the refresh token (standard logout procedure)
   const deleted = await FoodRefreshToken.deleteOne({ token: refreshToken });
   return { invalidated: deleted.deletedCount > 0 };
 };
@@ -570,8 +566,11 @@ export const getProfile = async (userId, role) => {
                   document: partner.panPhoto || null,
                 }
               : null,
-          drivingLicense: partner.drivingLicensePhoto
-            ? { document: partner.drivingLicensePhoto }
+          drivingLicense: partner.drivingLicensePhoto || partner.drivingLicenseNumber
+            ? {
+                number: partner.drivingLicenseNumber || null,
+                document: partner.drivingLicensePhoto || null,
+              }
             : null,
           bankDetails:
             partner.bankAccountHolderName ||
@@ -652,7 +651,7 @@ export const getProfile = async (userId, role) => {
 
 const ADMIN_SERVICES_ALLOWED = ["food", "quickCommerce", "taxi"];
 
-/** Update admin profile (name, phone, profileImage). Only for ADMIN role. */
+/** Update admin profile (name, email, phone, profileImage). Only for ADMIN role. */
 export const updateAdminProfile = async (userId, body) => {
   if (!userId) {
     throw new AuthError("Invalid token payload");
@@ -662,6 +661,26 @@ export const updateAdminProfile = async (userId, body) => {
     throw new AuthError("Profile not found");
   }
   if (body.name !== undefined) admin.name = String(body.name || "").trim();
+  if (body.email !== undefined) {
+    const normalizedEmail = String(body.email || "")
+      .trim()
+      .toLowerCase();
+    if (!normalizedEmail) {
+      throw new ValidationError("Email is required");
+    }
+    if (normalizedEmail !== admin.email) {
+      const duplicateAdmin = await FoodAdmin.findOne({
+        _id: { $ne: admin._id },
+        email: normalizedEmail,
+      })
+        .select("_id")
+        .lean();
+      if (duplicateAdmin) {
+        throw new ValidationError("Email is already in use");
+      }
+    }
+    admin.email = normalizedEmail;
+  }
   if (body.phone !== undefined) admin.phone = String(body.phone || "").trim();
   if (body.profileImage !== undefined)
     admin.profileImage = String(body.profileImage || "").trim();

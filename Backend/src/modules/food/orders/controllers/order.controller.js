@@ -66,6 +66,17 @@ export async function getOrderByIdUserController(req, res, next) {
     }
 }
 
+export async function getOrderDropOtpUserController(req, res, next) {
+    try {
+        const userId = req.user?.userId;
+        const orderId = req.params.orderId;
+        const result = await orderService.getDropOtpUser(orderId, userId);
+        return sendResponse(res, 200, 'Drop OTP retrieved', result);
+    } catch (err) {
+        next(err);
+    }
+}
+
 /** Ledger rows from `food_order_payments` (append-only audit trail) */
 export async function getOrderPaymentsUserController(req, res, next) {
     try {
@@ -97,6 +108,18 @@ export async function submitOrderRatingsController(req, res, next) {
         const dto = validateOrderRatingsDto(req.body);
         const order = await orderService.submitOrderRatings(orderId, userId, dto);
         return sendResponse(res, 200, 'Ratings submitted successfully', { order });
+    } catch (err) {
+        next(err);
+    }
+}
+
+export async function updateOrderInstructionsController(req, res, next) {
+    try {
+        const userId = req.user?.userId;
+        const orderId = req.params.orderId;
+        const instructions = req.body.instructions;
+        const order = await orderService.updateOrderInstructions(orderId, userId, instructions);
+        return sendResponse(res, 200, 'Instructions updated successfully', { order });
     } catch (err) {
         next(err);
     }

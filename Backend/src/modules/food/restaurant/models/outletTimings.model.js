@@ -4,8 +4,8 @@ const dayTimingSchema = new mongoose.Schema(
   {
     day: { type: String, required: true, trim: true },
     isOpen: { type: Boolean, default: true },
-    openingTime: { type: String, trim: true, default: "09:00" }, // "HH:mm"
-    closingTime: { type: String, trim: true, default: "22:00" }, // "HH:mm"
+    openingTime: { type: String, trim: true }, // "HH:mm"
+    closingTime: { type: String, trim: true }, // "HH:mm"
   },
   { _id: false },
 );

@@ -1,9 +1,11 @@
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
-import { Suspense, lazy } from 'react'
+import { Suspense, lazy, useEffect } from 'react'
 import { AppShellSkeleton } from '@food/components/ui/loading-skeletons'
 import ProtectedRoute from '@core/guards/ProtectedRoute'
 import RoleGuard from '@core/guards/RoleGuard'
 import { UserRole } from '@core/constants/roles'
+
+const NATIVE_LAST_ROUTE_KEY = 'native_last_route'
 
 // Lazy load the Food service module (Quick-spicy app)
 const FoodApp = lazy(() => import('../modules/Food/routes'))
@@ -62,6 +64,28 @@ const MasterLandingPage = lazy(() => import('./MasterLandingPage'))
 const AdminRouter = lazy(() => import('../modules/Food/components/admin/AdminRouter'))
 
 const AppRoutes = () => {
+  const location = useLocation()
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    const protocol = String(window.location?.protocol || '').toLowerCase()
+    const userAgent = String(window.navigator?.userAgent || '').toLowerCase()
+    const isNativeLikeShell =
+      Boolean(window.flutter_inappwebview) ||
+      Boolean(window.ReactNativeWebView) ||
+      protocol === 'file:' ||
+      userAgent.includes(' wv') ||
+      userAgent.includes('; wv')
+
+    if (!isNativeLikeShell) return
+
+    const route = `${location.pathname || ''}${location.search || ''}`
+    if (route.startsWith('/food/') || route.startsWith('/admin')) {
+      localStorage.setItem(NATIVE_LAST_ROUTE_KEY, route)
+    }
+  }, [location.pathname, location.search])
+
   return (
     <Routes>
       {/* Root → Master Landing Page */}
@@ -89,10 +113,6 @@ const AppRoutes = () => {
       <Route path="/seller/auth" element={<SellerAuthEntry />} />
       <Route path="/seller/*" element={<SellerAppWrapper />} />
 
-      {/* Global Admin Portal - AdminRouter handles its own protection for sub-routes */}
-      <Route path="/admin/*" element={<AdminRouter />} />
-
-      {/* NEW Delivery V2 (Parallel testing) */}
       {/* Global Admin Portal - wrap lazy router in Suspense to avoid blank/crash on direct admin URLs */}
       <Route
         path="/admin/*"

@@ -34,6 +34,61 @@ const normalizeTotalRatingsValue = (value) => {
 
 const toUrl = (v) => (v && (typeof v === 'string' ? v : v.url)) ? (typeof v === 'string' ? v : v.url) : '';
 
+const normalizeRestaurantTime = (value) => {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+
+    const toHHMM = (hour, minute) => {
+        const h = Number(hour);
+        const m = Number(minute);
+        if (!Number.isFinite(h) || !Number.isFinite(m)) return '';
+        if (h < 0 || h > 23 || m < 0 || m > 59) return '';
+        return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+    };
+
+    // HH:mm / H:mm
+    const hhmm = raw.match(/^(\d{1,2}):(\d{2})$/);
+    if (hhmm) return toHHMM(hhmm[1], hhmm[2]);
+
+    // hh:mm AM/PM
+    const ampm = raw.match(/^(\d{1,2}):(\d{2})\s*([AaPp][Mm])$/);
+    if (ampm) {
+        let hour = Number(ampm[1]);
+        const minute = Number(ampm[2]);
+        const period = ampm[3].toUpperCase();
+        if (!Number.isFinite(hour) || !Number.isFinite(minute)) return '';
+        if (hour < 1 || hour > 12 || minute < 0 || minute > 59) return '';
+        if (period === 'AM') hour = hour === 12 ? 0 : hour;
+        if (period === 'PM') hour = hour === 12 ? 12 : hour + 12;
+        return toHHMM(hour, minute);
+    }
+
+    const parsed = new Date(raw);
+    if (!Number.isNaN(parsed.getTime())) {
+        return toHHMM(parsed.getHours(), parsed.getMinutes());
+    }
+
+    return '';
+};
+
+const timeToMinutes = (value) => {
+    const normalized = normalizeRestaurantTime(value);
+    if (!normalized) return null;
+    const [h, m] = normalized.split(':').map(Number);
+    if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
+    return h * 60 + m;
+};
+
+const parseEstimatedDeliveryMinutes = (value) => {
+    const raw = String(value || '').trim();
+    if (!raw) return null;
+    const matches = raw.match(/\d+/g);
+    if (!matches || !matches.length) return null;
+    const numbers = matches.map((n) => Number(n)).filter((n) => Number.isFinite(n) && n >= 0);
+    if (!numbers.length) return null;
+    return Math.round(numbers[numbers.length - 1]);
+};
+
 const toRestaurantProfile = (doc) => {
     if (!doc) return null;
     const loc = doc.location && typeof doc.location === 'object' ? doc.location : null;
@@ -74,6 +129,9 @@ const toRestaurantProfile = (doc) => {
     const menuImages = Array.isArray(doc.menuImages)
         ? doc.menuImages.map((m) => toUrl(m)).filter(Boolean).map((url) => ({ url, publicId: null }))
         : [];
+    const coverImages = Array.isArray(doc.coverImages)
+        ? doc.coverImages.map((m) => toUrl(m)).filter(Boolean).map((url) => ({ url, publicId: null }))
+        : [];
 
     return {
         id: doc._id,
@@ -81,12 +139,24 @@ const toRestaurantProfile = (doc) => {
         restaurantId: doc.restaurantId || undefined,
         name: doc.restaurantName || '',
         restaurantName: doc.restaurantName || '',
+        zoneId: doc.zoneId ? String(doc.zoneId) : '',
         cuisines: Array.isArray(doc.cuisines) ? doc.cuisines : [],
         location,
         ownerName: doc.ownerName || '',
         ownerEmail: doc.ownerEmail || '',
         ownerPhone: doc.ownerPhone || '',
         primaryContactNumber: doc.primaryContactNumber || '',
+        panNumber: doc.panNumber || '',
+        nameOnPan: doc.nameOnPan || '',
+        panImage: doc.panImage ? { url: doc.panImage } : null,
+        gstRegistered: Boolean(doc.gstRegistered),
+        gstNumber: doc.gstNumber || '',
+        gstLegalName: doc.gstLegalName || '',
+        gstAddress: doc.gstAddress || '',
+        gstImage: doc.gstImage ? { url: doc.gstImage } : null,
+        fssaiNumber: doc.fssaiNumber || '',
+        fssaiExpiry: doc.fssaiExpiry || null,
+        fssaiImage: doc.fssaiImage ? { url: doc.fssaiImage } : null,
         accountNumber: doc.accountNumber || '',
         ifscCode: doc.ifscCode || '',
         accountHolderName: doc.accountHolderName || '',
@@ -98,14 +168,23 @@ const toRestaurantProfile = (doc) => {
         zoneName: doc.zoneId?.name || doc.zoneId?.zoneName || doc.zoneId?.serviceLocation || '',
         profileImage: doc.profileImage ? { url: doc.profileImage } : null,
         menuImages,
-        coverImages: [],
-        openingTime: doc.openingTime || null,
-        closingTime: doc.closingTime || null,
+        coverImages,
+        openingTime: normalizeRestaurantTime(doc.openingTime) || null,
+        closingTime: normalizeRestaurantTime(doc.closingTime) || null,
         openDays: Array.isArray(doc.openDays) ? doc.openDays : [],
         estimatedDeliveryTime: doc.estimatedDeliveryTime || '',
         featuredDish: doc.featuredDish || '',
         featuredPrice: doc.featuredPrice ?? null,
         offer: doc.offer || '',
+        estimatedDeliveryTimeMinutes:
+            Number.isFinite(Number(doc.estimatedDeliveryTimeMinutes))
+                ? Number(doc.estimatedDeliveryTimeMinutes)
+                : null,
+        diningSettings: {
+            isEnabled: doc.diningSettings?.isEnabled !== false,
+            maxGuests: Math.max(1, parseInt(doc.diningSettings?.maxGuests, 10) || 6),
+            diningType: String(doc.diningSettings?.diningType || 'family-dining').trim() || 'family-dining'
+        },
         isAcceptingOrders: doc.isAcceptingOrders !== false,
         status: doc.status || null,
         createdAt: doc.createdAt,
@@ -143,6 +222,23 @@ const zoneToPolygon = (zoneDoc) => {
     return { type: 'Polygon', coordinates: [ring] };
 };
 
+const notifyAdminsAboutRestaurantProfileReview = async (restaurantId, restaurantName) => {
+    try {
+        const { notifyAdminsSafely } = await import('../../../../core/notifications/firebase.service.js');
+        void notifyAdminsSafely({
+            title: 'Restaurant Profile Updated',
+            body: `Restaurant "${restaurantName || 'Unknown Restaurant'}" updated its profile and is pending approval again.`,
+            data: {
+                type: 'restaurant_profile_updated',
+                subType: 'restaurant',
+                id: String(restaurantId)
+            }
+        });
+    } catch (e) {
+        console.error('Failed to notify admins of restaurant profile resubmission:', e);
+    }
+};
+
 export const registerRestaurant = async (payload, files) => {
     const {
         restaurantName,
@@ -166,6 +262,7 @@ export const registerRestaurant = async (payload, files) => {
         openingTime,
         closingTime,
         openDays,
+        estimatedDeliveryTime,
         panNumber,
         nameOnPan,
         gstRegistered,
@@ -178,7 +275,6 @@ export const registerRestaurant = async (payload, files) => {
         ifscCode,
         accountHolderName,
         accountType,
-        estimatedDeliveryTime,
         featuredDish,
         offer
     } = payload;
@@ -219,6 +315,21 @@ export const registerRestaurant = async (payload, files) => {
         );
     }
 
+    const normalizedOpeningTime = normalizeRestaurantTime(openingTime);
+    const normalizedClosingTime = normalizeRestaurantTime(closingTime);
+    const openingMinutes = timeToMinutes(normalizedOpeningTime);
+    const closingMinutes = timeToMinutes(normalizedClosingTime);
+    if (openingMinutes !== null && closingMinutes !== null) {
+        if (openingMinutes === closingMinutes) {
+            throw new ValidationError('Opening time and closing time cannot be same');
+        }
+        if (closingMinutes < openingMinutes) {
+            throw new ValidationError('Closing time cannot be less than opening time');
+        }
+    }
+    const estimatedDeliveryTimeText = String(estimatedDeliveryTime || '').trim();
+    const estimatedDeliveryTimeMinutes = parseEstimatedDeliveryMinutes(estimatedDeliveryTimeText);
+
     try {
         const latNum = toFiniteNumber(latitude);
         const lngNum = toFiniteNumber(longitude);
@@ -253,9 +364,11 @@ export const registerRestaurant = async (payload, files) => {
                 landmark: landmark || ''
             },
             cuisines: cuisines || [],
-            openingTime,
-            closingTime,
+            openingTime: normalizedOpeningTime || undefined,
+            closingTime: normalizedClosingTime || undefined,
             openDays: openDays || [],
+            estimatedDeliveryTime: estimatedDeliveryTimeText || undefined,
+            estimatedDeliveryTimeMinutes: estimatedDeliveryTimeMinutes ?? undefined,
             panNumber,
             nameOnPan,
             gstRegistered,
@@ -328,6 +441,7 @@ export const getCurrentRestaurantProfile = async (restaurantId) => {
                 'pureVegRestaurant',
                 'zoneId',
                 'profileImage',
+                'coverImages',
                 'menuImages',
                 'openingTime',
                 'closingTime',
@@ -336,6 +450,8 @@ export const getCurrentRestaurantProfile = async (restaurantId) => {
                 'featuredDish',
                 'featuredPrice',
                 'offer',
+                'estimatedDeliveryTimeMinutes',
+                'diningSettings',
                 'isAcceptingOrders',
                 'status',
                 'createdAt',
@@ -381,10 +497,12 @@ export const updateRestaurantAcceptingOrders = async (restaurantId, isAcceptingO
                 'upiQrImage',
                 'pureVegRestaurant',
                 'profileImage',
+                'coverImages',
                 'menuImages',
                 'openingTime',
                 'closingTime',
                 'openDays',
+                'diningSettings',
                 'isAcceptingOrders',
                 'status',
                 'createdAt',
@@ -395,9 +513,108 @@ export const updateRestaurantAcceptingOrders = async (restaurantId, isAcceptingO
     return toRestaurantProfile(doc);
 };
 
+export const updateCurrentRestaurantDiningSettings = async (restaurantId, body = {}) => {
+    if (!restaurantId) {
+        throw new ValidationError('Invalid restaurant id');
+    }
+
+    const currentRestaurant = await FoodRestaurant.findById(restaurantId)
+        .select('diningSettings status')
+        .lean();
+
+    if (!currentRestaurant) {
+        throw new ValidationError('Restaurant not found');
+    }
+
+    const currentDiningSettings =
+        currentRestaurant.diningSettings && typeof currentRestaurant.diningSettings === 'object'
+            ? currentRestaurant.diningSettings
+            : {};
+
+    const parseBoolean = (value, fallback = false) => {
+        if (value === undefined || value === null) return Boolean(fallback);
+        if (typeof value === 'boolean') return value;
+        const normalized = String(value).trim().toLowerCase();
+        if (normalized === 'true' || normalized === '1' || normalized === 'yes') return true;
+        if (normalized === 'false' || normalized === '0' || normalized === 'no') return false;
+        return Boolean(fallback);
+    };
+
+    const maxGuests = Math.max(
+        1,
+        parseInt(body.maxGuests ?? currentDiningSettings.maxGuests ?? 6, 10) || 6
+    );
+    const diningType =
+        String(body.diningType ?? currentDiningSettings.diningType ?? 'family-dining').trim() ||
+        'family-dining';
+
+    const doc = await FoodRestaurant.findByIdAndUpdate(
+        restaurantId,
+        {
+            $set: {
+                diningSettings: {
+                    isEnabled: parseBoolean(body.isEnabled, currentDiningSettings.isEnabled),
+                    maxGuests,
+                    diningType
+                }
+            }
+        },
+        {
+            new: true,
+            runValidators: true,
+            projection: [
+                'restaurantName',
+                'cuisines',
+                'location',
+                'addressLine1',
+                'addressLine2',
+                'area',
+                'city',
+                'state',
+                'pincode',
+                'landmark',
+                'ownerName',
+                'ownerEmail',
+                'ownerPhone',
+                'primaryContactNumber',
+                'accountNumber',
+                'ifscCode',
+                'accountHolderName',
+                'accountType',
+                'upiId',
+                'upiQrImage',
+                'pureVegRestaurant',
+                'profileImage',
+                'coverImages',
+                'menuImages',
+                'openingTime',
+                'closingTime',
+                'openDays',
+                'estimatedDeliveryTime',
+                'estimatedDeliveryTimeMinutes',
+                'diningSettings',
+                'isAcceptingOrders',
+                'status',
+                'createdAt',
+                'updatedAt'
+            ].join(' ')
+        }
+    ).lean();
+
+    return toRestaurantProfile(doc);
+};
+
 export const updateRestaurantProfile = async (restaurantId, body = {}) => {
     if (!restaurantId) {
         throw new ValidationError('Invalid restaurant id');
+    }
+
+    const currentRestaurant = await FoodRestaurant.findById(restaurantId)
+        .select('restaurantName restaurantNameNormalized ownerPhone ownerPhoneDigits ownerPhoneLast10 primaryContactNumber status')
+        .lean();
+
+    if (!currentRestaurant) {
+        throw new ValidationError('Restaurant not found');
     }
 
     const update = {};
@@ -436,14 +653,31 @@ export const updateRestaurantProfile = async (restaurantId, body = {}) => {
         if (!digits || digits.length < 8) {
             throw new ValidationError('Owner phone is invalid');
         }
-        update.ownerPhone = digits;
-        update.ownerPhoneDigits = digits;
-        update.ownerPhoneLast10 = last10 || undefined;
+
+        const currentOwnerPhoneDigits =
+            currentRestaurant.ownerPhoneDigits ||
+            normalizePhone(currentRestaurant.ownerPhone).digits ||
+            '';
+
+        if (digits !== currentOwnerPhoneDigits) {
+            update.ownerPhone = digits;
+            update.ownerPhoneDigits = digits;
+            update.ownerPhoneLast10 = last10 || undefined;
+        }
     }
 
     if (body.primaryContactNumber !== undefined) {
         const { digits } = normalizePhone(body.primaryContactNumber);
-        update.primaryContactNumber = digits || String(body.primaryContactNumber || '').trim();
+        const normalizedPrimaryContact =
+            digits || String(body.primaryContactNumber || '').trim();
+        const currentPrimaryContact =
+            currentRestaurant.primaryContactNumber != null
+                ? String(currentRestaurant.primaryContactNumber).trim()
+                : '';
+
+        if (normalizedPrimaryContact !== currentPrimaryContact) {
+            update.primaryContactNumber = normalizedPrimaryContact;
+        }
     }
 
     if (body.pureVegRestaurant !== undefined) {
@@ -461,6 +695,13 @@ export const updateRestaurantProfile = async (restaurantId, body = {}) => {
         } else {
             throw new ValidationError('pureVegRestaurant must be a boolean');
         }
+    }
+
+    if (body.zoneId !== undefined) {
+        const zoneId = String(body.zoneId || '').trim();
+        update.zoneId = zoneId && mongoose.Types.ObjectId.isValid(zoneId)
+            ? new mongoose.Types.ObjectId(zoneId)
+            : undefined;
     }
 
     // Bank + UPI fields (Explore -> Update Bank Details page)
@@ -490,8 +731,15 @@ export const updateRestaurantProfile = async (restaurantId, body = {}) => {
         if (!name) {
             throw new ValidationError('Restaurant name cannot be empty');
         }
-        update.restaurantName = name;
-        update.restaurantNameNormalized = normalizeName(name) || undefined;
+        const normalizedName = normalizeName(name) || undefined;
+        const currentName = String(currentRestaurant.restaurantName || '').trim();
+        const currentNormalizedName =
+            currentRestaurant.restaurantNameNormalized || normalizeName(currentName) || undefined;
+
+        if (name !== currentName || normalizedName !== currentNormalizedName) {
+            update.restaurantName = name;
+            update.restaurantNameNormalized = normalizedName;
+        }
     }
 
     if (body.cuisines !== undefined) {
@@ -511,6 +759,7 @@ export const updateRestaurantProfile = async (restaurantId, body = {}) => {
             throw new ValidationError('Location must be an object');
         }
         const toStr = (v) => (v != null ? String(v).trim() : '');
+        const formattedAddress = toStr(loc.formattedAddress || loc.address);
         update.addressLine1 = toStr(loc.addressLine1);
         update.addressLine2 = toStr(loc.addressLine2);
         update.area = toStr(loc.area);
@@ -522,8 +771,52 @@ export const updateRestaurantProfile = async (restaurantId, body = {}) => {
         // Optional geo coords for server-side distance filtering.
         const lat = toFiniteNumber(loc.latitude);
         const lng = toFiniteNumber(loc.longitude);
-        if (lat !== null && lng !== null) {
-            update.location = { type: 'Point', coordinates: [lng, lat] };
+        update.location = {
+            type: 'Point',
+            coordinates: lat !== null && lng !== null ? [lng, lat] : undefined,
+            latitude: lat ?? undefined,
+            longitude: lng ?? undefined,
+            formattedAddress,
+            address: formattedAddress,
+            addressLine1: toStr(loc.addressLine1),
+            addressLine2: toStr(loc.addressLine2),
+            area: toStr(loc.area),
+            city: toStr(loc.city),
+            state: toStr(loc.state),
+            pincode: toStr(loc.pincode),
+            landmark: toStr(loc.landmark)
+        };
+    }
+
+    if (body.openingTime !== undefined) {
+        update.openingTime = normalizeRestaurantTime(body.openingTime) || '';
+    }
+    if (body.closingTime !== undefined) {
+        update.closingTime = normalizeRestaurantTime(body.closingTime) || '';
+    }
+    if (body.openDays !== undefined) {
+        if (!Array.isArray(body.openDays)) {
+            throw new ValidationError('openDays must be an array');
+        }
+        update.openDays = body.openDays
+            .map((day) => String(day || '').trim())
+            .filter(Boolean)
+            .slice(0, 7);
+    }
+    if (body.estimatedDeliveryTime !== undefined) {
+        const estimatedDeliveryTimeText = String(body.estimatedDeliveryTime || '').trim();
+        update.estimatedDeliveryTime = estimatedDeliveryTimeText;
+        update.estimatedDeliveryTimeMinutes = parseEstimatedDeliveryMinutes(estimatedDeliveryTimeText) ?? undefined;
+    }
+
+    const openingMinutes = body.openingTime !== undefined ? timeToMinutes(update.openingTime) : null;
+    const closingMinutes = body.closingTime !== undefined ? timeToMinutes(update.closingTime) : null;
+    if (openingMinutes !== null && closingMinutes !== null) {
+        if (openingMinutes === closingMinutes) {
+            throw new ValidationError('Opening time and closing time cannot be same');
+        }
+        if (closingMinutes < openingMinutes) {
+            throw new ValidationError('Closing time cannot be less than opening time');
         }
     }
 
@@ -538,14 +831,94 @@ export const updateRestaurantProfile = async (restaurantId, body = {}) => {
         update.menuImages = urls;
     }
 
+    if (body.coverImages !== undefined) {
+        if (!Array.isArray(body.coverImages)) {
+            throw new ValidationError('coverImages must be an array');
+        }
+        const urls = body.coverImages
+            .map((m) => toUrl(m))
+            .filter(Boolean)
+            .slice(0, 20);
+        update.coverImages = urls;
+    }
+
+    if (body.profileImage !== undefined) {
+        update.profileImage = toUrl(body.profileImage) || '';
+    }
+
+    if (body.panNumber !== undefined) {
+        update.panNumber = String(body.panNumber || '').trim().toUpperCase();
+    }
+    if (body.nameOnPan !== undefined) {
+        update.nameOnPan = String(body.nameOnPan || '').trim();
+    }
+    if (body.panImage !== undefined) {
+        update.panImage = toUrl(body.panImage) || '';
+    }
+    if (body.gstRegistered !== undefined) {
+        if (typeof body.gstRegistered === 'boolean') {
+            update.gstRegistered = body.gstRegistered;
+        } else if (typeof body.gstRegistered === 'string') {
+            const normalized = body.gstRegistered.trim().toLowerCase();
+            if (normalized === 'true' || normalized === '1' || normalized === 'yes') {
+                update.gstRegistered = true;
+            } else if (normalized === 'false' || normalized === '0' || normalized === 'no') {
+                update.gstRegistered = false;
+            } else {
+                throw new ValidationError('gstRegistered must be a boolean');
+            }
+        } else {
+            throw new ValidationError('gstRegistered must be a boolean');
+        }
+    }
+    if (body.gstNumber !== undefined) {
+        update.gstNumber = String(body.gstNumber || '').trim().toUpperCase();
+    }
+    if (body.gstLegalName !== undefined) {
+        update.gstLegalName = String(body.gstLegalName || '').trim();
+    }
+    if (body.gstAddress !== undefined) {
+        update.gstAddress = String(body.gstAddress || '').trim();
+    }
+    if (body.gstImage !== undefined) {
+        update.gstImage = toUrl(body.gstImage) || '';
+    }
+    if (body.fssaiNumber !== undefined) {
+        update.fssaiNumber = String(body.fssaiNumber || '').trim();
+    }
+    if (body.fssaiExpiry !== undefined) {
+        const rawExpiry = String(body.fssaiExpiry || '').trim();
+        if (!rawExpiry) {
+            update.fssaiExpiry = null;
+        } else {
+            const parsedExpiry = new Date(rawExpiry);
+            if (Number.isNaN(parsedExpiry.getTime())) {
+                throw new ValidationError('FSSAI expiry date is invalid');
+            }
+            update.fssaiExpiry = parsedExpiry;
+        }
+    }
+    if (body.fssaiImage !== undefined) {
+        update.fssaiImage = toUrl(body.fssaiImage) || '';
+    }
+
     if (!Object.keys(update).length) {
         return getCurrentRestaurantProfile(restaurantId);
     }
 
+    update.status = 'pending';
+
     try {
         const doc = await FoodRestaurant.findByIdAndUpdate(
             restaurantId,
-            { $set: update },
+            {
+                $set: update,
+                $unset: {
+                    approvedAt: 1,
+                    rejectedAt: 1,
+                    rejectionReason: 1
+                }
+            },
             {
                 new: true,
                 runValidators: true,
@@ -564,9 +937,10 @@ export const updateRestaurantProfile = async (restaurantId, body = {}) => {
                     'ownerEmail',
                     'ownerPhone',
                     'primaryContactNumber',
-                    'pureVegRestaurant',
-                    'profileImage',
-                    'menuImages',
+                'pureVegRestaurant',
+                'profileImage',
+                'coverImages',
+                'menuImages',
                     'openingTime',
                     'closingTime',
                     'openDays',
@@ -591,13 +965,18 @@ export const updateRestaurantProfile = async (restaurantId, body = {}) => {
                     'upiId',
                     'upiQrImage',
                     'estimatedDeliveryTime',
-                    'featuredDish',
-                    'featuredPrice',
-                    'offer',
+                    'estimatedDeliveryTimeMinutes',
                     'zoneId'
                 ].join(' ')
             }
         ).lean();
+
+        if (currentRestaurant.status !== 'pending') {
+            const restaurantNameForNotification =
+                update.restaurantName || currentRestaurant.restaurantName || doc?.restaurantName;
+            void notifyAdminsAboutRestaurantProfileReview(restaurantId, restaurantNameForNotification);
+        }
+
         return toRestaurantProfile(doc);
     } catch (err) {
         if (err && err.code === 11000) {
@@ -611,14 +990,34 @@ export const uploadRestaurantProfileImage = async (restaurantId, file) => {
     if (!restaurantId) throw new ValidationError('Invalid restaurant id');
     if (!file?.buffer) throw new ValidationError('Image file is required');
 
+    const currentRestaurant = await FoodRestaurant.findById(restaurantId)
+        .select('restaurantName status')
+        .lean();
+    if (!currentRestaurant) throw new ValidationError('Restaurant not found');
+
     const url = await uploadImageBuffer(file.buffer, 'food/restaurants/profile');
     const doc = await FoodRestaurant.findByIdAndUpdate(
         restaurantId,
-        { $set: { profileImage: url } },
-        { new: true, projection: 'profileImage restaurantName cuisines location menuImages addressLine1 addressLine2 area city state pincode landmark ownerName ownerEmail ownerPhone primaryContactNumber pureVegRestaurant openingTime closingTime openDays status createdAt updatedAt' }
+        {
+            $set: {
+                profileImage: url,
+                status: 'pending'
+            },
+            $unset: {
+                approvedAt: 1,
+                rejectedAt: 1,
+                rejectionReason: 1
+            }
+        },
+        { new: true, projection: 'profileImage coverImages restaurantName cuisines location menuImages addressLine1 addressLine2 area city state pincode landmark ownerName ownerEmail ownerPhone primaryContactNumber pureVegRestaurant openingTime closingTime openDays status createdAt updatedAt' }
     ).lean();
 
     if (!doc) throw new ValidationError('Restaurant not found');
+
+    if (currentRestaurant.status !== 'pending') {
+        void notifyAdminsAboutRestaurantProfileReview(restaurantId, currentRestaurant.restaurantName || doc.restaurantName);
+    }
+
     return { profileImage: { url } };
 };
 
@@ -626,6 +1025,119 @@ export const uploadRestaurantMenuImage = async (file) => {
     if (!file?.buffer) throw new ValidationError('Image file is required');
     const url = await uploadImageBuffer(file.buffer, 'food/restaurants/menu');
     return { menuImage: { url, publicId: null } };
+};
+
+export const uploadRestaurantCoverImages = async (restaurantId, files = []) => {
+    if (!restaurantId) throw new ValidationError('Invalid restaurant id');
+    if (!Array.isArray(files) || files.length === 0) {
+        throw new ValidationError('At least one image file is required');
+    }
+
+    const validFiles = files.filter((file) => file?.buffer);
+    if (validFiles.length === 0) {
+        throw new ValidationError('At least one valid image file is required');
+    }
+
+    const currentRestaurant = await FoodRestaurant.findById(restaurantId)
+        .select('restaurantName status profileImage coverImages')
+        .lean();
+    if (!currentRestaurant) throw new ValidationError('Restaurant not found');
+
+    const uploadedUrls = await Promise.all(
+        validFiles.slice(0, 20).map((file) => uploadImageBuffer(file.buffer, 'food/restaurants/cover'))
+    );
+    const existingCoverImages = Array.isArray(currentRestaurant.coverImages)
+        ? currentRestaurant.coverImages.map((image) => toUrl(image)).filter(Boolean)
+        : [];
+    const nextCoverImages = [...existingCoverImages];
+
+    uploadedUrls.forEach((url) => {
+        if (!nextCoverImages.includes(url)) nextCoverImages.push(url);
+    });
+
+    const update = {
+        coverImages: nextCoverImages.slice(0, 20),
+        status: 'pending'
+    };
+
+    if (!toUrl(currentRestaurant.profileImage) && uploadedUrls[0]) {
+        update.profileImage = uploadedUrls[0];
+    }
+
+    await FoodRestaurant.findByIdAndUpdate(
+        restaurantId,
+        {
+            $set: update,
+            $unset: {
+                approvedAt: 1,
+                rejectedAt: 1,
+                rejectionReason: 1
+            }
+        },
+        { new: true }
+    ).lean();
+
+    if (currentRestaurant.status !== 'pending') {
+        void notifyAdminsAboutRestaurantProfileReview(restaurantId, currentRestaurant.restaurantName || '');
+    }
+
+    return {
+        coverImages: uploadedUrls.map((url) => ({ url, publicId: null })),
+        profileImage: update.profileImage ? { url: update.profileImage } : undefined
+    };
+};
+
+export const uploadRestaurantMenuImages = async (restaurantId, files = []) => {
+    if (!restaurantId) throw new ValidationError('Invalid restaurant id');
+    if (!Array.isArray(files) || files.length === 0) {
+        throw new ValidationError('At least one image file is required');
+    }
+
+    const validFiles = files.filter((file) => file?.buffer);
+    if (validFiles.length === 0) {
+        throw new ValidationError('At least one valid image file is required');
+    }
+
+    const currentRestaurant = await FoodRestaurant.findById(restaurantId)
+        .select('restaurantName status menuImages')
+        .lean();
+    if (!currentRestaurant) throw new ValidationError('Restaurant not found');
+
+    const uploadedUrls = await Promise.all(
+        validFiles.slice(0, 20).map((file) => uploadImageBuffer(file.buffer, 'food/restaurants/menu'))
+    );
+    const existingMenuImages = Array.isArray(currentRestaurant.menuImages)
+        ? currentRestaurant.menuImages.map((image) => toUrl(image)).filter(Boolean)
+        : [];
+    const nextMenuImages = [...existingMenuImages];
+
+    uploadedUrls.forEach((url) => {
+        if (!nextMenuImages.includes(url)) nextMenuImages.push(url);
+    });
+
+    await FoodRestaurant.findByIdAndUpdate(
+        restaurantId,
+        {
+            $set: {
+                menuImages: nextMenuImages.slice(0, 20),
+                status: 'pending'
+            },
+            $unset: {
+                approvedAt: 1,
+                rejectedAt: 1,
+                rejectionReason: 1
+            }
+        },
+        { new: true }
+    ).lean();
+
+    if (currentRestaurant.status !== 'pending') {
+        void notifyAdminsAboutRestaurantProfileReview(restaurantId, currentRestaurant.restaurantName || '');
+    }
+
+    return {
+        menuImages: uploadedUrls.map((url) => ({ url, publicId: null }))
+    };
 };
 
 export const listApprovedRestaurants = async (query = {}) => {
@@ -710,6 +1222,8 @@ export const listApprovedRestaurants = async (query = {}) => {
         city: 1,
         cuisines: 1,
         profileImage: 1,
+        coverImages: 1,
+        menuImages: 1,
         estimatedDeliveryTime: 1,
         estimatedDeliveryTimeMinutes: 1,
         offer: 1,
@@ -807,6 +1321,7 @@ export const listApprovedRestaurants = async (query = {}) => {
         rating: normalizeRatingValue(r.rating),
         totalRatings: normalizeTotalRatingsValue(r.totalRatings),
         profileImage: r.profileImage ? { url: r.profileImage } : null,
+        coverImages: Array.isArray(r.coverImages) ? r.coverImages : [],
         openingTime: r.openingTime || null,
         closingTime: r.closingTime || null,
         openDays: Array.isArray(r.openDays) ? r.openDays : [],

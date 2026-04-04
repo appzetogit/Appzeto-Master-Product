@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import { FoodDeliveryPartner } from '../models/deliveryPartner.model.js';
 import { DeliverySupportTicket } from '../models/supportTicket.model.js';
 import { DeliveryBonusTransaction } from '../../admin/models/deliveryBonusTransaction.model.js';
+import { FoodEarningAddon } from '../../admin/models/earningAddon.model.js';
 import { FoodOrder } from '../../orders/models/order.model.js';
 import { uploadImageBuffer } from '../../../../services/cloudinary.service.js';
 import { ValidationError } from '../../../../core/auth/errors.js';
@@ -10,7 +11,7 @@ import { getDeliveryCashLimitSettings } from '../../admin/services/admin.service
 export const registerDeliveryPartner = async (payload, files) => {
     const { 
         name, phone, email, countryCode, address, city, state, 
-        vehicleType, vehicleName, vehicleNumber, panNumber, aadharNumber,
+        vehicleType, vehicleName, vehicleNumber, drivingLicenseNumber, panNumber, aadharNumber,
         fcmToken, platform 
     } = payload;
     const refRaw = typeof payload?.ref === 'string' ? String(payload.ref).trim() : '';
@@ -53,6 +54,7 @@ export const registerDeliveryPartner = async (payload, files) => {
         vehicleType,
         vehicleName,
         vehicleNumber,
+        drivingLicenseNumber,
         panNumber,
         aadharNumber,
         status: 'pending',
@@ -110,7 +112,7 @@ export const updateDeliveryPartnerProfile = async (userId, payload, files) => {
 
     const {
         name, countryCode, address, city, state,
-        vehicleType, vehicleName, vehicleNumber, panNumber, aadharNumber,
+        vehicleType, vehicleName, vehicleNumber, drivingLicenseNumber, panNumber, aadharNumber,
         fcmToken, platform
     } = payload;
 
@@ -122,6 +124,7 @@ export const updateDeliveryPartnerProfile = async (userId, payload, files) => {
     if (vehicleType !== undefined) partner.vehicleType = vehicleType;
     if (vehicleName !== undefined) partner.vehicleName = vehicleName;
     if (vehicleNumber !== undefined) partner.vehicleNumber = vehicleNumber;
+    if (drivingLicenseNumber !== undefined) partner.drivingLicenseNumber = drivingLicenseNumber;
 
     if (fcmToken) {
         if (platform === 'mobile') {
@@ -294,7 +297,10 @@ export const updateDeliveryAvailability = async (userId, payload) => {
         throw new ValidationError('Delivery partner not found');
     }
     const { status, latitude, longitude } = payload || {};
-    const validStatus = status === 'online' || status === 'offline' ? status : 'offline';
+    let validStatus = 'offline';
+    if (status === 'online' || status === true) validStatus = 'online';
+    else if (status === 'offline' || status === false) validStatus = 'offline';
+    
     partner.availabilityStatus = validStatus;
     if (typeof latitude === 'number' && typeof longitude === 'number') {
         partner.lastLocation = {
@@ -303,6 +309,7 @@ export const updateDeliveryAvailability = async (userId, payload) => {
         };
         partner.lastLat = latitude;
         partner.lastLng = longitude;
+        partner.lastLocationAt = new Date();
     }
     await partner.save();
     return { availabilityStatus: partner.availabilityStatus };
@@ -663,10 +670,16 @@ export const getDeliveryPocketDetails = async (deliveryPartnerId, query = {}) =>
     const orders = await FoodOrder.find({
         'dispatch.deliveryPartnerId': partnerId,
         orderStatus: 'delivered',
-        'deliveryState.deliveredAt': { $gte: start, $lte: end }
+        $or: [
+            { 'deliveryState.deliveredAt': { $gte: start, $lte: end } },
+            { deliveredAt: { $gte: start, $lte: end } },
+            { completedAt: { $gte: start, $lte: end } },
+            { updatedAt: { $gte: start, $lte: end } },
+            { createdAt: { $gte: start, $lte: end } }
+        ]
     })
         .populate({ path: 'restaurantId', select: 'restaurantName' })
-        .sort({ 'deliveryState.deliveredAt': -1 })
+        .sort({ 'deliveryState.deliveredAt': -1, deliveredAt: -1, completedAt: -1, updatedAt: -1, createdAt: -1 })
         .limit(limit)
         .lean();
 

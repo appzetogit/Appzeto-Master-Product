@@ -31,6 +31,19 @@ import { FoodRestaurantWithdrawal } from '../../restaurant/models/foodRestaurant
 import { FoodDeliveryWithdrawal } from '../../delivery/models/foodDeliveryWithdrawal.model.js';
 import { FoodDeliveryWallet } from '../../delivery/models/deliveryWallet.model.js';
 import { FoodDeliveryCashDeposit } from '../../delivery/models/foodDeliveryCashDeposit.model.js';
+import {
+    backfillLegacyCategoryWorkflow,
+    categoryAllowsFoodType,
+    normalizeCategoryFoodTypeScope,
+    serializeCategoryForResponse
+} from '../../shared/categoryWorkflow.js';
+import {
+    extractRawFoodVariants,
+    getFoodDisplayPrice,
+    hasFoodVariants,
+    normalizeFoodVariantsInput,
+    serializeFoodVariants
+} from './foodVariant.service.js';
 
 const parseBooleanLike = (value, fieldName) => {
     if (typeof value === 'boolean') return value;
@@ -46,6 +59,61 @@ const toFiniteNumber = (value) => {
     if (value === null || value === undefined || value === '') return null;
     const num = typeof value === 'number' ? value : Number(String(value).trim());
     return Number.isFinite(num) ? num : null;
+};
+
+const normalizeRestaurantTime = (value) => {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+
+    const toHHMM = (hour, minute) => {
+        const h = Number(hour);
+        const m = Number(minute);
+        if (!Number.isFinite(h) || !Number.isFinite(m)) return '';
+        if (h < 0 || h > 23 || m < 0 || m > 59) return '';
+        return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+    };
+
+    const hhmm = raw.match(/^(\d{1,2}):(\d{2})$/);
+    if (hhmm) return toHHMM(hhmm[1], hhmm[2]);
+
+    const ampm = raw.match(/^(\d{1,2}):(\d{2})\s*([AaPp][Mm])$/);
+    if (ampm) {
+        let hour = Number(ampm[1]);
+        const minute = Number(ampm[2]);
+        const period = ampm[3].toUpperCase();
+        if (!Number.isFinite(hour) || !Number.isFinite(minute)) return '';
+        if (hour < 1 || hour > 12 || minute < 0 || minute > 59) return '';
+        if (period === 'AM') hour = hour === 12 ? 0 : hour;
+        if (period === 'PM') hour = hour === 12 ? 12 : hour + 12;
+        return toHHMM(hour, minute);
+    }
+
+    const parsed = new Date(raw);
+    if (!Number.isNaN(parsed.getTime())) {
+        return toHHMM(parsed.getHours(), parsed.getMinutes());
+    }
+
+    return '';
+};
+
+const timeToMinutes = (value) => {
+    const normalized = normalizeRestaurantTime(value);
+    if (!normalized) return null;
+    const [h, m] = normalized.split(':').map(Number);
+    if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
+    return h * 60 + m;
+};
+
+const validateOpeningClosingTimes = (openingTime, closingTime) => {
+    const open = timeToMinutes(openingTime);
+    const close = timeToMinutes(closingTime);
+    if (open === null || close === null) return;
+    if (open === close) {
+        throw new ValidationError('Opening time and closing time cannot be same');
+    }
+    if (close < open) {
+        throw new ValidationError('Closing time cannot be less than opening time');
+    }
 };
 
 export async function getRestaurantComplaints(query = {}) {
@@ -221,7 +289,7 @@ export async function getRestaurants(query) {
             .sort({ createdAt: -1 })
             .skip(skip)
             .limit(limit)
-            .select('restaurantName location area city profileImage status ownerName ownerPhone zoneId')
+            .select('restaurantName location area city profileImage coverImages menuImages status ownerName ownerPhone zoneId')
             .populate('zoneId', 'name zoneName')
             .lean(),
         FoodRestaurant.countDocuments(filter)
@@ -297,6 +365,13 @@ export async function getDashboardStats(query = {}) {
         restaurantMatch.zoneId = zoneId;
     }
 
+    const zoneRestaurantIds = zoneId
+        ? await FoodRestaurant.find({ zoneId }).distinct('_id')
+        : null;
+    const zoneScopedRestaurantMatch = zoneId
+        ? { restaurantId: { $in: zoneRestaurantIds || [] } }
+        : {};
+
     const [
         orderTotalsAgg,
         monthlyAgg,
@@ -331,12 +406,36 @@ export async function getDashboardStats(query = {}) {
                             $cond: [{ $in: ['$orderStatus', PENDING_ORDER_STATUSES] }, 1, 0]
                         }
                     },
-                    revenueTotal: { $sum: { $ifNull: ['$pricing.total', 0] } },
-                    commissionTotal: { $sum: { $ifNull: ['$pricing.restaurantCommission', 0] } },
-                    platformFeeTotal: { $sum: { $ifNull: ['$pricing.platformFee', 0] } },
-                    deliveryFeeTotal: { $sum: { $ifNull: ['$pricing.deliveryFee', 0] } },
-                    gstTotal: { $sum: { $ifNull: ['$pricing.tax', 0] } },
-                    adminNetProfit: { $sum: { $ifNull: ['$platformProfit', 0] } }
+                    revenueTotal: { 
+                        $sum: { 
+                            $cond: [{ $eq: ['$orderStatus', 'delivered'] }, { $ifNull: ['$pricing.total', 0] }, 0] 
+                        } 
+                    },
+                    commissionTotal: { 
+                        $sum: { 
+                            $cond: [{ $eq: ['$orderStatus', 'delivered'] }, { $ifNull: ['$pricing.restaurantCommission', 0] }, 0] 
+                        } 
+                    },
+                    platformFeeTotal: { 
+                        $sum: { 
+                            $cond: [{ $eq: ['$orderStatus', 'delivered'] }, { $ifNull: ['$pricing.platformFee', 0] }, 0] 
+                        } 
+                    },
+                    deliveryFeeTotal: { 
+                        $sum: { 
+                            $cond: [{ $eq: ['$orderStatus', 'delivered'] }, { $ifNull: ['$pricing.deliveryFee', 0] }, 0] 
+                        } 
+                    },
+                    gstTotal: { 
+                        $sum: { 
+                            $cond: [{ $eq: ['$orderStatus', 'delivered'] }, { $ifNull: ['$pricing.tax', 0] }, 0] 
+                        } 
+                    },
+                    adminNetProfit: { 
+                        $sum: { 
+                            $cond: [{ $eq: ['$orderStatus', 'delivered'] }, { $ifNull: ['$platformProfit', 0] }, 0] 
+                        } 
+                    }
                 }
             }
         ]),
@@ -357,12 +456,17 @@ export async function getDashboardStats(query = {}) {
                         month: { $month: '$createdAt' }
                     },
                     orders: { $sum: 1 },
-                    revenue: { $sum: { $ifNull: ['$pricing.total', 0] } },
+                    revenue: { 
+                        $sum: { 
+                            $cond: [{ $eq: ['$orderStatus', 'delivered'] }, { $ifNull: ['$pricing.total', 0] }, 0] 
+                        } 
+                    },
                     commission: {
                         $sum: {
-                            $ifNull: [
-                                '$platformProfit',
-                                { $ifNull: ['$pricing.platformFee', 0] }
+                            $cond: [
+                                { $eq: ['$orderStatus', 'delivered'] },
+                                { $ifNull: ['$platformProfit', { $ifNull: ['$pricing.platformFee', 0] }] },
+                                0
                             ]
                         }
                     }
@@ -370,31 +474,56 @@ export async function getDashboardStats(query = {}) {
             },
             { $sort: { '_id.year': 1, '_id.month': 1 } }
         ]),
-        FoodRestaurant.countDocuments(restaurantMatch),
+        FoodRestaurant.countDocuments({ ...restaurantMatch, status: 'approved' }),
         FoodRestaurant.countDocuments({ ...restaurantMatch, status: 'pending' }),
-        FoodDeliveryPartner.countDocuments({}),
+        FoodDeliveryPartner.countDocuments({ status: 'approved' }),
         FoodDeliveryPartner.countDocuments({ status: 'pending' }),
-        FoodItem.countDocuments({}),
-        FoodAddon.countDocuments({}),
-        FoodUser.countDocuments({}),
-        FoodRestaurant.find({ status: 'pending' }).sort({ createdAt: -1 }).limit(5).select('restaurantName createdAt').lean(),
+        FoodItem.countDocuments({ approvalStatus: 'approved', ...zoneScopedRestaurantMatch }),
+        FoodAddon.countDocuments({ approvalStatus: 'approved', isDeleted: { $ne: true }, ...zoneScopedRestaurantMatch }),
+        zoneId
+            ? FoodOrder.distinct('userId', { ...orderMatch, userId: { $ne: null } }).then((ids) => ids.length)
+            : FoodUser.countDocuments({}),
+        FoodRestaurant.find({ ...restaurantMatch, status: 'pending' }).sort({ createdAt: -1 }).limit(5).select('restaurantName createdAt').lean(),
         FoodDeliveryPartner.find({ status: 'pending' }).sort({ createdAt: -1 }).limit(5).select('name createdAt').lean(),
         FoodOrder.find({ 
+            ...orderMatch,
             orderStatus: { $in: PENDING_ORDER_STATUSES },
-            $or: [
-                { "payment.method": { $in: ["cash", "wallet"] } },
-                { "payment.status": { $in: ["paid", "authorized", "captured", "settled", "refunded"] } },
-            ],
         }).sort({ createdAt: -1 }).limit(5).select('orderId createdAt').lean(),
-        FoodOrder.find({ orderStatus: 'delivered' }).sort({ updatedAt: -1 }).limit(5).select('orderId updatedAt').lean(),
+        FoodOrder.find({ ...orderMatch, orderStatus: 'delivered' }).sort({ updatedAt: -1 }).limit(5).select('orderId updatedAt').lean(),
         FoodOrder.find({ 
+            ...orderMatch,
             orderStatus: { $in: CANCELLED_ORDER_STATUSES },
-            $or: [
-                { "payment.method": { $in: ["cash", "wallet"] } },
-                { "payment.status": { $in: ["paid", "authorized", "captured", "settled", "refunded"] } },
-            ],
         }).sort({ updatedAt: -1 }).limit(5).select('orderId updatedAt').lean(),
-        FoodUser.find({}).sort({ createdAt: -1 }).limit(5).select('name createdAt').lean()
+        zoneId
+            ? FoodOrder.aggregate([
+                { $match: { ...orderMatch, userId: { $ne: null } } },
+                { $sort: { createdAt: -1 } },
+                {
+                    $group: {
+                        _id: '$userId',
+                        createdAt: { $first: '$createdAt' }
+                    }
+                },
+                { $sort: { createdAt: -1 } },
+                { $limit: 5 },
+                {
+                    $lookup: {
+                        from: 'food_users',
+                        localField: '_id',
+                        foreignField: '_id',
+                        as: 'user'
+                    }
+                },
+                { $unwind: '$user' },
+                {
+                    $project: {
+                        _id: '$user._id',
+                        name: '$user.name',
+                        createdAt: 1
+                    }
+                }
+            ])
+            : FoodUser.find({}).sort({ createdAt: -1 }).limit(5).select('name createdAt').lean()
     ]);
 
     const liveSignals = [];
@@ -550,7 +679,15 @@ export async function getTransactionReport(query = {}) {
     }
 
     if (search) {
-        match.orderReadableId = { $regex: search, $options: "i" };
+        const searchRegex = new RegExp(String(search).trim(), "i");
+        const matchingOrders = await FoodOrder.find({ orderId: { $regex: searchRegex } })
+            .select('_id')
+            .lean();
+
+        match.$or = [
+            { orderReadableId: { $regex: searchRegex } },
+            { orderId: { $in: matchingOrders.map((order) => order._id) } }
+        ];
     }
 
     let restaurantIds = null;
@@ -581,18 +718,37 @@ export async function getTransactionReport(query = {}) {
     const transactions = transactionRows.map((tx) => {
         const order = tx.orderId || {};
         const pricing = order.pricing || {};
+        const subtotal = Number(pricing.subtotal || 0) || 0;
+        const packagingFee = Number(pricing.packagingFee || 0) || 0;
+        const deliveryFee = Number(pricing.deliveryFee || 0) || 0;
+        const tax = Number(pricing.tax || 0) || 0;
+        const discount = Number(pricing.discount || 0) || 0;
+        const total = Number(pricing.total || 0) || 0;
+
+        // "Platform fee" should come from pricing.platformFee when available.
+        // For older orders where pricing.platformFee isn't stored, derive it from the pricing equation:
+        // total = subtotal + packagingFee + deliveryFee + platformFee + tax - discount
+        const platformFeeDerived = Math.max(
+            0,
+            total - subtotal - packagingFee - deliveryFee - tax + discount
+        );
+        const platformFee =
+            pricing.platformFee !== undefined && pricing.platformFee !== null
+                ? Number(pricing.platformFee || 0) || 0
+                : platformFeeDerived;
         return {
             id: tx._id,
             orderId: tx.orderReadableId || order.orderId || 'N/A',
             restaurant: tx.restaurantId?.restaurantName || 'N/A',
             customerName: tx.userId?.name || 'Guest',
-            totalItemAmount: pricing.subtotal || 0,
+            totalItemAmount: subtotal,
             itemDiscount: pricing.discount || 0,
             couponDiscount: 0, // Placeholder if you add coupon logic
             referralDiscount: 0, // Placeholder
             discountedAmount: Math.max(0, (pricing.subtotal || 0) - (pricing.discount || 0)),
             vatTax: tx.amounts?.taxAmount || pricing.tax || 0,
             deliveryCharge: pricing.deliveryFee || 0,
+            platformFee,
             orderAmount: tx.amounts?.totalCustomerPaid || pricing.total || 0,
             status: tx.status
         };
@@ -670,7 +826,7 @@ export async function getRestaurantReport(query = {}) {
         return null;
     };
 
-    const formatCurrency = (value) => `â‚¹${Number(value || 0).toFixed(2)}`;
+    const formatCurrency = (value) => `\u20B9${Number(value || 0).toFixed(2)}`;
 
     const limit = Math.min(Math.max(parseInt(query.limit, 10) || 1000, 1), 5000);
     const page = Math.max(parseInt(query.page, 10) || 1, 1);
@@ -896,8 +1052,8 @@ export async function getTaxReport(query = {}) {
             sl: index + 1,
             id: item._id,
             incomeSource: item.incomeSource,
-            totalIncome: `â‚¹${item.totalIncome.toFixed(2)}`,
-            totalTax: `â‚¹${item.totalTax.toFixed(2)}`,
+            totalIncome: `\u20B9${item.totalIncome.toFixed(2)}`,
+            totalTax: `\u20B9${item.totalTax.toFixed(2)}`,
             orderCount: item.orderCount
         };
     });
@@ -905,8 +1061,8 @@ export async function getTaxReport(query = {}) {
     return {
         reports,
         stats: {
-            totalIncome: `â‚¹${stats.totalIncome.toFixed(2)}`,
-            totalTax: `â‚¹${stats.totalTax.toFixed(2)}`
+            totalIncome: `\u20B9${stats.totalIncome.toFixed(2)}`,
+            totalTax: `\u20B9${stats.totalTax.toFixed(2)}`
         }
     };
 }
@@ -938,8 +1094,8 @@ export async function getTaxReportDetail(restaurantId, query = {}) {
         orders: orders.map(o => ({
             id: o._id,
             orderId: o.orderId,
-            totalAmount: `â‚¹${(o.pricing?.total || 0).toFixed(2)}`,
-            taxAmount: `â‚¹${(o.pricing?.tax || 0).toFixed(2)}`,
+            totalAmount: `\u20B9${(o.pricing?.total || 0).toFixed(2)}`,
+            taxAmount: `\u20B9${(o.pricing?.tax || 0).toFixed(2)}`,
             date: o.createdAt
         }))
     };
@@ -1917,10 +2073,14 @@ export async function getRestaurantAnalytics(restaurantId) {
     if (!restaurantId || !mongoose.Types.ObjectId.isValid(restaurantId)) return null;
     const rId = new mongoose.Types.ObjectId(restaurantId);
 
-    const [restaurant, commissionDoc, orders] = await Promise.all([
+    const [restaurant, commissionDoc, orders, txRows] = await Promise.all([
         FoodRestaurant.findById(rId).lean(),
         FoodRestaurantCommission.findOne({ restaurantId: rId, status: { $ne: false } }).lean(),
-        FoodOrder.find({ restaurantId: rId }).lean()
+        FoodOrder.find({ restaurantId: rId }).lean(),
+        FoodTransaction.find({ restaurantId: rId })
+            .populate('orderId', 'orderStatus createdAt pricing')
+            .sort({ createdAt: -1 })
+            .lean(),
     ]);
 
     if (!restaurant) return null;
@@ -1932,28 +2092,49 @@ export async function getRestaurantAnalytics(restaurantId) {
     const completedOrders = orders.filter(o => o.orderStatus === 'delivered');
     const cancelledOrders = orders.filter(o => ['cancelled_by_user', 'cancelled_by_restaurant', 'cancelled_by_admin'].includes(o.orderStatus));
 
-    const totalRevenue = completedOrders.reduce((sum, o) => sum + (o.pricing?.total || 0), 0);
-    const totalCommission = completedOrders.reduce((sum, o) => sum + (o.platformProfit || o.pricing?.platformFee || 0), 0);
-    const restaurantEarning = totalRevenue - totalCommission;
+    // Money metrics should come from the ledger (FoodTransaction), not FoodOrder.
+    const completedTx = (txRows || []).filter((tx) => {
+        const orderStatus = tx?.orderId?.orderStatus;
+        if (orderStatus) return orderStatus === 'delivered';
+        return tx?.status === 'captured' || tx?.status === 'authorized' || tx?.status === 'settled';
+    });
+
+    const sum = (arr, pick) => (arr || []).reduce((s, it) => s + (Number(pick(it)) || 0), 0);
+
+    // 1) Total order value (gross customer paid)
+    const totalRevenue = sum(completedTx, (tx) => tx?.amounts?.totalCustomerPaid ?? tx?.pricing?.total ?? tx?.orderId?.pricing?.total);
+
+    // 2) Restaurant share (payout to restaurant)
+    const restaurantEarning = sum(completedTx, (tx) => tx?.amounts?.restaurantShare);
+
+    // 3) Restaurant commission paid to admin
+    const totalCommission = sum(completedTx, (tx) => tx?.amounts?.restaurantCommission ?? tx?.pricing?.restaurantCommission);
+
+    // 4) Restaurant profit (in this system, equals restaurant share)
+    const restaurantProfit = restaurantEarning;
 
     const monthlyOrdersList = orders.filter(o => {
         const d = new Date(o.createdAt);
         return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
     });
-    const monthlyCompletedOrders = monthlyOrdersList.filter(o => o.orderStatus === 'delivered');
-    const monthlyProfit = monthlyCompletedOrders.reduce((sum, o) => sum + (o.pricing?.total || 0), 0) -
-        monthlyCompletedOrders.reduce((sum, o) => sum + (o.platformProfit || o.pricing?.platformFee || 0), 0);
+    const monthlyCompletedTx = completedTx.filter((tx) => {
+        const d = new Date(tx?.createdAt || tx?.orderId?.createdAt || 0);
+        return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+    });
+    const monthlyProfit = sum(monthlyCompletedTx, (tx) => tx?.amounts?.restaurantShare);
 
     const yearlyOrdersList = orders.filter(o => {
         const d = new Date(o.createdAt);
         return d.getFullYear() === currentYear;
     });
-    const yearlyCompletedOrders = yearlyOrdersList.filter(o => o.orderStatus === 'delivered');
-    const yearlyProfit = yearlyCompletedOrders.reduce((sum, o) => sum + (o.pricing?.total || 0), 0) -
-        yearlyCompletedOrders.reduce((sum, o) => sum + (o.platformProfit || o.pricing?.platformFee || 0), 0);
+    const yearlyCompletedTx = completedTx.filter((tx) => {
+        const d = new Date(tx?.createdAt || tx?.orderId?.createdAt || 0);
+        return d.getFullYear() === currentYear;
+    });
+    const yearlyProfit = sum(yearlyCompletedTx, (tx) => tx?.amounts?.restaurantShare);
 
     const totalOrdersCount = orders.length;
-    const avgOrderValue = totalOrdersCount > 0 ? totalRevenue / completedOrders.length || 0 : 0;
+    const avgOrderValue = completedTx.length > 0 ? totalRevenue / completedTx.length : 0;
 
     const uniqueCustomers = new Set(orders.map(o => String(o.userId))).size;
     const customerOrderCounts = orders.reduce((acc, o) => {
@@ -1963,19 +2144,29 @@ export async function getRestaurantAnalytics(restaurantId) {
     }, {});
     const repeatCustomers = Object.values(customerOrderCounts).filter(count => count > 1).length;
 
+    // 5) Restaurant commission percent
+    const commissionType = commissionDoc?.defaultCommission?.type || 'percentage';
+    const commissionValue = Number(commissionDoc?.defaultCommission?.value || 0) || 0;
+    const completedSubtotal = sum(completedTx, (tx) => tx?.pricing?.subtotal ?? tx?.orderId?.pricing?.subtotal);
+    const computedCommissionPercent =
+        commissionType === 'percentage'
+            ? commissionValue
+            : (completedSubtotal > 0 ? (totalCommission / completedSubtotal) * 100 : 0);
+
     const analytics = {
         totalOrders: totalOrdersCount,
         cancelledOrders: cancelledOrders.length,
         completedOrders: completedOrders.length,
         averageRating: Number(restaurant.rating || 0),
         totalRatings: Number(restaurant.totalRatings || 0),
-        commissionPercentage: commissionDoc?.defaultCommission?.value || 0,
+        commissionPercentage: computedCommissionPercent,
         monthlyProfit,
         yearlyProfit,
         averageOrderValue: avgOrderValue,
         totalRevenue,
         totalCommission,
-        restaurantEarning,
+        restaurantEarning, // restaurant share
+        restaurantProfit,
         monthlyOrders: monthlyOrdersList.length,
         yearlyOrders: yearlyOrdersList.length,
         averageMonthlyProfit: monthlyProfit, // Placeholder: can be improved if historical data exists
@@ -1988,7 +2179,25 @@ export async function getRestaurantAnalytics(restaurantId) {
         completionRate: totalOrdersCount > 0 ? (completedOrders.length / totalOrdersCount) * 100 : 0
     };
 
-    return { restaurant, analytics };
+    const paymentSummary = {
+        // Pricing (what customer paid components)
+        subtotal: sum(completedTx, (tx) => tx?.pricing?.subtotal ?? tx?.orderId?.pricing?.subtotal),
+        tax: sum(completedTx, (tx) => tx?.pricing?.tax ?? tx?.amounts?.taxAmount ?? tx?.orderId?.pricing?.tax),
+        packagingFee: sum(completedTx, (tx) => tx?.pricing?.packagingFee ?? tx?.orderId?.pricing?.packagingFee),
+        deliveryFee: sum(completedTx, (tx) => tx?.pricing?.deliveryFee ?? tx?.orderId?.pricing?.deliveryFee),
+        platformFee: sum(completedTx, (tx) => tx?.pricing?.platformFee ?? tx?.orderId?.pricing?.platformFee),
+        discount: sum(completedTx, (tx) => tx?.pricing?.discount ?? tx?.orderId?.pricing?.discount),
+        total: totalRevenue,
+        currency: 'INR',
+
+        // Split (who got what)
+        restaurantShare: restaurantEarning,
+        restaurantCommission: totalCommission,
+        riderShare: sum(completedTx, (tx) => tx?.amounts?.riderShare),
+        platformNetProfit: sum(completedTx, (tx) => tx?.amounts?.platformNetProfit),
+    };
+
+    return { restaurant, analytics, paymentSummary };
 }
 
 export async function getRestaurantMenuById(id) {
@@ -2067,8 +2276,9 @@ export async function updateRestaurantById(id, body = {}) {
         }
     }
 
-    if (body.openingTime !== undefined) doc.openingTime = toStr(body.openingTime);
-    if (body.closingTime !== undefined) doc.closingTime = toStr(body.closingTime);
+    if (body.openingTime !== undefined) doc.openingTime = normalizeRestaurantTime(body.openingTime) || '';
+    if (body.closingTime !== undefined) doc.closingTime = normalizeRestaurantTime(body.closingTime) || '';
+    validateOpeningClosingTimes(doc.openingTime, doc.closingTime);
     if (body.openDays !== undefined && Array.isArray(body.openDays)) {
         doc.openDays = body.openDays.map(d => toStr(d)).filter(Boolean);
     }
@@ -2235,9 +2445,34 @@ export async function getCategories(query) {
             filter.zoneId = new mongoose.Types.ObjectId(zid);
         }
     }
-    if (query.isApproved !== undefined) {
-        // Backward compatible: treat missing isApproved as approved.
-        filter.isApproved = query.isApproved === true ? { $ne: false } : false;
+    if (query.approvalStatus) {
+        const approvalStatus = String(query.approvalStatus);
+        if (approvalStatus === 'pending') {
+            filter.$and = [...(filter.$and || []), {
+                $or: [
+                    { approvalStatus: 'pending' },
+                    { approvalStatus: { $exists: false }, isApproved: false }
+                ]
+            }];
+        } else {
+            filter.approvalStatus = approvalStatus;
+        }
+    } else if (query.isApproved !== undefined) {
+        if (query.isApproved === true) {
+            filter.$and = [...(filter.$and || []), {
+                $or: [
+                    { approvalStatus: 'approved' },
+                    { approvalStatus: { $exists: false }, isApproved: { $ne: false } }
+                ]
+            }];
+        } else {
+            filter.$and = [...(filter.$and || []), {
+                $or: [
+                    { approvalStatus: 'pending' },
+                    { approvalStatus: { $exists: false }, isApproved: false }
+                ]
+            }];
+        }
     }
 
     const [list, total] = await Promise.all([
@@ -2245,34 +2480,32 @@ export async function getCategories(query) {
             .sort({ sortOrder: 1, createdAt: -1 })
             .skip(skip)
             .limit(limit)
-            .populate('zoneId', 'name zoneName isActive')
-            .populate('restaurantId', 'restaurantName ownerName ownerPhone')
             .lean(),
         FoodCategory.countDocuments(filter)
     ]);
 
-    const categories = list.map((c) => ({
-        id: c._id,
-        name: c.name,
-        image: c.image || '',
-        type: c.type || '',
-        status: c.isActive !== false,
-        isActive: c.isActive !== false,
-        isApproved: c.isApproved !== false,
-        restaurantId: c.restaurantId?._id ? String(c.restaurantId._id) : (c.restaurantId ? String(c.restaurantId) : null),
-        restaurant: c.restaurantId?._id
-            ? {
-                _id: c.restaurantId._id,
-                name: c.restaurantId.restaurantName || '',
-                ownerName: c.restaurantId.ownerName || '',
-                ownerPhone: c.restaurantId.ownerPhone || ''
-            }
-            : null,
-        zoneId: c.zoneId || null,
-        sortOrder: c.sortOrder || 0,
-        createdAt: c.createdAt,
-        updatedAt: c.updatedAt
+    const statsById = await backfillLegacyCategoryWorkflow(list);
+    const restaurantIds = Array.from(
+        new Set(
+            list
+                .flatMap((category) => [category?.restaurantId, category?.createdByRestaurantId])
+                .map((value) => (value ? String(value) : ''))
+                .filter(Boolean)
+        )
+    );
+    const restaurants = restaurantIds.length
+        ? await FoodRestaurant.find({ _id: { $in: restaurantIds } })
+            .select('restaurantName ownerName ownerPhone')
+            .lean()
+        : [];
+    const restaurantMap = new Map(restaurants.map((restaurant) => [String(restaurant._id), restaurant]));
+
+    const hydratedList = list.map((category) => ({
+        ...category,
+        restaurantId: category?.restaurantId ? restaurantMap.get(String(category.restaurantId)) || category.restaurantId : category.restaurantId,
+        createdByRestaurantId: category?.createdByRestaurantId ? restaurantMap.get(String(category.createdByRestaurantId)) || category.createdByRestaurantId : category.createdByRestaurantId
     }));
+    const categories = hydratedList.map((category) => serializeCategoryForResponse(category, { includeCounts: true, statsById }));
 
     return { categories, total, page, limit };
 }
@@ -2284,6 +2517,7 @@ export async function createCategory(body) {
         name,
         image: typeof body.image === 'string' ? body.image.trim() : '',
         type: typeof body.type === 'string' ? body.type.trim() : '',
+        foodTypeScope: normalizeCategoryFoodTypeScope(body.foodTypeScope, 'Both'),
         zoneId:
             body.zoneId && String(body.zoneId).trim()
                 ? (() => {
@@ -2296,8 +2530,12 @@ export async function createCategory(body) {
         isActive: body.isActive !== false,
         sortOrder: Number.isFinite(Number(body.sortOrder)) ? Number(body.sortOrder) : 0,
         // Admin-created categories are globally available immediately.
+        approvalStatus: 'approved',
         isApproved: true,
-        restaurantId: undefined
+        approvedAt: new Date(),
+        rejectionReason: '',
+        restaurantId: undefined,
+        createdByRestaurantId: undefined
     });
     await doc.save();
     return doc.toObject();
@@ -2305,22 +2543,91 @@ export async function createCategory(body) {
 
 export async function approveCategory(id) {
     if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
-    const updated = await FoodCategory.findOneAndUpdate(
-        { _id: id, isApproved: { $ne: true } },
-        { $set: { isApproved: true } },
-        { new: true }
-    ).lean();
-    return updated || null;
+    const doc = await FoodCategory.findById(id);
+    if (!doc) return null;
+
+    if (!doc.createdByRestaurantId && doc.restaurantId) {
+        doc.createdByRestaurantId = doc.restaurantId;
+    }
+    doc.approvalStatus = 'approved';
+    doc.isApproved = true;
+    doc.approvedAt = new Date();
+    doc.rejectedAt = undefined;
+    doc.rejectionReason = '';
+    await doc.save();
+    return doc.toObject();
+}
+
+export async function rejectCategory(id, reason) {
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
+    const doc = await FoodCategory.findById(id);
+    if (!doc) return null;
+    if (!doc.restaurantId && !doc.createdByRestaurantId) {
+        throw new ValidationError('Only restaurant-created categories can be rejected');
+    }
+
+    if (!doc.createdByRestaurantId && doc.restaurantId) {
+        doc.createdByRestaurantId = doc.restaurantId;
+    }
+    doc.approvalStatus = 'rejected';
+    doc.isApproved = false;
+    doc.rejectionReason = String(reason || '').trim();
+    doc.rejectedAt = new Date();
+    doc.approvedAt = undefined;
+    await doc.save();
+    return doc.toObject();
+}
+
+export async function makeCategoryGlobal(id) {
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
+    const doc = await FoodCategory.findById(id);
+    if (!doc) return null;
+
+    if (!doc.restaurantId && !doc.createdByRestaurantId) {
+        return doc.toObject();
+    }
+    if (String(doc.approvalStatus || '') !== 'approved' && doc.isApproved !== true) {
+        throw new ValidationError('Only approved categories can be made global');
+    }
+
+    doc.createdByRestaurantId = doc.createdByRestaurantId || doc.restaurantId;
+    doc.restaurantId = undefined;
+    doc.zoneId = undefined;
+    doc.approvalStatus = 'approved';
+    doc.isApproved = true;
+    doc.rejectionReason = '';
+    doc.globalizedAt = new Date();
+    doc.approvedAt = doc.approvedAt || new Date();
+    await doc.save();
+    return doc.toObject();
 }
 
 export async function updateCategory(id, body) {
     if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
     const doc = await FoodCategory.findById(id);
     if (!doc) return null;
+
+    const nextFoodTypeScope = body.foodTypeScope !== undefined
+        ? normalizeCategoryFoodTypeScope(body.foodTypeScope, doc.foodTypeScope || 'Both')
+        : normalizeCategoryFoodTypeScope(doc.foodTypeScope, 'Both');
+
+    if (body.foodTypeScope !== undefined && nextFoodTypeScope !== 'Both') {
+        const incompatibleFoods = await FoodItem.countDocuments({
+            categoryId: doc._id,
+            foodType: nextFoodTypeScope === 'Veg' ? 'Non-Veg' : 'Veg'
+        });
+        if (incompatibleFoods > 0) {
+            throw new ValidationError(`This category already has ${incompatibleFoods} food item(s) outside the selected diet scope`);
+        }
+    }
+
     if (body.name !== undefined) doc.name = String(body.name || '').trim();
     if (body.image !== undefined) doc.image = String(body.image || '').trim();
     if (body.type !== undefined) doc.type = String(body.type || '').trim();
-    if (body.zoneId !== undefined) {
+    if (body.foodTypeScope !== undefined) doc.foodTypeScope = nextFoodTypeScope;
+    if (!doc.restaurantId && doc.createdByRestaurantId) {
+        doc.zoneId = undefined;
+    } else if (body.zoneId !== undefined) {
         const raw = String(body.zoneId || '').trim();
         if (!raw || raw === 'global') {
             doc.zoneId = undefined;
@@ -2331,12 +2638,19 @@ export async function updateCategory(id, body) {
     }
     if (body.isActive !== undefined) doc.isActive = body.isActive !== false;
     if (body.sortOrder !== undefined) doc.sortOrder = Number(body.sortOrder) || 0;
+    if (!doc.createdByRestaurantId && doc.restaurantId) {
+        doc.createdByRestaurantId = doc.restaurantId;
+    }
     await doc.save();
     return doc.toObject();
 }
 
 export async function deleteCategory(id) {
     if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
+    const inUse = await FoodItem.countDocuments({ categoryId: id });
+    if (inUse > 0) {
+        throw new ValidationError('Cannot delete category while it has items');
+    }
     const deleted = await FoodCategory.findByIdAndDelete(id).lean();
     return deleted ? { id } : null;
 }
@@ -2346,6 +2660,9 @@ export async function toggleCategoryStatus(id) {
     const doc = await FoodCategory.findById(id);
     if (!doc) return null;
     doc.isActive = !doc.isActive;
+    if (!doc.createdByRestaurantId && doc.restaurantId) {
+        doc.createdByRestaurantId = doc.restaurantId;
+    }
     await doc.save();
     return doc.toObject();
 }
@@ -2370,7 +2687,16 @@ export async function getRestaurantAddonsAdmin(query = {}) {
     if (query.search && String(query.search).trim()) {
         const raw = String(query.search).trim().slice(0, 80);
         const term = raw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        filter.$or = [{ 'draft.name': { $regex: term, $options: 'i' } }];
+        const matchingRestaurantIds = await FoodRestaurant.find({
+            restaurantName: { $regex: term, $options: 'i' }
+        })
+            .select('_id')
+            .lean();
+
+        filter.$or = [
+            { 'draft.name': { $regex: term, $options: 'i' } },
+            { restaurantId: { $in: matchingRestaurantIds.map((restaurant) => restaurant._id) } }
+        ];
     }
 
     const [list, total] = await Promise.all([
@@ -2408,6 +2734,52 @@ export async function getRestaurantAddonsAdmin(query = {}) {
     }));
 
     return { addons, total, page, limit };
+}
+
+export async function updateRestaurantAddonAdmin(addonId, body) {
+    if (!addonId || !mongoose.Types.ObjectId.isValid(String(addonId))) return null;
+    const _id = new mongoose.Types.ObjectId(String(addonId));
+    
+    const addon = await FoodAddon.findOne({ _id, isDeleted: { $ne: true } });
+    if (!addon) return null;
+
+    const updatePayload = {};
+    if (body.name !== undefined) updatePayload.name = String(body.name || '').trim();
+    if (body.description !== undefined) updatePayload.description = String(body.description || '').trim();
+    if (body.price !== undefined) {
+        const p = Number(body.price);
+        if (!Number.isFinite(p) || p < 0) throw new ValidationError('Price must be a valid positive number');
+        updatePayload.price = p;
+    }
+    if (body.image !== undefined) updatePayload.image = String(body.image || '').trim();
+    if (body.images !== undefined && Array.isArray(body.images)) {
+        updatePayload.images = body.images.map(img => typeof img === 'string' ? img : img?.url).filter(Boolean);
+    } else if (updatePayload.image) {
+        updatePayload.images = [updatePayload.image];
+    }
+
+    // Update draft fields
+    if (addon.draft) {
+        Object.assign(addon.draft, updatePayload);
+    } else {
+        addon.draft = updatePayload;
+    }
+
+    // If already approved, update published state as well
+    if (addon.approvalStatus === 'approved') {
+        if (addon.published) {
+            Object.assign(addon.published, updatePayload);
+        } else {
+            addon.published = updatePayload;
+        }
+    }
+
+    if (body.isAvailable !== undefined) {
+        addon.isAvailable = body.isAvailable === true;
+    }
+
+    await addon.save();
+    return addon.toObject();
 }
 
 export async function approveRestaurantAddon(addonId) {
@@ -2544,7 +2916,9 @@ export async function getFoods(query) {
         categoryName: f.categoryName || '',
         name: f.name,
         description: f.description || '',
-        price: f.price || 0,
+        price: getFoodDisplayPrice(f),
+        variants: serializeFoodVariants(f.variants),
+        variations: serializeFoodVariants(f.variants),
         image: f.image || '',
         foodType: f.foodType || 'Non-Veg',
         isAvailable: f.isAvailable !== false,
@@ -2557,35 +2931,133 @@ export async function getFoods(query) {
     return { foods, total, page, limit };
 }
 
+const resolveAdminFoodCategory = async ({ categoryId, categoryName, foodType, pureVegRestaurant }) => {
+    let resolvedCategoryId = null;
+    let resolvedCategoryName = typeof categoryName === 'string' ? categoryName.trim() : '';
+    let categoryDoc = null;
+
+    if (categoryId) {
+        if (!mongoose.Types.ObjectId.isValid(categoryId)) {
+            throw new ValidationError('Invalid category id');
+        }
+        categoryDoc = await FoodCategory.findById(categoryId)
+            .select('name foodTypeScope')
+            .lean();
+        if (!categoryDoc?._id) {
+            throw new ValidationError('Category not found');
+        }
+        resolvedCategoryId = categoryDoc._id;
+        resolvedCategoryName = categoryDoc.name || resolvedCategoryName;
+    }
+
+    if (!resolvedCategoryName) {
+        throw new ValidationError('Category is required');
+    }
+
+    if (categoryDoc?.foodTypeScope) {
+        if (pureVegRestaurant && String(categoryDoc.foodTypeScope || '') !== 'Veg') {
+            throw new ValidationError('Pure veg restaurants can only use veg categories');
+        }
+        if (!categoryAllowsFoodType(categoryDoc.foodTypeScope, foodType)) {
+            throw new ValidationError(`This ${categoryDoc.foodTypeScope} category cannot accept ${foodType} food`);
+        }
+    }
+
+    return {
+        categoryId: resolvedCategoryId,
+        categoryName: resolvedCategoryName
+    };
+};
+
+const getAdminFoodCreatePricing = (body = {}) => {
+    const variants = normalizeFoodVariantsInput(extractRawFoodVariants(body));
+    if (variants.length > 0) {
+        return {
+            price: getFoodDisplayPrice({ variants }),
+            variants
+        };
+    }
+
+    const price = Number(body.price);
+    if (!Number.isFinite(price) || price <= 0) throw new ValidationError('Price must be greater than 0');
+    return {
+        price,
+        variants: []
+    };
+};
+
+const getAdminFoodUpdatedPricing = (existing = {}, body = {}) => {
+    const variantsTouched = body.variants !== undefined || body.variations !== undefined;
+    const existingHasVariants = hasFoodVariants(existing);
+    const update = {};
+
+    if (variantsTouched) {
+        const variants = normalizeFoodVariantsInput(extractRawFoodVariants(body));
+        update.variants = variants;
+
+        if (variants.length > 0) {
+            update.price = getFoodDisplayPrice({ variants });
+            return update;
+        }
+
+        const nextBasePrice = body.price !== undefined ? Number(body.price) : Number(existingHasVariants ? NaN : existing.price);
+        if (!Number.isFinite(nextBasePrice) || nextBasePrice <= 0) {
+            throw new ValidationError('Base price must be greater than 0 when variants are removed');
+        }
+        update.price = nextBasePrice;
+        return update;
+    }
+
+    if (body.price !== undefined) {
+        if (existingHasVariants) {
+            throw new ValidationError('Update variants instead of base price for foods with variants');
+        }
+        const price = Number(body.price);
+        if (!Number.isFinite(price) || price <= 0) throw new ValidationError('Price must be greater than 0');
+        update.price = price;
+    }
+
+    return update;
+};
+
 export async function createFood(body) {
     const restaurantId = body.restaurantId;
     if (!restaurantId || !mongoose.Types.ObjectId.isValid(restaurantId)) {
         throw new ValidationError('Valid restaurantId is required');
     }
+    const restaurant = await FoodRestaurant.findById(restaurantId)
+        .select('pureVegRestaurant')
+        .lean();
+    if (!restaurant?._id) {
+        throw new ValidationError('Restaurant not found');
+    }
     const name = typeof body.name === 'string' ? body.name.trim() : '';
     if (!name) throw new ValidationError('Food name is required');
-    const price = Number(body.price);
-    if (!Number.isFinite(price) || price <= 0) throw new ValidationError('Price must be greater than 0');
-
-    let categoryId = null;
-    let categoryName = typeof body.categoryName === 'string' ? body.categoryName.trim() : '';
-    if (body.categoryId && mongoose.Types.ObjectId.isValid(body.categoryId)) {
-        categoryId = body.categoryId;
-        const cat = await FoodCategory.findById(categoryId).select('name').lean();
-        if (cat?.name) categoryName = cat.name;
+    const foodType = body.foodType === 'Veg' ? 'Veg' : 'Non-Veg';
+    if (restaurant.pureVegRestaurant === true && foodType !== 'Veg') {
+        throw new ValidationError('Pure veg restaurants can only use veg foods');
     }
+    const { price, variants } = getAdminFoodCreatePricing(body);
+
+    let categoryName = typeof body.categoryName === 'string' ? body.categoryName.trim() : '';
     if (!categoryName && typeof body.category === 'string') categoryName = body.category.trim();
-    if (!categoryName) throw new ValidationError('Category is required');
+    const { categoryId, categoryName: resolvedCategoryName } = await resolveAdminFoodCategory({
+        categoryId: body.categoryId,
+        categoryName,
+        foodType,
+        pureVegRestaurant: restaurant.pureVegRestaurant === true
+    });
 
     const doc = new FoodItem({
         restaurantId,
         categoryId,
-        categoryName,
+        categoryName: resolvedCategoryName,
         name,
         description: typeof body.description === 'string' ? body.description.trim() : '',
         price,
+        variants,
         image: typeof body.image === 'string' ? body.image.trim() : '',
-        foodType: body.foodType === 'Veg' ? 'Veg' : 'Non-Veg',
+        foodType,
         isAvailable: body.isAvailable !== false,
         preparationTime: typeof body.preparationTime === 'string' ? body.preparationTime.trim() : '',
         approvalStatus: 'approved'
@@ -2598,25 +3070,37 @@ export async function updateFood(id, body) {
     if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
     const doc = await FoodItem.findById(id);
     if (!doc) return null;
+    const restaurant = await FoodRestaurant.findById(doc.restaurantId)
+        .select('pureVegRestaurant')
+        .lean();
+    if (!restaurant?._id) {
+        throw new ValidationError('Restaurant not found');
+    }
     if (body.name !== undefined) doc.name = String(body.name || '').trim();
     if (body.description !== undefined) doc.description = String(body.description || '').trim();
-    if (body.price !== undefined) {
-        const price = Number(body.price);
-        if (!Number.isFinite(price) || price <= 0) throw new ValidationError('Price must be greater than 0');
-        doc.price = price;
+    const targetFoodType = body.foodType !== undefined ? (body.foodType === 'Veg' ? 'Veg' : 'Non-Veg') : (doc.foodType === 'Veg' ? 'Veg' : 'Non-Veg');
+    if (restaurant.pureVegRestaurant === true && targetFoodType !== 'Veg') {
+        throw new ValidationError('Pure veg restaurants can only use veg foods');
     }
+    const pricingUpdate = getAdminFoodUpdatedPricing(doc.toObject(), body);
+    if (pricingUpdate.price !== undefined) doc.price = pricingUpdate.price;
+    if (pricingUpdate.variants !== undefined) doc.variants = pricingUpdate.variants;
     if (body.image !== undefined) doc.image = String(body.image || '').trim();
-    if (body.foodType !== undefined) doc.foodType = body.foodType === 'Veg' ? 'Veg' : 'Non-Veg';
+    if (body.foodType !== undefined) doc.foodType = targetFoodType;
     if (body.isAvailable !== undefined) doc.isAvailable = body.isAvailable !== false;
     if (body.preparationTime !== undefined) doc.preparationTime = String(body.preparationTime || '').trim();
-    if (body.categoryId !== undefined && mongoose.Types.ObjectId.isValid(body.categoryId)) {
-        doc.categoryId = body.categoryId;
-        const cat = await FoodCategory.findById(body.categoryId).select('name').lean();
-        if (cat?.name) doc.categoryName = cat.name;
-    } else if (body.categoryName !== undefined) {
-        doc.categoryName = String(body.categoryName || '').trim();
-    } else if (body.category !== undefined) {
-        doc.categoryName = String(body.category || '').trim();
+    if (body.categoryId !== undefined || body.categoryName !== undefined || body.category !== undefined || body.foodType !== undefined) {
+        const nextCategoryName = body.categoryName !== undefined
+            ? String(body.categoryName || '').trim()
+            : (body.category !== undefined ? String(body.category || '').trim() : doc.categoryName);
+        const { categoryId, categoryName } = await resolveAdminFoodCategory({
+            categoryId: body.categoryId !== undefined ? body.categoryId : doc.categoryId,
+            categoryName: nextCategoryName,
+            foodType: targetFoodType,
+            pureVegRestaurant: restaurant.pureVegRestaurant === true
+        });
+        doc.categoryId = categoryId;
+        doc.categoryName = categoryName;
     }
     await doc.save();
     return doc.toObject();
@@ -2633,9 +3117,18 @@ export async function createRestaurantByAdmin(body) {
     const loc = body.location || {};
     const toStr = (v) => (v != null && v !== undefined ? String(v).trim() : '');
     const toUrl = (v) => (v && (typeof v === 'string' ? v : v.url)) ? (typeof v === 'string' ? v : v.url) : undefined;
+    const coordinates = Array.isArray(loc.coordinates) ? loc.coordinates : [];
+    const lngFromCoordinates = toFiniteNumber(coordinates[0]);
+    const latFromCoordinates = toFiniteNumber(coordinates[1]);
+    const latitude = toFiniteNumber(loc.latitude ?? latFromCoordinates);
+    const longitude = toFiniteNumber(loc.longitude ?? lngFromCoordinates);
     const menuUrls = Array.isArray(body.menuImages)
         ? body.menuImages.map((m) => toUrl(m)).filter(Boolean)
         : [];
+
+    const normalizedOpeningTime = normalizeRestaurantTime(body.openingTime) || '09:00';
+    const normalizedClosingTime = normalizeRestaurantTime(body.closingTime) || '22:00';
+    validateOpeningClosingTimes(normalizedOpeningTime, normalizedClosingTime);
 
     const doc = {
         restaurantName: toStr(body.restaurantName) || toStr(body.name),
@@ -2643,6 +3136,9 @@ export async function createRestaurantByAdmin(body) {
         ownerEmail: toStr(body.ownerEmail),
         ownerPhone: toStr(body.ownerPhone),
         primaryContactNumber: toStr(body.primaryContactNumber) || toStr(body.ownerPhone),
+        pureVegRestaurant: body.pureVegRestaurant !== undefined
+            ? parseBooleanLike(body.pureVegRestaurant, 'pureVegRestaurant')
+            : false,
         addressLine1: toStr(loc.addressLine1),
         addressLine2: toStr(loc.addressLine2),
         area: toStr(loc.area),
@@ -2651,8 +3147,8 @@ export async function createRestaurantByAdmin(body) {
         pincode: toStr(loc.pincode),
         landmark: toStr(loc.landmark),
         cuisines: Array.isArray(body.cuisines) ? body.cuisines : [],
-        openingTime: toStr(body.openingTime) || '09:00',
-        closingTime: toStr(body.closingTime) || '22:00',
+        openingTime: normalizedOpeningTime,
+        closingTime: normalizedClosingTime,
         openDays: Array.isArray(body.openDays) ? body.openDays : [],
         panNumber: toStr(body.panNumber),
         nameOnPan: toStr(body.nameOnPan),
@@ -2685,6 +3181,35 @@ export async function createRestaurantByAdmin(body) {
         status: 'approved',
         approvedAt: new Date()
     };
+
+    if (body.zoneId !== undefined) {
+        const zoneId = String(body.zoneId || '').trim();
+        if (!zoneId) {
+            doc.zoneId = undefined;
+        } else if (!mongoose.Types.ObjectId.isValid(zoneId)) {
+            throw new ValidationError('Invalid zoneId');
+        } else {
+            doc.zoneId = new mongoose.Types.ObjectId(zoneId);
+        }
+    }
+
+    if (latitude !== null && longitude !== null) {
+        doc.location = {
+            type: 'Point',
+            coordinates: [longitude, latitude],
+            latitude,
+            longitude,
+            formattedAddress: toStr(loc.formattedAddress || loc.address || loc.addressLine1),
+            address: toStr(loc.address || loc.formattedAddress || loc.addressLine1),
+            addressLine1: toStr(loc.addressLine1 || loc.formattedAddress || loc.address),
+            addressLine2: toStr(loc.addressLine2),
+            area: toStr(loc.area),
+            city: toStr(loc.city),
+            state: toStr(loc.state),
+            pincode: toStr(loc.pincode || loc.zipCode || loc.postalCode),
+            landmark: toStr(loc.landmark),
+        };
+    }
 
     if (!doc.restaurantName || !doc.ownerName) {
         throw new ValidationError('Restaurant name and owner name are required');
@@ -3203,7 +3728,7 @@ export async function addDeliveryPartnerBonus(body, adminUser) {
             { ownerType: 'DELIVERY_PARTNER', ownerId: body.deliveryPartnerId },
             {
                 title: 'Bonus Credited! ðŸŽŠ',
-                body: `You have received a bonus of â‚¹${body.amount}. ${body.reference || 'Great job!'}`,
+                body: `You have received a bonus of \u20B9${body.amount}. ${body.reference || 'Great job!'}`,
                 image: 'https://i.ibb.co/3m2Yh7r/Appzeto-Brand-Image.png',
                 data: {
                     type: 'bonus_credited',

@@ -1,6 +1,8 @@
+import mongoose from 'mongoose';
 import { registerDeliveryPartner, updateDeliveryPartnerProfile, updateDeliveryPartnerBankDetails, listSupportTicketsByPartner, createSupportTicket, getSupportTicketByIdAndPartner, updateDeliveryPartnerDetails, updateDeliveryPartnerProfilePhotoBase64, updateDeliveryAvailability, getDeliveryPartnerWallet, getDeliveryPartnerEarnings, getDeliveryPartnerTripHistory, getDeliveryPocketDetails, getActiveEarningAddonsForPartner } from '../services/delivery.service.js';
-import { getDeliveryPartnerWalletEnhanced, requestDeliveryWithdrawal } from '../services/deliveryFinance.service.js';
+import { createDeliveryCashDepositOrder, getDeliveryPartnerWalletEnhanced, requestDeliveryWithdrawal, verifyDeliveryCashDepositPayment } from '../services/deliveryFinance.service.js';
 import { getDeliveryCashLimitSettings, getDeliveryEmergencyHelp } from '../../admin/services/admin.service.js';
+import { DeliveryBonusTransaction } from '../../admin/models/deliveryBonusTransaction.model.js';
 import { validateDeliveryRegisterDto, validateDeliveryProfileUpdateDto, validateDeliveryBankDetailsDto } from '../validators/delivery.validator.js';
 import { sendResponse } from '../../../../utils/response.js';
 import { getDeliveryReferralStats } from '../services/deliveryReferral.service.js';
@@ -114,6 +116,56 @@ export const updateAvailabilityController = async (req, res, next) => {
 export const getWalletController = async (req, res, next) => {
     try {
         const deliveryPartnerId = req.user?.userId;
+        const requestedTypeRaw = String(req.query?.type || '').trim().toLowerCase();
+        const rawLimit = Number.parseInt(String(req.query?.limit || ''), 10);
+        const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 200) : 50;
+
+        const normalizeWalletTransaction = (tx) => ({
+            ...tx,
+            id: tx?.id || tx?._id,
+            _id: tx?._id || tx?.id,
+            amount: Number(tx?.amount) || 0,
+            date: tx?.date || tx?.createdAt,
+            createdAt: tx?.createdAt || tx?.date
+        });
+
+        if (requestedTypeRaw === 'bonus' || requestedTypeRaw === 'deposit' || requestedTypeRaw === 'deduction') {
+            if (!deliveryPartnerId || !mongoose.Types.ObjectId.isValid(deliveryPartnerId)) {
+                return sendResponse(res, 200, 'Wallet fetched successfully', { wallet: { transactions: [] } });
+            }
+
+            const wallet = await getDeliveryPartnerWalletEnhanced(deliveryPartnerId);
+            if (requestedTypeRaw === 'bonus') {
+                const bonusList = await DeliveryBonusTransaction.find({ deliveryPartnerId })
+                    .sort({ createdAt: -1 })
+                    .limit(limit)
+                    .lean();
+
+                wallet.transactions = (bonusList || []).map((b) => ({
+                    id: b._id,
+                    _id: b._id,
+                    type: 'bonus',
+                    amount: b.amount || 0,
+                    status: 'Completed',
+                    date: b.createdAt,
+                    createdAt: b.createdAt,
+                    description: b.reference || 'Bonus',
+                    transactionId: b.transactionId
+                }));
+            } else {
+                const allowedTypes = requestedTypeRaw === 'deposit'
+                    ? new Set(['deposit'])
+                    : new Set(['withdrawal', 'deposit']);
+
+                wallet.transactions = (wallet.transactions || [])
+                    .filter((tx) => allowedTypes.has(String(tx?.type || '').trim().toLowerCase()))
+                    .map(normalizeWalletTransaction)
+                    .slice(0, limit);
+            }
+
+            return sendResponse(res, 200, 'Wallet fetched successfully', { wallet });
+        }
+
         const wallet = await getDeliveryPartnerWalletEnhanced(deliveryPartnerId);
         return sendResponse(res, 200, 'Wallet fetched successfully', { wallet });
     } catch (error) {
@@ -146,6 +198,32 @@ export const getActiveEarningAddonsController = async (req, res, next) => {
         const deliveryPartnerId = req.user?.userId;
         const data = await getActiveEarningAddonsForPartner(deliveryPartnerId);
         return sendResponse(res, 200, 'Active earning addons fetched successfully', data);
+    } catch (error) {
+        next(error);
+    }
+};
+
+export const createCashDepositOrderController = async (req, res, next) => {
+    try {
+        const deliveryPartnerId = req.user?.userId;
+        const amount = req.body?.amount;
+        const data = await createDeliveryCashDepositOrder(deliveryPartnerId, amount);
+        return sendResponse(res, 201, 'Cash deposit order created successfully', data);
+    } catch (error) {
+        next(error);
+    }
+};
+
+export const verifyCashDepositPaymentController = async (req, res, next) => {
+    try {
+        const deliveryPartnerId = req.user?.userId;
+        const data = await verifyDeliveryCashDepositPayment(deliveryPartnerId, {
+            razorpayOrderId: req.body?.razorpay_order_id,
+            razorpayPaymentId: req.body?.razorpay_payment_id,
+            razorpaySignature: req.body?.razorpay_signature,
+            amount: req.body?.amount
+        });
+        return sendResponse(res, 200, 'Cash deposit verified successfully', data);
     } catch (error) {
         next(error);
     }

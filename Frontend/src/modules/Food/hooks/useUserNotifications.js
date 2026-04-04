@@ -3,6 +3,7 @@ import io from 'socket.io-client';
 import { toast } from 'sonner';
 import { API_BASE_URL } from '@food/api/config';
 import { userAPI } from '@food/api';
+import { dispatchNotificationInboxRefresh } from '@food/hooks/useNotificationInbox';
 
 const debugLog = (...args) => {
   if (import.meta.env.DEV) {
@@ -74,6 +75,7 @@ export const useUserNotifications = () => {
     socketRef.current.on('connect', () => {
       debugLog('✅ User Socket connected, userId:', userId);
       setIsConnected(true);
+      if (typeof window !== 'undefined') window.orderSocketConnected = true;
       // Backend auto-joins 'user:userId' room based on role/token in config/socket.js
     });
 
@@ -133,16 +135,26 @@ export const useUserNotifications = () => {
       });
     });
 
+    socketRef.current.on('admin_notification', (payload) => {
+      toast.message(payload?.title || 'Notification', {
+        description: payload?.message || 'New broadcast notification received.',
+        duration: 8000
+      });
+      dispatchNotificationInboxRefresh();
+    });
+
     socketRef.current.on('connect_error', (error) => {
       if (import.meta.env.DEV) {
         // debugLog('❌ Socket connection error:', error.message);
       }
       setIsConnected(false);
+      if (typeof window !== 'undefined') window.orderSocketConnected = false;
     });
 
     socketRef.current.on('disconnect', (reason) => {
       debugLog('🔌 Socket disconnected:', reason);
       setIsConnected(false);
+      if (typeof window !== 'undefined') window.orderSocketConnected = false;
     });
 
     return () => {

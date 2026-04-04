@@ -37,6 +37,69 @@ const approvalStatusBadgeClass = (status) => {
   return "bg-amber-100 text-amber-700"
 }
 
+const normalizeTimeValue = (value) => {
+  const raw = String(value || "").trim()
+  if (!raw) return ""
+  const hhmm = raw.match(/^(\d{1,2}):(\d{2})$/)
+  if (hhmm) {
+    const h = Number(hhmm[1]); const m = Number(hhmm[2])
+    if (!Number.isFinite(h) || !Number.isFinite(m) || h < 0 || h > 23 || m < 0 || m > 59) return ""
+    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`
+  }
+  const ampm = raw.match(/^(\d{1,2}):(\d{2})\s*([AaPp][Mm])$/)
+  if (ampm) {
+    let h = Number(ampm[1]); const m = Number(ampm[2]); const p = ampm[3].toUpperCase()
+    if (!Number.isFinite(h) || !Number.isFinite(m) || h < 1 || h > 12 || m < 0 || m > 59) return ""
+    if (p === "AM") h = h === 12 ? 0 : h
+    if (p === "PM") h = h === 12 ? 12 : h + 12
+    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`
+  }
+  const parsed = new Date(raw)
+  if (!Number.isNaN(parsed.getTime())) {
+    return `${String(parsed.getHours()).padStart(2, "0")}:${String(parsed.getMinutes()).padStart(2, "0")}`
+  }
+  return ""
+}
+
+const timeToMinutes = (value) => {
+  const normalized = normalizeTimeValue(value)
+  if (!normalized) return null
+  const [h, m] = normalized.split(":").map(Number)
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return null
+  return h * 60 + m
+}
+
+const formatTime12Hour = (value) => {
+  const normalized = normalizeTimeValue(value)
+  if (!normalized) return value || "N/A"
+  const [h, m] = normalized.split(":").map(Number)
+  const hour12 = h % 12 === 0 ? 12 : h % 12
+  const period = h >= 12 ? "PM" : "AM"
+  return `${String(hour12).padStart(2, "0")}:${String(m).padStart(2, "0")} ${period}`
+}
+
+const normalizeImageUrl = (image) => {
+  if (!image) return ""
+  if (typeof image === "string") return image
+  if (typeof image === "object") return image.url || image.secure_url || ""
+  return ""
+}
+
+const getPrimaryRestaurantImage = (restaurant, fallback = "") => {
+  const coverImages = Array.isArray(restaurant?.coverImages) ? restaurant.coverImages : []
+  const firstCoverImage = coverImages.map(normalizeImageUrl).find(Boolean)
+  if (firstCoverImage) return firstCoverImage
+  const menuImages = Array.isArray(restaurant?.menuImages) ? restaurant.menuImages : []
+  const firstMenuImage = menuImages.map(normalizeImageUrl).find(Boolean)
+  if (firstMenuImage) return firstMenuImage
+  return (
+    normalizeImageUrl(restaurant?.profileImage) ||
+    normalizeImageUrl(restaurant?.logo) ||
+    normalizeImageUrl(restaurant?.restaurantImage) ||
+    fallback
+  )
+}
+
 
 export default function RestaurantsList() {
   const navigate = useNavigate()
@@ -62,9 +125,7 @@ export default function RestaurantsList() {
     ownerPhone: "",
     primaryContactNumber: "",
     email: "",
-    cuisinesText: "",
     estimatedDeliveryTime: "",
-    offer: "",
     openingTime: "",
     closingTime: "",
     isActive: true,
@@ -193,7 +254,7 @@ export default function RestaurantsList() {
             approvalStatus: normalizeApprovalStatus(restaurant),
             isActive: restaurant.isActive !== false,
             rating: restaurant.ratings?.average || restaurant.rating || 0,
-            logo: typeof restaurant.profileImage === "string" ? restaurant.profileImage : (restaurant.profileImage?.url || restaurant.logo || PLACEHOLDER_40),
+            logo: getPrimaryRestaurantImage(restaurant, PLACEHOLDER_40),
             originalData: restaurant,
           }))
           if (!cancelled) setRestaurants(mappedRestaurants)
@@ -509,24 +570,17 @@ export default function RestaurantsList() {
     setRestaurantDetails(null)
 
     try {
-      // First, use original data if available (has all details)
-      if (restaurant.originalData) {
-        debugLog("Using original restaurant data:", restaurant.originalData)
-        setRestaurantDetails(restaurant.originalData)
-        setLoadingDetails(false)
-        return
-      }
-
-      // Always fetch full details from Admin API (single source of truth)
+      // Always fetch full details from Admin API so the modal matches the
+      // original joining-request data instead of the compact list payload.
       const restaurantId = restaurant._id || restaurant.id || restaurant.restaurantId
       if (!restaurantId || !adminAPI.getRestaurantById) {
-        setRestaurantDetails(restaurant)
+        setRestaurantDetails(restaurant.originalData || restaurant)
         return
       }
 
       const response = await adminAPI.getRestaurantById(restaurantId)
       if (!response?.data?.success) {
-        setRestaurantDetails(restaurant)
+        setRestaurantDetails(restaurant.originalData || restaurant)
         return
       }
 
@@ -536,11 +590,11 @@ export default function RestaurantsList() {
         return
       }
 
-      setRestaurantDetails(restaurant)
+      setRestaurantDetails(restaurant.originalData || restaurant)
     } catch (err) {
       debugError("Error fetching restaurant details:", err)
       // Use the restaurant data we already have
-      setRestaurantDetails(restaurant)
+      setRestaurantDetails(restaurant.originalData || restaurant)
     } finally {
       setLoadingDetails(false)
     }
@@ -673,14 +727,27 @@ export default function RestaurantsList() {
         ownerPhone: "",
         primaryContactNumber: "",
         email: "",
-        cuisinesText: "",
         estimatedDeliveryTime: "",
-        offer: "",
         openingTime: "",
         closingTime: "",
         isActive: true,
       }
     }
+
+    const openingTimeValue =
+      restaurant.openingTime ||
+      restaurant.deliveryTimings?.openingTime ||
+      restaurant.onboarding?.step2?.deliveryTimings?.openingTime ||
+      ""
+    const closingTimeValue =
+      restaurant.closingTime ||
+      restaurant.deliveryTimings?.closingTime ||
+      restaurant.onboarding?.step2?.deliveryTimings?.closingTime ||
+      ""
+    const estimatedDeliveryTimeValue =
+      restaurant.estimatedDeliveryTime ||
+      restaurant.onboarding?.step4?.estimatedDeliveryTime ||
+      ""
 
     return {
       name: restaurant.restaurantName || restaurant.name || "",
@@ -693,11 +760,9 @@ export default function RestaurantsList() {
       ownerPhone: restaurant.ownerPhone || restaurant.phone || "",
       primaryContactNumber: restaurant.primaryContactNumber || restaurant.ownerPhone || "",
       email: restaurant.email || restaurant.ownerEmail || "",
-      cuisinesText: Array.isArray(restaurant.cuisines) ? restaurant.cuisines.join(", ") : (restaurant.cuisines || ""),
-      estimatedDeliveryTime: restaurant.estimatedDeliveryTime || "",
-      offer: restaurant.offer || "",
-      openingTime: restaurant.openingTime || restaurant.deliveryTimings?.openingTime || "",
-      closingTime: restaurant.closingTime || restaurant.deliveryTimings?.closingTime || "",
+      estimatedDeliveryTime: estimatedDeliveryTimeValue,
+      openingTime: openingTimeValue,
+      closingTime: closingTimeValue,
       isActive: restaurant.isActive !== false,
     }
   }
@@ -706,8 +771,8 @@ export default function RestaurantsList() {
     const source = getDetailsEditSource()
     setDetailsForm(buildDetailsFormFromRestaurant(source))
     setProfileImageFile(null)
-    setProfileImagePreview(source?.profileImage?.url || source?.logo || "")
-    setIsEditingLocation(false)
+    setProfileImagePreview(getPrimaryRestaurantImage(source))
+    setIsEditingLocation(true)
     setIsEditingDetails(true)
   }
 
@@ -735,6 +800,21 @@ export default function RestaurantsList() {
         }
       }
 
+      const normalizedOpeningTime = normalizeTimeValue(detailsForm.openingTime.trim())
+      const normalizedClosingTime = normalizeTimeValue(detailsForm.closingTime.trim())
+      const openingMinutes = timeToMinutes(normalizedOpeningTime)
+      const closingMinutes = timeToMinutes(normalizedClosingTime)
+      if (openingMinutes !== null && closingMinutes !== null) {
+        if (openingMinutes === closingMinutes) {
+          alert("Opening time and closing time cannot be same")
+          return
+        }
+        if (closingMinutes < openingMinutes) {
+          alert("Closing time cannot be less than opening time")
+          return
+        }
+      }
+
       const payload = {
         name: detailsForm.name.trim(),
         pureVegRestaurant: detailsForm.pureVegRestaurant === true,
@@ -743,14 +823,9 @@ export default function RestaurantsList() {
         ownerPhone: detailsForm.ownerPhone.trim(),
         primaryContactNumber: detailsForm.primaryContactNumber.trim(),
         email: detailsForm.email.trim(),
-        cuisines: detailsForm.cuisinesText
-          .split(",")
-          .map((item) => item.trim())
-          .filter(Boolean),
         estimatedDeliveryTime: detailsForm.estimatedDeliveryTime.trim(),
-        offer: detailsForm.offer.trim(),
-        openingTime: detailsForm.openingTime.trim(),
-        closingTime: detailsForm.closingTime.trim(),
+        openingTime: normalizedOpeningTime,
+        closingTime: normalizedClosingTime,
         isActive: detailsForm.isActive,
       }
 
@@ -774,7 +849,7 @@ export default function RestaurantsList() {
                 zone: updatedRestaurant.location?.area || updatedRestaurant.location?.city || item.zone,
                 isActive: updatedRestaurant.isActive !== false,
                 approvalStatus: normalizeApprovalStatus(updatedRestaurant),
-                logo: updatedRestaurant.profileImage?.url || item.logo,
+                logo: getPrimaryRestaurantImage(updatedRestaurant, item.logo),
                 originalData: {
                   ...(item.originalData || {}),
                   ...updatedRestaurant,
@@ -925,7 +1000,7 @@ export default function RestaurantsList() {
   }
 
   return (
-    <div className="p-4 lg:p-6 bg-slate-50 min-h-screen">
+    <div className="h-full overflow-y-auto bg-slate-50 p-4 lg:p-6">
       <div className="max-w-7xl mx-auto">
         {/* Page Header */}
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
@@ -1124,7 +1199,10 @@ export default function RestaurantsList() {
                         </td>
                         <td className="px-6 py-4">
                           <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-full overflow-hidden bg-slate-100 flex items-center justify-center shrink-0">
+                            <div 
+                              className="w-10 h-10 rounded-full overflow-hidden bg-slate-100 flex items-center justify-center shrink-0 cursor-pointer hover:opacity-80 transition-all border border-slate-100"
+                              onClick={() => handleViewDetails(restaurant)}
+                            >
                               <img
                                 src={restaurant.logo}
                                 alt={restaurant.name}
@@ -1135,7 +1213,12 @@ export default function RestaurantsList() {
                               />
                             </div>
                             <div className="flex flex-col">
-                              <span className="text-sm font-medium text-slate-900">{restaurant.name}</span>
+                              <span 
+                                className="text-sm font-medium text-slate-900 cursor-pointer hover:text-blue-600 transition-colors"
+                                onClick={() => handleViewDetails(restaurant)}
+                              >
+                                {restaurant.name}
+                              </span>
                               <span className="text-xs text-slate-500">ID #{formatRestaurantId(restaurant.originalData?.restaurantId || restaurant.originalData?._id || restaurant._id || restaurant.id)}</span>
                               <span className="text-xs text-slate-500">{renderStars(restaurant.rating)}</span>
                             </div>
@@ -1176,17 +1259,6 @@ export default function RestaurantsList() {
                               title="View Details"
                             >
                               <Eye className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => {
-                                const restaurantId = restaurant._id || restaurant.id || restaurant.restaurantId
-                                if (!restaurantId) return
-                                navigate(`/admin/food/restaurants/edit/${restaurantId}`)
-                              }}
-                              className="p-1.5 rounded text-indigo-600 hover:bg-indigo-50 transition-colors"
-                              title="Edit Restaurant"
-                            >
-                              <Settings className="w-4 h-4" />
                             </button>
                             <button
                               onClick={() => handleBanRestaurant(restaurant)}
@@ -1362,10 +1434,6 @@ export default function RestaurantsList() {
                       <label className="block text-xs text-slate-500 mb-1">Primary Contact</label>
                       <input type="text" value={detailsForm.primaryContactNumber} onChange={(e) => setDetailsForm((prev) => ({ ...prev, primaryContactNumber: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm" />
                     </div>
-                    <div className="md:col-span-2">
-                      <label className="block text-xs text-slate-500 mb-1">Cuisines (comma separated)</label>
-                      <input type="text" value={detailsForm.cuisinesText} onChange={(e) => setDetailsForm((prev) => ({ ...prev, cuisinesText: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm" />
-                    </div>
                     <div>
                       <label className="block text-xs text-slate-500 mb-1">Opening Time</label>
                       <input type="text" value={detailsForm.openingTime} onChange={(e) => setDetailsForm((prev) => ({ ...prev, openingTime: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm" />
@@ -1377,10 +1445,6 @@ export default function RestaurantsList() {
                     <div>
                       <label className="block text-xs text-slate-500 mb-1">Estimated Delivery Time</label>
                       <input type="text" value={detailsForm.estimatedDeliveryTime} onChange={(e) => setDetailsForm((prev) => ({ ...prev, estimatedDeliveryTime: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm" />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-slate-500 mb-1">Offer</label>
-                      <input type="text" value={detailsForm.offer} onChange={(e) => setDetailsForm((prev) => ({ ...prev, offer: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm" />
                     </div>
                     <div className="md:col-span-2 flex items-center gap-3">
                       <input
@@ -1400,11 +1464,11 @@ export default function RestaurantsList() {
               {!loadingDetails && !isEditingDetails && (restaurantDetails || selectedRestaurant) && (() => {
                 const r = restaurantDetails || selectedRestaurant?.originalData || selectedRestaurant
                 const detailsApprovalStatus = normalizeApprovalStatus(r)
-                const profileImgUrl = typeof r?.profileImage === "string" ? r.profileImage : (r?.profileImage?.url || r?.logo || r?.restaurantImage)
+                const profileImgUrl = getPrimaryRestaurantImage(r)
+                const coverImages = Array.isArray(r?.coverImages) ? r.coverImages.map(normalizeImageUrl).filter(Boolean) : []
                 const hasFlatAddress = r?.addressLine1 || r?.area || r?.city || r?.state || r?.pincode
                 const flatAddress = [r?.addressLine1, r?.addressLine2, r?.area, r?.city, r?.state, r?.pincode, r?.landmark].filter(Boolean).join(", ")
-                const hasFlatDocs = r?.panNumber || r?.panImage || r?.fssaiNumber || r?.accountNumber
-                const menuImages = Array.isArray(r?.menuImages) ? r.menuImages.filter(Boolean) : []
+                const menuImages = Array.isArray(r?.menuImages) ? r.menuImages.map(normalizeImageUrl).filter(Boolean) : []
                 const cuisinesList =
                   (Array.isArray(r?.cuisines) && r.cuisines.length ? r.cuisines : null) ||
                   (Array.isArray(r?.onboarding?.step2?.cuisines) && r.onboarding.step2.cuisines.length ? r.onboarding.step2.cuisines : null) ||
@@ -1420,6 +1484,37 @@ export default function RestaurantsList() {
                 const featuredDishVal = r?.featuredDish || r?.onboarding?.step4?.featuredDish || ""
                 const featuredPriceVal = r?.featuredPrice ?? r?.onboarding?.step4?.featuredPrice
                 const diningSettingsVal = r?.diningSettings || r?.onboarding?.step4?.diningSettings || null
+                const panDocumentUrl = typeof r?.panImage === "string" ? r.panImage : (r?.panImage?.url || r?.onboarding?.step3?.pan?.image?.url || "")
+                const gstDocumentUrl = typeof r?.gstImage === "string" ? r.gstImage : (r?.gstImage?.url || r?.onboarding?.step3?.gst?.image?.url || "")
+                const fssaiDocumentUrl = typeof r?.fssaiImage === "string" ? r.fssaiImage : (r?.fssaiImage?.url || r?.onboarding?.step3?.fssai?.image?.url || "")
+                const hasPanSection = Boolean(r?.panNumber || r?.nameOnPan || panDocumentUrl || r?.onboarding?.step3?.pan?.panNumber || r?.onboarding?.step3?.pan?.nameOnPan)
+                const hasGstSection = Boolean(
+                  r?.gstNumber ||
+                  r?.gstLegalName ||
+                  r?.gstAddress ||
+                  gstDocumentUrl ||
+                  r?.onboarding?.step3?.gst?.gstNumber ||
+                  r?.onboarding?.step3?.gst?.legalName ||
+                  r?.onboarding?.step3?.gst?.address
+                )
+                const hasFssaiSection = Boolean(
+                  r?.fssaiNumber ||
+                  r?.fssaiExpiry ||
+                  fssaiDocumentUrl ||
+                  r?.onboarding?.step3?.fssai?.registrationNumber ||
+                  r?.onboarding?.step3?.fssai?.expiryDate
+                )
+                const hasBankSection = Boolean(
+                  r?.accountNumber ||
+                  r?.ifscCode ||
+                  r?.accountHolderName ||
+                  r?.accountType ||
+                  r?.onboarding?.step3?.bank?.accountNumber ||
+                  r?.onboarding?.step3?.bank?.ifscCode ||
+                  r?.onboarding?.step3?.bank?.accountHolderName ||
+                  r?.onboarding?.step3?.bank?.accountType
+                )
+                const hasRegistrationDocuments = hasPanSection || hasGstSection || hasFssaiSection || hasBankSection
                 return (
                 <div className="space-y-10">
                   {/* Restaurant Basic Info */}
@@ -1513,26 +1608,12 @@ export default function RestaurantsList() {
                     <div>
                       <div className="flex items-center justify-between mb-4">
                         <h4 className="text-lg font-semibold text-slate-900">Location & Contact</h4>
-                        {!isEditingLocation ? (
-                          <button
-                            onClick={() => {
-                              const restaurantId = selectedRestaurant?._id || selectedRestaurant?.id || restaurantDetails?._id || restaurantDetails?.id
-                              if (!restaurantId) return
-                              navigate(`/admin/food/restaurants/edit/${restaurantId}`)
-                            }}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-700 text-xs font-semibold hover:bg-indigo-100 transition-colors"
-                          >
+                        {isEditingLocation ? (
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-700 text-xs font-semibold">
                             <Settings className="w-3.5 h-3.5" />
-                            Edit Restaurant
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => setIsEditingLocation(false)}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-slate-700 text-xs font-semibold hover:bg-slate-50 transition-colors"
-                          >
-                            Cancel
-                          </button>
-                        )}
+                            Editable Below
+                          </span>
+                        ) : null}
                       </div>
                       <div className="space-y-3">
                         {!isEditingLocation && (r?.location || hasFlatAddress) && (
@@ -1573,57 +1654,8 @@ export default function RestaurantsList() {
                     </div>
                   </div>
 
-                  {/* Cuisine & Timings */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div>
-                      <h4 className="text-lg font-semibold text-slate-900 mb-4">Cuisine & Details</h4>
-                      <div className="space-y-3">
-                        <div>
-                          <p className="text-xs text-slate-500 mb-1">Cuisines</p>
-                          <div className="flex flex-wrap gap-2">
-                            {cuisinesList ? (
-                              cuisinesList.map((cuisine, idx) => (
-                                <span key={idx} className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-sm font-medium">
-                                  {cuisine}
-                                </span>
-                              ))
-                            ) : (
-                              <span className="text-sm text-slate-500">{r?.cuisine || "N/A"}</span>
-                            )}
-                          </div>
-                        </div>
-                        {(featuredDishVal || featuredPriceVal != null) && (
-                          <div>
-                            <p className="text-xs text-slate-500 mb-1">Featured Dish</p>
-                            <p className="text-sm font-medium text-slate-900">
-                              {featuredDishVal || "—"}
-                              {featuredPriceVal != null && featuredPriceVal !== "" && (
-                                <span className="text-slate-600 ml-1">(₹{featuredPriceVal})</span>
-                              )}
-                            </p>
-                          </div>
-                        )}
-                        {offerVal && (
-                          <div>
-                            <p className="text-xs text-slate-500 mb-1">Current Offer</p>
-                            <p className="text-sm font-medium text-green-600">{offerVal}</p>
-                          </div>
-                        )}
-                        {diningSettingsVal && (
-                          <div>
-                            <p className="text-xs text-slate-500 mb-1">Dining</p>
-                            <p className="text-sm font-medium text-slate-900">
-                              {diningSettingsVal?.isEnabled ? "Enabled" : "Disabled"}
-                              {diningSettingsVal?.isEnabled && (
-                                <span className="text-slate-600 ml-1">
-                                  (max {diningSettingsVal?.maxGuests ?? 6}, {diningSettingsVal?.diningType || "family-dining"})
-                                </span>
-                              )}
-                            </p>
-                          </div>
-                        )}
-                      </div>
-                    </div>
+                  {/* Timings */}
+                  <div className="grid grid-cols-1 gap-6">
 
                     <div>
                       <h4 className="text-lg font-semibold text-slate-900 mb-4">Timings & Status</h4>
@@ -1634,7 +1666,7 @@ export default function RestaurantsList() {
                             <div>
                               <p className="text-xs text-slate-500">Opening / Closing</p>
                               <p className="text-sm font-medium text-slate-900">
-                                {openingTimeVal || "N/A"} – {closingTimeVal || "N/A"}
+                                {formatTime12Hour(openingTimeVal)} – {formatTime12Hour(closingTimeVal)}
                               </p>
                             </div>
                           </div>
@@ -1669,7 +1701,7 @@ export default function RestaurantsList() {
                   </div>
 
                   {/* Media */}
-                  {(profileImgUrl || menuImages.length > 0) && (
+                  {(profileImgUrl || coverImages.length > 0 || menuImages.length > 0) && (
                     <div className="pt-6 border-t border-slate-200">
                       <h4 className="text-lg font-semibold text-slate-900 mb-4">Media</h4>
                       <div className="space-y-4">
@@ -1686,6 +1718,33 @@ export default function RestaurantsList() {
                               <span>View Profile Image</span>
                               <ExternalLink className="w-3 h-3" />
                             </a>
+                          </div>
+                        )}
+                        {coverImages.length > 0 && (
+                          <div>
+                            <p className="text-xs text-slate-500 mb-2">Restaurant Photos</p>
+                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                              {coverImages.map((url, idx) => (
+                                <a
+                                  key={`${url}-${idx}`}
+                                  href={url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="relative aspect-4/5 rounded-lg overflow-hidden border border-slate-200 bg-slate-50 hover:border-slate-300"
+                                  title="Open restaurant photo"
+                                >
+                                  <img
+                                    src={url}
+                                    alt={`Restaurant ${idx + 1}`}
+                                    className="w-full h-full object-cover"
+                                    loading="lazy"
+                                    onError={(e) => {
+                                      e.target.style.display = "none"
+                                    }}
+                                  />
+                                </a>
+                              ))}
+                            </div>
                           </div>
                         )}
                         {menuImages.length > 0 && (
@@ -1787,12 +1846,12 @@ export default function RestaurantsList() {
                   )}
 
                   {/* Registration Documents - flat (PAN, GST, FSSAI, Bank) or onboarding.step3 */}
-                  {(hasFlatDocs || r?.onboarding?.step3) && (
+                  {hasRegistrationDocuments && (
                     <div className="pt-6 border-t border-slate-200">
                       <h4 className="text-lg font-semibold text-slate-900 mb-4">Registration Documents</h4>
                       <div className="space-y-6">
                         {/* PAN – flat or onboarding.step3 */}
-                        {(r.panNumber || r.panImage || r?.onboarding?.step3?.pan) && (
+                        {hasPanSection && (
                           <div className="bg-slate-50 rounded-lg p-4">
                             <h5 className="font-semibold text-slate-900 mb-3 flex items-center gap-2">
                               <FileText className="w-4 h-4" />
@@ -1811,10 +1870,10 @@ export default function RestaurantsList() {
                                   <p className="font-medium text-slate-900">{r.nameOnPan || r.onboarding?.step3?.pan?.nameOnPan}</p>
                                 </div>
                               )}
-                              {(typeof r.panImage === "string" ? r.panImage : r?.panImage?.url || r?.onboarding?.step3?.pan?.image?.url) && (
+                              {panDocumentUrl && (
                                 <div className="md:col-span-2">
                                   <p className="text-xs text-slate-500 mb-2">PAN Document</p>
-                                  <a href={typeof r.panImage === "string" ? r.panImage : (r.panImage?.url || r.onboarding?.step3?.pan?.image?.url)} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-700">
+                                  <a href={panDocumentUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-700">
                                     <ImageIcon className="w-4 h-4" />
                                     <span>View PAN Document</span>
                                     <ExternalLink className="w-3 h-3" />
@@ -1826,19 +1885,21 @@ export default function RestaurantsList() {
                         )}
 
                         {/* GST – flat or onboarding.step3 */}
-                        {(r.gstRegistered != null || r.gstNumber || r?.onboarding?.step3?.gst) && (
+                        {hasGstSection && (
                           <div className="bg-slate-50 rounded-lg p-4">
                             <h5 className="font-semibold text-slate-900 mb-3 flex items-center gap-2">
                               <FileText className="w-4 h-4" />
                               GST Details
                             </h5>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                              <div>
-                                <p className="text-xs text-slate-500 mb-1">GST Registered</p>
-                                <p className="font-medium text-slate-900">
-                                  {r.gstRegistered != null ? (r.gstRegistered ? "Yes" : "No") : (r?.onboarding?.step3?.gst?.isRegistered ? "Yes" : "No")}
-                                </p>
-                              </div>
+                              {(r.gstRegistered != null || r?.onboarding?.step3?.gst?.isRegistered != null) && (
+                                <div>
+                                  <p className="text-xs text-slate-500 mb-1">GST Registered</p>
+                                  <p className="font-medium text-slate-900">
+                                    {r.gstRegistered != null ? (r.gstRegistered ? "Yes" : "No") : (r?.onboarding?.step3?.gst?.isRegistered ? "Yes" : "No")}
+                                  </p>
+                                </div>
+                              )}
                               {(r.gstNumber || r?.onboarding?.step3?.gst?.gstNumber) && (
                                 <div>
                                   <p className="text-xs text-slate-500 mb-1">GST Number</p>
@@ -1857,10 +1918,10 @@ export default function RestaurantsList() {
                                   <p className="font-medium text-slate-900">{r.gstAddress || r.onboarding?.step3?.gst?.address}</p>
                                 </div>
                               )}
-                              {(typeof r.gstImage === "string" ? r.gstImage : r?.gstImage?.url || r?.onboarding?.step3?.gst?.image?.url) && (
+                              {gstDocumentUrl && (
                                 <div className="md:col-span-2">
                                   <p className="text-xs text-slate-500 mb-2">GST Document</p>
-                                  <a href={typeof r.gstImage === "string" ? r.gstImage : (r.gstImage?.url || r.onboarding?.step3?.gst?.image?.url)} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-700">
+                                  <a href={gstDocumentUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-700">
                                     <ImageIcon className="w-4 h-4" />
                                     <span>View GST Document</span>
                                     <ExternalLink className="w-3 h-3" />
@@ -1872,7 +1933,7 @@ export default function RestaurantsList() {
                         )}
 
                         {/* FSSAI – flat or onboarding.step3 */}
-                        {(r.fssaiNumber || r.fssaiExpiry || r?.onboarding?.step3?.fssai) && (
+                        {hasFssaiSection && (
                           <div className="bg-slate-50 rounded-lg p-4">
                             <h5 className="font-semibold text-slate-900 mb-3 flex items-center gap-2">
                               <FileText className="w-4 h-4" />
@@ -1893,10 +1954,10 @@ export default function RestaurantsList() {
                                   </p>
                                 </div>
                               )}
-                              {(typeof r.fssaiImage === "string" ? r.fssaiImage : r?.fssaiImage?.url || r?.onboarding?.step3?.fssai?.image?.url) && (
+                              {fssaiDocumentUrl && (
                                 <div className="md:col-span-2">
                                   <p className="text-xs text-slate-500 mb-2">FSSAI Document</p>
-                                  <a href={typeof r.fssaiImage === "string" ? r.fssaiImage : (r.fssaiImage?.url || r.onboarding?.step3?.fssai?.image?.url)} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-700">
+                                  <a href={fssaiDocumentUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-700">
                                     <ImageIcon className="w-4 h-4" />
                                     <span>View FSSAI Document</span>
                                     <ExternalLink className="w-3 h-3" />
@@ -1908,7 +1969,7 @@ export default function RestaurantsList() {
                         )}
 
                         {/* Bank – flat or onboarding.step3 */}
-                        {(r.accountNumber || r.ifscCode || r?.onboarding?.step3?.bank) && (
+                        {hasBankSection && (
                           <div className="bg-slate-50 rounded-lg p-4">
                             <h5 className="font-semibold text-slate-900 mb-3 flex items-center gap-2">
                               <CreditCard className="w-4 h-4" />
@@ -2026,11 +2087,11 @@ export default function RestaurantsList() {
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
                             <div>
                               <p className="text-xs text-slate-500 mb-1">Opening Time (at registration)</p>
-                              <p className="font-medium text-slate-900">{r.onboarding.step2.deliveryTimings.openingTime || "N/A"}</p>
+                              <p className="font-medium text-slate-900">{formatTime12Hour(r.onboarding.step2.deliveryTimings.openingTime)}</p>
                             </div>
                             <div>
                               <p className="text-xs text-slate-500 mb-1">Closing Time (at registration)</p>
-                              <p className="font-medium text-slate-900">{r.onboarding.step2.deliveryTimings.closingTime || "N/A"}</p>
+                              <p className="font-medium text-slate-900">{formatTime12Hour(r.onboarding.step2.deliveryTimings.closingTime)}</p>
                             </div>
                           </div>
                         )}

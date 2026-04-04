@@ -4,6 +4,7 @@ import { ArrowLeft, Upload, X, Check, Camera, Image as ImageIcon } from "lucide-
 import { deliveryAPI } from "@food/api"
 import { toast } from "sonner"
 import { isFlutterBridgeAvailable, openCamera } from "@food/utils/imageUploadUtils"
+import useDeliveryBackNavigation from "../../hooks/useDeliveryBackNavigation"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -40,9 +41,40 @@ const sanitizeUploadedDocs = (docs) => ({
   drivingLicensePhoto: sanitizeUploadedDocValue(docs?.drivingLicensePhoto)
 })
 
+const getFriendlyRegistrationError = (error) => {
+  const rawMessage =
+    error?.response?.data?.message ||
+    error?.response?.data?.error ||
+    error?.message ||
+    ""
+
+  if (/E11000 duplicate key error/i.test(rawMessage)) {
+    if (/vehicleNumber_1/i.test(rawMessage) || /vehicleNumber/i.test(rawMessage)) {
+      return "This vehicle number is already registered. Please use a different vehicle number."
+    }
+
+    if (/panNumber_1/i.test(rawMessage) || /panNumber/i.test(rawMessage)) {
+      return "This PAN number is already registered."
+    }
+
+    if (/aadharNumber_1/i.test(rawMessage) || /aadharNumber/i.test(rawMessage)) {
+      return "This Aadhar number is already registered."
+    }
+
+    if (/drivingLicense/i.test(rawMessage)) {
+      return "This driving license number is already registered."
+    }
+
+    return "This account detail is already registered. Please check your information."
+  }
+
+  return rawMessage || "Failed to register. Please try again."
+}
+
 
 export default function SignupStep2() {
   const navigate = useNavigate()
+  const goBack = useDeliveryBackNavigation()
   const isMobileDevice =
     typeof navigator !== "undefined" &&
     /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent || "")
@@ -191,6 +223,10 @@ export default function SignupStep2() {
     if (details.vehicleType) formData.append("vehicleType", details.vehicleType)
     if (details.vehicleName) formData.append("vehicleName", details.vehicleName)
     if (details.vehicleNumber) formData.append("vehicleNumber", details.vehicleNumber)
+    if (details.drivingLicenseNumber) {
+      formData.append("drivingLicenseNumber", details.drivingLicenseNumber)
+      formData.append("documents[drivingLicense][number]", details.drivingLicenseNumber)
+    }
     if (details.panNumber) formData.append("panNumber", details.panNumber)
     if (details.aadharNumber) formData.append("aadharNumber", details.aadharNumber)
     formData.append("profilePhoto", documents.profilePhoto)
@@ -253,10 +289,7 @@ export default function SignupStep2() {
       }
     } catch (error) {
       debugError("Error submitting registration:", error)
-      const message =
-        error?.response?.data?.message ||
-        error?.response?.data?.error ||
-        "Failed to register. Please try again."
+      const message = getFriendlyRegistrationError(error)
       toast.error(message)
     } finally {
       setIsSubmitting(false)
@@ -360,7 +393,7 @@ export default function SignupStep2() {
       {/* Header */}
       <div className="bg-white px-4 py-3 flex items-center gap-4 border-b border-gray-200">
         <button
-          onClick={() => navigate(-1)}
+          onClick={goBack}
           className="p-2 hover:bg-gray-100 rounded-full transition-colors"
         >
           <ArrowLeft className="w-5 h-5" />

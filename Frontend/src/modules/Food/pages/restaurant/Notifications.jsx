@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react"
 import { useNavigate } from "react-router-dom"
-import { ArrowLeft, RefreshCw, X } from "lucide-react"
+import { ArrowLeft, Bell, RefreshCw, X } from "lucide-react"
 import { restaurantAPI } from "@food/api"
+import useNotificationInbox from "@food/hooks/useNotificationInbox"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -33,6 +34,14 @@ export default function Notifications() {
       return []
     }
   })
+  const {
+    items: broadcastNotifications,
+    loading: broadcastLoading,
+    markAsRead: markBroadcastAsRead,
+    dismiss: dismissBroadcastNotification,
+    dismissAll: dismissAllBroadcastNotifications,
+    refresh: refreshBroadcastNotifications,
+  } = useNotificationInbox("restaurant", { limit: 100, pollMs: 5 * 60 * 1000 })
 
   const fetchNotifications = async () => {
     try {
@@ -59,7 +68,7 @@ export default function Notifications() {
   }, [dismissedIds])
 
   const notifications = useMemo(() => {
-    return (orders || [])
+    const orderNotifications = (orders || [])
       .map((order) => {
         const id = order._id || order.orderId
         const timestamp = order.updatedAt || order.createdAt
@@ -80,18 +89,46 @@ export default function Notifications() {
         }
       })
       .filter((item) => item.id && !dismissedIds.includes(item.id))
-      .sort((a, b) => {
-        return b.timeValue - a.timeValue
-      })
-  }, [orders, dismissedIds])
+    const broadcastRows = (broadcastNotifications || []).map((item) => ({
+      id: item.id,
+      message: item.title || "Broadcast notification",
+      detail: item.message || "",
+      source: "broadcast",
+      read: item.read,
+      timeValue: item.createdAt ? new Date(item.createdAt).getTime() : 0,
+      time: item.createdAt
+        ? new Date(item.createdAt).toLocaleString("en-IN", {
+            day: "2-digit",
+            month: "short",
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: true,
+          })
+        : "N/A",
+    }))
 
-  const removeNotification = (id) => {
+    return [...broadcastRows, ...orderNotifications].sort((a, b) => b.timeValue - a.timeValue)
+  }, [broadcastNotifications, dismissedIds, orders])
+
+  const removeNotification = (id, source = "order") => {
+    if (source === "broadcast") {
+      dismissBroadcastNotification(id)
+      return
+    }
     setDismissedIds((prev) => (prev.includes(id) ? prev : [...prev, id]))
   }
 
   const clearAll = () => {
-    const ids = notifications.map((n) => n.id).filter(Boolean)
+    dismissAllBroadcastNotifications()
+    const ids = notifications
+      .filter((item) => item.source !== "broadcast")
+      .map((n) => n.id)
+      .filter(Boolean)
     setDismissedIds((prev) => [...new Set([...prev, ...ids])])
+  }
+
+  const handleRefresh = async () => {
+    await Promise.all([fetchNotifications(), refreshBroadcastNotifications()])
   }
 
   return (
@@ -107,7 +144,7 @@ export default function Notifications() {
         </button>
         <h1 className="text-base font-semibold text-gray-900 flex-1">Notifications</h1>
         <button
-          onClick={fetchNotifications}
+          onClick={handleRefresh}
           className="p-2 rounded-full hover:bg-gray-100"
           aria-label="Refresh"
         >
@@ -127,7 +164,7 @@ export default function Notifications() {
           </div>
         )}
 
-        {loading ? (
+        {loading || broadcastLoading ? (
           <div className="text-center text-sm text-gray-600 py-12">Loading notifications...</div>
         ) : notifications.length === 0 ? (
           <div className="text-center text-sm text-gray-600 py-12">No notifications</div>
@@ -136,15 +173,26 @@ export default function Notifications() {
             {notifications.map((item) => (
               <div
                 key={item.id}
-                className="border border-gray-200 rounded-lg p-3 flex items-start justify-between gap-3"
+                onClick={() => item.source === "broadcast" ? markBroadcastAsRead(item.id) : undefined}
+                className={`border rounded-lg p-3 flex items-start justify-between gap-3 ${item.source === "broadcast" && !item.read ? "border-blue-200 bg-blue-50/40 cursor-pointer" : "border-gray-200"}`}
               >
                 <div className="min-w-0">
-                  <p className="text-sm font-medium text-gray-900">{item.message}</p>
-                  <p className="text-xs text-gray-600 mt-0.5">Order: {item.orderId}</p>
+                  <div className="flex items-center gap-2">
+                    {item.source === "broadcast" && <Bell className="w-4 h-4 text-blue-600" />}
+                    <p className="text-sm font-medium text-gray-900">{item.message}</p>
+                  </div>
+                  {item.source === "broadcast" ? (
+                    <p className="text-xs text-gray-600 mt-0.5">{item.detail || "Admin notification"}</p>
+                  ) : (
+                    <p className="text-xs text-gray-600 mt-0.5">Order: {item.orderId}</p>
+                  )}
                   <p className="text-xs text-gray-500 mt-1">{item.time}</p>
                 </div>
                 <button
-                  onClick={() => removeNotification(item.id)}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    removeNotification(item.id, item.source)
+                  }}
                   className="p-1.5 rounded-full hover:bg-gray-100"
                   aria-label="Remove notification"
                 >

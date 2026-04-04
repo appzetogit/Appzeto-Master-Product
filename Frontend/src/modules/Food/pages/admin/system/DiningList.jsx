@@ -1,12 +1,35 @@
 import { useState, useMemo, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
-import { Search, Download, ChevronDown, Eye, Settings, ArrowUpDown, Loader2, Star, Building2, User, FileText, Phone, Mail, MapPin, ShieldX, Trash2, Plus, ArrowRight } from "lucide-react"
+import { Search, Download, ChevronDown, Eye, Settings, ArrowUpDown, Loader2, Star, Building2, User, FileText, Phone, Mail, MapPin, ShieldX, Trash2, ArrowRight } from "lucide-react"
 import { adminAPI } from "@food/api"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@food/components/ui/dropdown-menu"
 import { exportRestaurantsToPDF } from "@food/components/admin/restaurants/restaurantsExportUtils"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
+
+const normalizeImageUrl = (image) => {
+    if (!image) return ""
+    if (typeof image === "string") return image
+    if (typeof image === "object") return image.url || image.secure_url || ""
+    return ""
+}
+
+const getPrimaryRestaurantImage = (restaurant, fallback = "") => {
+    const coverImages = Array.isArray(restaurant?.coverImages) ? restaurant.coverImages : []
+    const firstCoverImage = coverImages.map(normalizeImageUrl).find(Boolean)
+    if (firstCoverImage) return firstCoverImage
+
+    const menuImages = Array.isArray(restaurant?.menuImages) ? restaurant.menuImages : []
+    const firstMenuImage = menuImages.map(normalizeImageUrl).find(Boolean)
+    if (firstMenuImage) return firstMenuImage
+
+    return (
+        normalizeImageUrl(restaurant?.profileImage) ||
+        normalizeImageUrl(restaurant?.logo) ||
+        fallback
+    )
+}
 
 
 export default function DiningList() {
@@ -42,7 +65,7 @@ export default function DiningList() {
                         zone: restaurant.zone || "N/A",
                         status: restaurant.status === "approved" || restaurant.isActive === true,
                         rating: restaurant.rating || 0,
-                        logo: restaurant.logo || "https://via.placeholder.com/40",
+                        logo: getPrimaryRestaurantImage(restaurant, "https://via.placeholder.com/40"),
                         categories: Array.isArray(restaurant.categories) ? restaurant.categories : [],
                         categoryIds: Array.isArray(restaurant.categoryIds) ? restaurant.categoryIds : [],
                         primaryCategoryId: restaurant.primaryCategoryId || null,
@@ -188,20 +211,13 @@ export default function DiningList() {
     }
 
     return (
-        <div className="p-4 lg:p-6 bg-slate-50 min-h-screen">
+        <div className="h-full overflow-y-auto bg-slate-50 p-4 lg:p-6">
             <div className="max-w-7xl mx-auto">
                 <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
                         <div className="flex items-center gap-3">
                             <h1 className="text-2xl font-bold text-slate-900">Dining List</h1>
                         </div>
-                        <button
-                            onClick={() => navigate("/admin/food/restaurants/add")}
-                            className="px-4 py-2.5 text-sm font-medium rounded-lg bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-2 transition-all shadow-sm hover:shadow"
-                        >
-                            <Plus className="w-4 h-4" />
-                            <span>Add Restaurant</span>
-                        </button>
                     </div>
                     <p className="text-slate-500">Manage restaurants available for dining.</p>
                 </div>
@@ -221,13 +237,6 @@ export default function DiningList() {
                             <p className="text-slate-500 max-w-sm mb-8">
                                 Get started by adding your first restaurant to the dining management system.
                             </p>
-                            <button
-                                onClick={() => navigate("/admin/food/restaurants/add")}
-                                className="px-6 py-3 text-sm font-medium rounded-lg bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-2 transition-all shadow-md"
-                            >
-                                <Plus className="w-5 h-5" />
-                                <span>Register First Restaurant</span>
-                            </button>
                         </div>
                     ) : (
                         <>

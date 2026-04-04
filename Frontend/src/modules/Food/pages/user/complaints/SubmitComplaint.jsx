@@ -2,6 +2,7 @@ import { useState, useEffect } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 import { ArrowLeft, AlertCircle, FileText } from "lucide-react"
 import { orderAPI } from "@food/api"
+import useAppBackNavigation from "@food/hooks/useAppBackNavigation"
 import { toast } from "sonner"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
@@ -21,6 +22,7 @@ const COMPLAINT_TYPES = [
 
 export default function SubmitComplaint() {
   const navigate = useNavigate()
+  const goBack = useAppBackNavigation()
   const { orderId } = useParams()
 
   const [order, setOrder] = useState(null)
@@ -155,7 +157,7 @@ export default function SubmitComplaint() {
       <div className="bg-white p-4 flex items-center sticky top-0 z-20 shadow-sm">
         <button
           type="button"
-          onClick={() => navigate(-1)}
+          onClick={goBack}
           className="p-1 rounded-full hover:bg-gray-100"
         >
           <ArrowLeft className="w-6 h-6 text-gray-700" />

@@ -24,6 +24,15 @@ const normalizeRequestRecord = (request, index) => ({
   fullData: request?.fullData || request,
 })
 
+const formatTime12Hour = (timeStr) => {
+  if (!timeStr || typeof timeStr !== "string" || !timeStr.includes(":")) return "--:-- --"
+  const [h, m] = timeStr.split(":").map(Number)
+  if (Number.isNaN(h) || Number.isNaN(m)) return timeStr
+  const period = h >= 12 ? "PM" : "AM"
+  const hour = h % 12 || 12
+  return `${String(hour).padStart(2, "0")}:${String(m).padStart(2, "0")} ${period}`
+}
+
 
 export default function JoiningRequest() {
   const [activeTab, setActiveTab] = useState("pending")
@@ -280,6 +289,12 @@ export default function JoiningRequest() {
     setRestaurantDetails(null)
   }
 
+  const getNormalizedImageUrl = (image) => {
+    if (!image) return ""
+    if (typeof image === "string") return image
+    return image?.url || ""
+  }
+
   return (
     <div className="p-4 lg:p-6 bg-slate-50 min-h-screen">
       <div className="max-w-7xl mx-auto">
@@ -425,12 +440,17 @@ export default function JoiningRequest() {
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-full overflow-hidden bg-slate-100 flex items-center justify-center shrink-0">
+                          <div 
+                            className="w-10 h-10 rounded-full overflow-hidden bg-slate-100 flex items-center justify-center shrink-0 cursor-pointer hover:opacity-80 transition-all"
+                            onClick={() => handleViewDetails(request)}
+                          >
                             <img
                               src={
-                                typeof request.profileImage === "string"
+                                getNormalizedImageUrl(request?.coverImages?.[0]) ||
+                                (typeof request.profileImage === "string"
                                   ? request.profileImage
-                                  : (request.profileImage?.url || request.profileImageUrl?.url || request.restaurantImage) || "https://via.placeholder.com/40?text=" + (request.restaurantName?.slice(0, 2) || "R").toUpperCase()
+                                  : (request.profileImage?.url || request.profileImageUrl?.url || request.restaurantImage)) ||
+                                "https://via.placeholder.com/40?text=" + (request.restaurantName?.slice(0, 2) || "R").toUpperCase()
                               }
                               alt={request.restaurantName || "Restaurant"}
                               className="w-full h-full object-cover"
@@ -439,7 +459,12 @@ export default function JoiningRequest() {
                               }}
                             />
                           </div>
-                          <span className="text-sm font-medium text-slate-900">{request.restaurantName}</span>
+                          <span 
+                            className="text-sm font-medium text-slate-900 cursor-pointer hover:text-blue-600 transition-colors"
+                            onClick={() => handleViewDetails(request)}
+                          >
+                            {request.restaurantName}
+                          </span>
                         </div>
                       </td>
                       <td className="px-6 py-4">
@@ -505,7 +530,7 @@ export default function JoiningRequest() {
 
       {/* Filter Dialog */}
       {showFilterDialog && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4" onClick={() => setShowFilterDialog(false)}>
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setShowFilterDialog(false)}>
           <div className="bg-white rounded-xl shadow-2xl max-w-md w-full" onClick={(e) => e.stopPropagation()}>
             <div className="p-6">
               <div className="flex items-center justify-between mb-6">
@@ -615,7 +640,7 @@ export default function JoiningRequest() {
 
       {/* Reject Confirmation Dialog */}
       {showRejectDialog && selectedRequest && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4" onClick={() => setShowRejectDialog(false)}>
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setShowRejectDialog(false)}>
           <div className="bg-white rounded-xl shadow-2xl max-w-md w-full" onClick={(e) => e.stopPropagation()}>
             <div className="p-6">
               <div className="flex items-center gap-4 mb-4">
@@ -677,18 +702,28 @@ export default function JoiningRequest() {
         </div>
       )}
 
-      {/* Restaurant Details Modal */}
+      {/* Restaurant Details Side Panel */}
       {showDetailsModal && selectedRequest && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4" onClick={closeDetailsModal}>
-          <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            {/* Modal Header */}
-            <div className="sticky top-0 bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between z-10">
-              <h2 className="text-2xl font-bold text-slate-900">Restaurant Details - {selectedRequest.restaurantName || "N/A"}</h2>
+        <div className="fixed inset-0 z-[60] flex justify-end">
+          <div className="fixed inset-0 bg-slate-900/10 backdrop-blur-sm transition-opacity" onClick={closeDetailsModal} />
+          
+          <div 
+            className="relative w-full max-w-4xl bg-white h-full shadow-2xl overflow-y-auto animate-in slide-in-from-right duration-300"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Panel Header */}
+            <div className="sticky top-0 bg-white border-b border-slate-100 px-6 py-5 flex items-center justify-between z-10">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center">
+                  <UtensilsCrossed className="w-5 h-5 text-blue-600" />
+                </div>
+                <h2 className="text-xl font-bold text-slate-900">Restaurant Details - {selectedRequest.restaurantName || "N/A"}</h2>
+              </div>
               <button
                 onClick={closeDetailsModal}
-                className="p-2 rounded-lg hover:bg-slate-100 transition-colors"
+                className="p-2 rounded-xl hover:bg-slate-100 transition-all text-slate-400 hover:text-slate-600 border border-transparent hover:border-slate-200"
               >
-                <X className="w-5 h-5 text-slate-600" />
+                <X className="w-6 h-6" />
               </button>
             </div>
 
@@ -702,7 +737,10 @@ export default function JoiningRequest() {
               )}
               {!loadingDetails && (restaurantDetails || selectedRequest) && (() => {
                 const r = restaurantDetails || selectedRequest
-                const profileImgUrl = typeof r?.profileImage === "string" ? r.profileImage : (r?.profileImage?.url || r?.profileImageUrl?.url || r?.restaurantImage)
+                const restaurantPhotoList = Array.isArray(r?.coverImages) ? r.coverImages.filter(Boolean) : []
+                const profileImgUrl =
+                  getNormalizedImageUrl(restaurantPhotoList[0]) ||
+                  (typeof r?.profileImage === "string" ? r.profileImage : (r?.profileImage?.url || r?.profileImageUrl?.url || r?.restaurantImage))
                 const addressParts = [
                   r?.addressLine1,
                   r?.addressLine2,
@@ -880,7 +918,7 @@ export default function JoiningRequest() {
                             <div>
                               <p className="text-xs text-slate-500">Opening / Closing</p>
                               <p className="text-sm font-medium text-slate-900">
-                                {openingTime || "—"} – {closingTime || "—"}
+                                {formatTime12Hour(openingTime)} – {formatTime12Hour(closingTime)}
                               </p>
                             </div>
                           </div>
@@ -916,6 +954,35 @@ export default function JoiningRequest() {
                   </div>
 
                   {/* Registration Documents – flat schema (PAN, GST, FSSAI, Bank) */}
+                  {restaurantPhotoList.length > 0 && (
+                    <div className="pt-6 border-t border-slate-200">
+                      <h4 className="text-lg font-semibold text-slate-900 mb-4">Restaurant Photos</h4>
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                        {restaurantPhotoList.map((restaurantImg, idx) => {
+                          const imgUrl = getNormalizedImageUrl(restaurantImg)
+                          return imgUrl ? (
+                            <a
+                              key={idx}
+                              href={imgUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="rounded-lg overflow-hidden border border-slate-200 hover:border-blue-500 transition-colors"
+                            >
+                              <img
+                                src={imgUrl}
+                                alt={`Restaurant ${idx + 1}`}
+                                className="w-full h-32 object-cover"
+                                onError={(e) => {
+                                  e.target.src = "https://via.placeholder.com/200"
+                                }}
+                              />
+                            </a>
+                          ) : null
+                        })}
+                      </div>
+                    </div>
+                  )}
+
                   {(hasFlatDocs || r?.onboarding?.step3) && (
                     <div className="pt-6 border-t border-slate-200">
                       <h4 className="text-lg font-semibold text-slate-900 mb-4">Registration Documents</h4>

@@ -1,25 +1,30 @@
 import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
+import useRestaurantBackNavigation from "@food/hooks/useRestaurantBackNavigation"
 import { motion, AnimatePresence } from "framer-motion"
 import Lenis from "lenis"
 import { ArrowLeft, Truck, X, CheckCircle, AlertCircle } from "lucide-react"
 import { Switch } from "@food/components/ui/switch"
 import { Card, CardContent } from "@food/components/ui/card"
+import { restaurantAPI } from "@food/api"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
 
 
 const DELIVERY_STATUS_KEY = "restaurant_delivery_status"
+const RESTAURANT_ONLINE_STATUS_KEY = "restaurant_online_status"
 
 export default function DeliverySettings() {
   const navigate = useNavigate()
+  const goBack = useRestaurantBackNavigation()
   const [deliveryStatus, setDeliveryStatus] = useState(false)
   const [showWarning, setShowWarning] = useState(false)
   const [showConfirmDialog, setShowConfirmDialog] = useState(false)
   const [pendingStatus, setPendingStatus] = useState(false)
   const [showSuccessToast, setShowSuccessToast] = useState(false)
   const [toastMessage, setToastMessage] = useState("")
+  const [savingStatus, setSavingStatus] = useState(false)
 
   // Lenis smooth scrolling
   useEffect(() => {
@@ -41,7 +46,58 @@ export default function DeliverySettings() {
     }
   }, [])
 
-  // Load delivery status from localStorage on mount
+  const syncStatusLocally = (status) => {
+    const value = Boolean(status)
+    try {
+      localStorage.setItem(DELIVERY_STATUS_KEY, JSON.stringify(value))
+      localStorage.setItem(RESTAURANT_ONLINE_STATUS_KEY, JSON.stringify(value))
+    } catch (error) {
+      debugError("Error saving delivery status locally:", error)
+    }
+
+    window.dispatchEvent(new CustomEvent("restaurantStatusChanged", {
+      detail: { isOnline: value }
+    }))
+  }
+
+  // Load delivery status from backend on mount
+  useEffect(() => {
+    let cancelled = false
+
+    const loadDeliveryStatus = async () => {
+      try {
+        const response = await restaurantAPI.getCurrentRestaurant()
+        const restaurant =
+          response?.data?.data?.restaurant ||
+          response?.data?.restaurant ||
+          null
+        const nextStatus = restaurant?.isAcceptingOrders === true
+        if (!cancelled) {
+          setDeliveryStatus(nextStatus)
+          syncStatusLocally(nextStatus)
+        }
+      } catch (error) {
+        try {
+          const savedStatus = localStorage.getItem(DELIVERY_STATUS_KEY)
+          if (!cancelled && savedStatus !== null) {
+            setDeliveryStatus(JSON.parse(savedStatus))
+          }
+        } catch (_) {}
+
+        if (error.code !== 'ERR_NETWORK' && error.code !== 'ECONNABORTED' && !error.message?.includes('timeout')) {
+          debugError("Error loading delivery status:", error)
+        }
+      }
+    }
+
+    loadDeliveryStatus()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // Keep backward-compatible local key in sync if another screen updates it.
   useEffect(() => {
     try {
       const savedStatus = localStorage.getItem(DELIVERY_STATUS_KEY)
@@ -78,22 +134,20 @@ export default function DeliverySettings() {
   }
 
   const saveDeliveryStatus = (status) => {
-    try {
-      localStorage.setItem(DELIVERY_STATUS_KEY, JSON.stringify(status))
-      setDeliveryStatus(status)
-      
-      if (status) {
-        showToast("Delivery is now ON - You're receiving orders")
-      } else {
-        showToast("Delivery is now OFF - Not receiving orders")
-      }
-    } catch (error) {
-      debugError("Error saving delivery status:", error)
-      showToast("Error updating delivery status")
+    const value = Boolean(status)
+    setDeliveryStatus(value)
+    syncStatusLocally(value)
+
+    if (value) {
+      showToast("Delivery is now ON - You're receiving orders")
+    } else {
+      showToast("Delivery is now OFF - Not receiving orders")
     }
   }
 
   const handleDeliveryStatusChange = (checked) => {
+    if (savingStatus) return
+
     // If turning ON and outside outlet timings, show warning
     if (checked && !canEnableDelivery) {
       setPendingStatus(checked)
@@ -109,11 +163,30 @@ export default function DeliverySettings() {
     }
 
     // Otherwise, update directly
-    saveDeliveryStatus(checked)
+    void saveDeliveryStatusToBackend(checked)
+  }
+
+  const saveDeliveryStatusToBackend = async (status) => {
+    const previousStatus = deliveryStatus
+    const nextStatus = Boolean(status)
+
+    try {
+      setSavingStatus(true)
+      saveDeliveryStatus(nextStatus)
+      await restaurantAPI.updateAcceptingOrders(nextStatus)
+    } catch (error) {
+      setDeliveryStatus(previousStatus)
+      syncStatusLocally(previousStatus)
+      debugError("Error updating delivery status:", error)
+      showToast(error?.response?.data?.message || "Error updating delivery status")
+      return
+    } finally {
+      setSavingStatus(false)
+    }
   }
 
   const handleConfirmStatusChange = () => {
-    saveDeliveryStatus(pendingStatus)
+    void saveDeliveryStatusToBackend(pendingStatus)
     setShowConfirmDialog(false)
     
     // Show warning if enabled outside timings
@@ -134,7 +207,7 @@ export default function DeliverySettings() {
       <div className="bg-white border-b border-gray-200 px-4 py-3 sticky top-0 z-50">
         <div className="flex items-center gap-3">
           <button 
-            onClick={() => navigate(-1)}
+            onClick={goBack}
             className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
             aria-label="Go back"
           >
@@ -208,6 +281,7 @@ export default function DeliverySettings() {
                 <Switch
                   checked={deliveryStatus}
                   onCheckedChange={handleDeliveryStatusChange}
+                  disabled={savingStatus}
                   className="ml-4 data-[state=checked]:bg-green-500 data-[state=unchecked]:bg-gray-300"
                 />
               </div>

@@ -1,9 +1,10 @@
 import { useState, useEffect, useMemo } from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import { Calendar, Clock, Users, Search, MessageSquare, CheckCircle2, Clock4, UploadCloud, ImagePlus, ChevronDown, ChevronUp, Sparkles, MapPin, Phone, Info } from "lucide-react"
+import { Calendar, Clock, Users, Search, MessageSquare, CheckCircle2, Clock4, UploadCloud, ImagePlus, ChevronDown, ChevronUp, Sparkles, MapPin, Phone, Info, X } from "lucide-react"
 import { diningAPI, restaurantAPI } from "@food/api"
 import Loader from "@food/components/Loader"
 import { Badge } from "@food/components/ui/badge"
+import { toast } from "sonner"
 const debugError = (...args) => {}
 
 const getRestaurantFromResponse = (response) =>
@@ -33,12 +34,15 @@ const getProfilePhotoUrl = (restaurant) => {
     return String(candidate?.url || "").trim()
 }
 
+const getCoverImages = (restaurant) => {
+    const base = Array.isArray(restaurant?.coverImages) ? restaurant.coverImages : []
+    return base
+        .map(normalizeImageEntry)
+        .filter(Boolean)
+}
+
 const getMenuImages = (restaurant) => {
-    const base = Array.isArray(restaurant?.menuImages)
-        ? restaurant.menuImages
-        : Array.isArray(restaurant?.coverImages)
-            ? restaurant.coverImages
-            : []
+    const base = Array.isArray(restaurant?.menuImages) ? restaurant.menuImages : []
 
     return base
         .map(normalizeImageEntry)
@@ -71,19 +75,32 @@ export default function DiningReservations() {
     const [restaurant, setRestaurant] = useState(null)
     const [searchTerm, setSearchTerm] = useState("")
     const [restaurantPhoto, setRestaurantPhoto] = useState("")
+    const [restaurantPhotos, setRestaurantPhotos] = useState([])
     const [menuPhotos, setMenuPhotos] = useState([])
     const [uploadingRestaurantPhoto, setUploadingRestaurantPhoto] = useState(false)
     const [uploadingMenuPhotos, setUploadingMenuPhotos] = useState(false)
+    const [removingRestaurantPhoto, setRemovingRestaurantPhoto] = useState(false)
+    const [removingMenuPhoto, setRemovingMenuPhoto] = useState(false)
     const [uploadMessage, setUploadMessage] = useState("")
     const [uploadError, setUploadError] = useState("")
     const [activeSection, setActiveSection] = useState("reservations")
     const [activeView, setActiveView] = useState("priority")
     const [showMediaPanel, setShowMediaPanel] = useState(false)
+    const [diningEnabled, setDiningEnabled] = useState(false)
+    const [maxGuestsLimit, setMaxGuestsLimit] = useState(6)
+    const [savingDiningSettings, setSavingDiningSettings] = useState(false)
+    const [diningSettingsMessage, setDiningSettingsMessage] = useState("")
+    const [diningSettingsError, setDiningSettingsError] = useState("")
 
     const syncRestaurantMediaState = (restaurantData) => {
         setRestaurant(restaurantData || null)
-        setRestaurantPhoto(getProfilePhotoUrl(restaurantData))
+        const coverImages = getCoverImages(restaurantData)
+        const profileImage = getProfilePhotoUrl(restaurantData)
+        setRestaurantPhotos(coverImages)
+        setRestaurantPhoto(coverImages[0]?.url || profileImage)
         setMenuPhotos(getMenuImages(restaurantData))
+        setDiningEnabled(Boolean(restaurantData?.diningSettings?.isEnabled))
+        setMaxGuestsLimit(Math.max(1, parseInt(restaurantData?.diningSettings?.maxGuests, 10) || 6))
     }
 
     useEffect(() => {
@@ -99,7 +116,7 @@ export default function DiningReservations() {
                     if (restaurantId) {
                         syncRestaurantMediaState(resData)
                         // Then get its bookings
-                        const bookingsResponse = await diningAPI.getRestaurantBookings(restaurantId)
+                        const bookingsResponse = await diningAPI.getRestaurantBookings(resData)
                         if (bookingsResponse.data.success) {
                             setBookings(Array.isArray(bookingsResponse.data.data) ? bookingsResponse.data.data : [])
                         }
@@ -117,22 +134,22 @@ export default function DiningReservations() {
     }, [])
 
     const handleRestaurantPhotoUpload = async (event) => {
-        const file = event.target.files?.[0]
-        if (!file) return
+        const files = Array.from(event.target.files || [])
+        if (files.length === 0) return
 
         setUploadError("")
         setUploadMessage("")
         setUploadingRestaurantPhoto(true)
 
         try {
-            await restaurantAPI.uploadProfileImage(file)
+            await restaurantAPI.uploadCoverImages(files)
             const refreshedResponse = await restaurantAPI.getCurrentRestaurant()
             const refreshedRestaurant = getRestaurantFromResponse(refreshedResponse)
             syncRestaurantMediaState(refreshedRestaurant)
-            setUploadMessage("Restaurant photo updated successfully.")
+            setUploadMessage(`Uploaded ${files.length} restaurant photo(s) successfully.`)
         } catch (error) {
             debugError("Error uploading restaurant photo:", error)
-            setUploadError(error?.response?.data?.message || "Failed to upload restaurant photo.")
+            setUploadError(error?.response?.data?.message || "Failed to upload restaurant photos.")
         } finally {
             setUploadingRestaurantPhoto(false)
             event.target.value = ""
@@ -148,49 +165,41 @@ export default function DiningReservations() {
         setUploadingMenuPhotos(true)
 
         try {
-            const uploadedImages = []
-            const failedUploads = []
+            await restaurantAPI.uploadMenuImages(files)
+            const refreshedResponse = await restaurantAPI.getCurrentRestaurant()
+            syncRestaurantMediaState(getRestaurantFromResponse(refreshedResponse))
+            setUploadMessage(`Uploaded ${files.length} menu photo(s) successfully.`)
+        } catch (error) {
+            debugError("Error saving menu photos:", error)
+            setUploadError(error?.response?.data?.message || "Failed to upload menu photos.")
+        } finally {
+            setUploadingMenuPhotos(false)
+            event.target.value = ""
+        }
+    }
 
-            for (const file of files) {
-                try {
-                    const uploadResponse = await restaurantAPI.uploadMenuImage(file)
-                    const imageCandidate =
-                        normalizeImageEntry(uploadResponse?.data?.data?.menuImage) ||
-                        normalizeImageEntry(uploadResponse?.data?.data?.menuImages?.[0])
+    const handleRemoveRestaurantPhoto = async (photoUrl) => {
+        if (!photoUrl || removingRestaurantPhoto) return
 
-                    if (imageCandidate) {
-                        uploadedImages.push(imageCandidate)
-                    } else {
-                        failedUploads.push(file.name)
-                    }
-                } catch (uploadError) {
-                    debugError("Menu image upload failed:", uploadError)
-                    failedUploads.push(file.name)
-                }
-            }
+        setUploadError("")
+        setUploadMessage("")
+        setRemovingRestaurantPhoto(true)
 
-            if (uploadedImages.length === 0) {
-                setUploadError("No menu photos were uploaded. Please try again.")
-                return
-            }
+        try {
+            const nextCoverImages = restaurantPhotos.filter((photo) => photo.url !== photoUrl)
+            const currentProfileImage = getProfilePhotoUrl(restaurant)
+            const nextPrimaryPhoto = nextCoverImages[0]?.url || ""
+            const shouldClearProfileImage = !nextPrimaryPhoto && currentProfileImage === photoUrl
 
-            const existingImages = getMenuImages(restaurant)
-            const mergedImages = [...existingImages]
-
-            uploadedImages.forEach((img) => {
-                if (!mergedImages.find((existing) => existing.url === img.url)) {
-                    mergedImages.push(img)
-                }
-            })
-
-            const profileResponse = await restaurantAPI.updateProfile({
-                menuImages: mergedImages.map((img) => ({
-                    url: img.url,
-                    ...(img.publicId ? { publicId: img.publicId } : {}),
+            const response = await restaurantAPI.updateProfile({
+                coverImages: nextCoverImages.map((photo) => ({
+                    url: photo.url,
+                    ...(photo.publicId ? { publicId: photo.publicId } : {}),
                 })),
+                ...(shouldClearProfileImage ? { profileImage: "" } : {}),
             })
 
-            const updatedRestaurant = getRestaurantFromResponse(profileResponse)
+            const updatedRestaurant = getRestaurantFromResponse(response)
             if (updatedRestaurant) {
                 syncRestaurantMediaState(updatedRestaurant)
             } else {
@@ -198,17 +207,79 @@ export default function DiningReservations() {
                 syncRestaurantMediaState(getRestaurantFromResponse(refreshedResponse))
             }
 
-            if (failedUploads.length > 0) {
-                setUploadMessage(`Uploaded ${uploadedImages.length} photo(s), but ${failedUploads.length} failed.`)
-            } else {
-                setUploadMessage(`Uploaded ${uploadedImages.length} menu photo(s) successfully.`)
-            }
+            setUploadMessage("Restaurant photo removed successfully.")
         } catch (error) {
-            debugError("Error saving menu photos:", error)
-            setUploadError(error?.response?.data?.message || "Failed to upload menu photos.")
+            debugError("Error removing restaurant photo:", error)
+            setUploadError(error?.response?.data?.message || "Failed to remove restaurant photo.")
         } finally {
-            setUploadingMenuPhotos(false)
-            event.target.value = ""
+            setRemovingRestaurantPhoto(false)
+        }
+    }
+
+    const handleRemoveMenuPhoto = async (photoUrl) => {
+        if (!photoUrl || removingMenuPhoto) return
+
+        setUploadError("")
+        setUploadMessage("")
+        setRemovingMenuPhoto(true)
+
+        try {
+            const nextMenuPhotos = menuPhotos.filter((photo) => photo.url !== photoUrl)
+            const response = await restaurantAPI.updateProfile({
+                menuImages: nextMenuPhotos.map((photo) => ({
+                    url: photo.url,
+                    ...(photo.publicId ? { publicId: photo.publicId } : {}),
+                })),
+            })
+
+            const updatedRestaurant = getRestaurantFromResponse(response)
+            if (updatedRestaurant) {
+                syncRestaurantMediaState(updatedRestaurant)
+            } else {
+                const refreshedResponse = await restaurantAPI.getCurrentRestaurant()
+                syncRestaurantMediaState(getRestaurantFromResponse(refreshedResponse))
+            }
+
+            setUploadMessage("Menu photo removed successfully.")
+        } catch (error) {
+            debugError("Error removing menu photo:", error)
+            setUploadError(error?.response?.data?.message || "Failed to remove menu photo.")
+        } finally {
+            setRemovingMenuPhoto(false)
+        }
+    }
+
+    const handleSaveDiningSettings = async () => {
+        if (!restaurant || savingDiningSettings) return
+
+        const nextMaxGuests = Math.max(1, parseInt(maxGuestsLimit, 10) || 1)
+        const nextDiningSettings = {
+            ...(restaurant?.diningSettings || {}),
+            isEnabled: Boolean(diningEnabled),
+            maxGuests: nextMaxGuests,
+            diningType: restaurant?.diningSettings?.diningType || "family-dining",
+        }
+
+        setDiningSettingsError("")
+        setDiningSettingsMessage("")
+        setSavingDiningSettings(true)
+
+        try {
+            const response = await restaurantAPI.updateDiningSettings(nextDiningSettings)
+
+            const updatedRestaurant = getRestaurantFromResponse(response)
+            if (updatedRestaurant) {
+                syncRestaurantMediaState(updatedRestaurant)
+            }
+
+            setDiningSettingsMessage("Dining settings saved successfully.")
+            toast.success("Dining settings updated")
+        } catch (error) {
+            debugError("Error saving dining settings:", error)
+            setDiningSettingsError(error?.response?.data?.message || "Failed to save dining settings.")
+            toast.error(error?.response?.data?.message || "Failed to save dining settings")
+        } finally {
+            setSavingDiningSettings(false)
         }
     }
 
@@ -436,18 +507,19 @@ export default function DiningReservations() {
                     <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
                         <div className="flex items-start justify-between gap-4">
                             <div>
-                                <h2 className="text-lg font-bold text-slate-900">Restaurant Photo</h2>
-                                <p className="text-sm text-slate-500 mt-1">Upload and replace your main restaurant photo.</p>
+                                <h2 className="text-lg font-bold text-slate-900">Restaurant Photos</h2>
+                                <p className="text-sm text-slate-500 mt-1">Add multiple restaurant photos. The first one will be used as the main preview.</p>
                             </div>
                             <label className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-900 text-white text-sm font-semibold cursor-pointer hover:bg-slate-800 transition-colors">
                                 <UploadCloud className="w-4 h-4" />
-                                {uploadingRestaurantPhoto ? "Uploading..." : "Upload"}
+                                {uploadingRestaurantPhoto ? "Uploading..." : "Add Photos"}
                                 <input
                                     type="file"
                                     className="hidden"
                                     accept="image/*"
+                                    multiple
                                     onChange={handleRestaurantPhotoUpload}
-                                    disabled={uploadingRestaurantPhoto}
+                                    disabled={uploadingRestaurantPhoto || removingRestaurantPhoto}
                                 />
                             </label>
                         </div>
@@ -466,6 +538,46 @@ export default function DiningReservations() {
                                 </div>
                             )}
                         </div>
+
+                        {restaurantPhotos.length > 0 && (
+                            <div className="mt-4 grid grid-cols-3 sm:grid-cols-4 gap-3">
+                                {restaurantPhotos.map((photo, index) => (
+                                    <button
+                                        key={`${photo.url}-${index}`}
+                                        type="button"
+                                        onClick={() => setRestaurantPhoto(photo.url)}
+                                        className={`relative h-20 rounded-lg overflow-hidden border bg-slate-50 transition-all ${restaurantPhoto === photo.url ? "border-slate-900 ring-2 ring-slate-200" : "border-slate-200"}`}
+                                    >
+                                        <img
+                                            src={photo.url}
+                                            alt={`Restaurant photo ${index + 1}`}
+                                            className="w-full h-full object-cover"
+                                        />
+                                        <span className="absolute inset-x-0 bottom-0 bg-black/45 px-1 py-0.5 text-[10px] font-semibold text-white">
+                                            {restaurantPhoto === photo.url ? "Main" : `Photo ${index + 1}`}
+                                        </span>
+                                        <span
+                                            role="button"
+                                            tabIndex={0}
+                                            onClick={(e) => {
+                                                e.stopPropagation()
+                                                handleRemoveRestaurantPhoto(photo.url)
+                                            }}
+                                            onKeyDown={(e) => {
+                                                if (e.key === "Enter" || e.key === " ") {
+                                                    e.preventDefault()
+                                                    e.stopPropagation()
+                                                    handleRemoveRestaurantPhoto(photo.url)
+                                                }
+                                            }}
+                                            className="absolute right-1 top-1 inline-flex h-6 w-6 items-center justify-center rounded-full bg-white/95 text-rose-600 shadow-sm"
+                                        >
+                                            <X className="h-3.5 w-3.5" />
+                                        </span>
+                                    </button>
+                                ))}
+                            </div>
+                        )}
                     </div>
 
                     <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
@@ -483,7 +595,7 @@ export default function DiningReservations() {
                                     accept="image/*"
                                     multiple
                                     onChange={handleMenuPhotosUpload}
-                                    disabled={uploadingMenuPhotos}
+                                    disabled={uploadingMenuPhotos || removingMenuPhoto}
                                 />
                             </label>
                         </div>
@@ -491,8 +603,16 @@ export default function DiningReservations() {
                         {menuPhotos.length > 0 ? (
                             <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 gap-3">
                                 {menuPhotos.map((photo, index) => (
-                                    <div key={`${photo.url}-${index}`} className="h-24 rounded-lg overflow-hidden border border-slate-200 bg-slate-50">
+                                    <div key={`${photo.url}-${index}`} className="relative h-24 rounded-lg overflow-hidden border border-slate-200 bg-slate-50">
                                         <img src={photo.url} alt={`Menu photo ${index + 1}`} className="w-full h-full object-cover" />
+                                        <button
+                                            type="button"
+                                            onClick={() => handleRemoveMenuPhoto(photo.url)}
+                                            className="absolute right-1 top-1 inline-flex h-6 w-6 items-center justify-center rounded-full bg-white/95 text-rose-600 shadow-sm"
+                                            disabled={removingMenuPhoto}
+                                        >
+                                            <X className="h-3.5 w-3.5" />
+                                        </button>
                                     </div>
                                 ))}
                             </div>
@@ -504,6 +624,71 @@ export default function DiningReservations() {
                         )}
                     </div>
                 </div>
+                )}
+
+                {activeSection === "reservations" && (
+                    <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                            <div className="max-w-xl">
+                                <p className="text-xs font-bold uppercase tracking-[0.22em] text-slate-400">Dining Controls</p>
+                                <h2 className="mt-1 text-lg font-black text-slate-900">Manage dining availability and booking limit</h2>
+                                <p className="mt-1 text-sm text-slate-500">
+                                    These settings update the same dining profile the guest booking flow reads, so restaurant changes are reflected on the user side too.
+                                </p>
+                            </div>
+
+                            <div className="flex flex-wrap items-center gap-3">
+                                <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-2">
+                                    <span className={`h-2.5 w-2.5 rounded-full ${diningEnabled ? "bg-emerald-500" : "bg-rose-500"}`} />
+                                    <span className="text-sm font-semibold text-slate-700">
+                                        {diningEnabled ? "Dining enabled" : "Dining paused"}
+                                    </span>
+                                </div>
+
+                                <div className="inline-flex items-center gap-3 rounded-full border border-slate-200 bg-white px-4 py-2">
+                                    <span className="text-sm font-medium text-slate-700">Turn dining on/off</span>
+                                    <button
+                                        type="button"
+                                        onClick={() => setDiningEnabled((prev) => !prev)}
+                                        className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors ${diningEnabled ? "bg-emerald-600" : "bg-slate-300"}`}
+                                        aria-pressed={diningEnabled}
+                                    >
+                                        <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform duration-200 ${diningEnabled ? "translate-x-6" : "translate-x-1"}`} />
+                                    </button>
+                                </div>
+
+                                <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2">
+                                    <span className="text-sm font-medium text-slate-700">Customer limit</span>
+                                    <input
+                                        type="number"
+                                        min="1"
+                                        max="20"
+                                        value={maxGuestsLimit}
+                                        onChange={(e) => setMaxGuestsLimit(e.target.value)}
+                                        className="w-20 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-center text-sm font-semibold text-slate-900 outline-none focus:border-blue-500"
+                                    />
+                                </div>
+
+                                <button
+                                    type="button"
+                                    onClick={handleSaveDiningSettings}
+                                    disabled={savingDiningSettings}
+                                    className="rounded-full bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                                >
+                                    {savingDiningSettings ? "Saving..." : "Save settings"}
+                                </button>
+                            </div>
+                        </div>
+
+                        {(diningSettingsMessage || diningSettingsError) && (
+                            <div className={`mt-4 rounded-xl border px-4 py-3 text-sm font-medium ${diningSettingsError
+                                ? "border-rose-200 bg-rose-50 text-rose-700"
+                                : "border-emerald-200 bg-emerald-50 text-emerald-700"
+                                }`}>
+                                {diningSettingsError || diningSettingsMessage}
+                            </div>
+                        )}
+                    </div>
                 )}
 
                 {(uploadMessage || uploadError) && (

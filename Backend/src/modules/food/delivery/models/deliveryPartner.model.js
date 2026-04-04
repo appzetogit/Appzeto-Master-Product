@@ -50,6 +50,10 @@ const deliveryPartnerSchema = new mongoose.Schema(
         aadharNumber: {
             type: String
         },
+        drivingLicenseNumber: {
+            type: String,
+            trim: true
+        },
         profilePhoto: {
             type: String
         },
@@ -95,6 +99,7 @@ const deliveryPartnerSchema = new mongoose.Schema(
         },
         lastLat: { type: Number },
         lastLng: { type: Number },
+        lastLocationAt: { type: Date },
         referralCode: { type: String, index: true },
         referredBy: {
             type: mongoose.Schema.Types.ObjectId,

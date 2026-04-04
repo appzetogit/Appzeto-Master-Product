@@ -1,10 +1,11 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { Link } from "react-router-dom"
-import { ArrowLeft, Bell, CheckCircle2, Clock, Tag, Gift, AlertCircle, Trash2 } from "lucide-react"
+import { ArrowLeft, Bell, CheckCircle2, Clock, Tag, Gift, AlertCircle, Trash2, X } from "lucide-react"
 import AnimatedPage from "@food/components/user/AnimatedPage"
 import { Button } from "@food/components/ui/button"
 import { Card, CardContent } from "@food/components/ui/card"
 import { Badge } from "@food/components/ui/badge"
+import useNotificationInbox from "@food/hooks/useNotificationInbox"
 
 // Initial mock notification data (fallback if localStorage is empty)
 const DEFAULT_NOTIFICATIONS = [
@@ -45,6 +46,13 @@ export default function Notifications() {
     const saved = localStorage.getItem('food_user_notifications')
     return saved ? JSON.parse(saved) : DEFAULT_NOTIFICATIONS
   })
+  const {
+    items: broadcastNotifications,
+    unreadCount: broadcastUnreadCount,
+    markAsRead: markBroadcastAsRead,
+    dismiss: dismissBroadcastNotification,
+    dismissAll: dismissAllBroadcastNotifications,
+  } = useNotificationInbox("user", { limit: 100 })
 
   // Persistence: Save to localStorage whenever list updates
   useEffect(() => {
@@ -98,9 +106,43 @@ export default function Notifications() {
     }
   }, [])
   
-  const unreadCount = notificationsList.filter(n => !n.read).length
+  const mergedNotifications = useMemo(() => {
+    const localItems = (notificationsList || []).map((item) => ({
+      ...item,
+      source: "local",
+    }))
+    const broadcastItems = (broadcastNotifications || []).map((item) => ({
+      ...item,
+      source: "broadcast",
+      type: "broadcast",
+      time: item.createdAt
+        ? new Date(item.createdAt).toLocaleString("en-IN", {
+            day: "2-digit",
+            month: "short",
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: true,
+          })
+        : "Just now",
+      timestamp: item.createdAt || Date.now(),
+      icon: "Bell",
+      iconColor: "text-blue-600",
+    }))
 
-  const handleMarkAsRead = (id) => {
+    return [...broadcastItems, ...localItems].sort(
+      (a, b) =>
+        new Date(b.timestamp || b.createdAt || 0).getTime() -
+        new Date(a.timestamp || a.createdAt || 0).getTime()
+    )
+  }, [broadcastNotifications, notificationsList])
+
+  const unreadCount = notificationsList.filter(n => !n.read).length + broadcastUnreadCount
+
+  const handleMarkAsRead = (id, source = "local") => {
+    if (source === "broadcast") {
+      markBroadcastAsRead(id)
+      return
+    }
     setNotificationsList(prev => 
       prev.map(n => n.id === id ? { ...n, read: true } : n)
     )
@@ -108,6 +150,15 @@ export default function Notifications() {
 
   const handleClearAll = () => {
     setNotificationsList([])
+    dismissAllBroadcastNotifications()
+  }
+
+  const handleDeleteOne = (id, source = "local") => {
+    if (source === "broadcast") {
+      dismissBroadcastNotification(id)
+      return
+    }
+    setNotificationsList((prev) => prev.filter((notification) => notification.id !== id))
   }
 
   return (
@@ -129,7 +180,7 @@ export default function Notifications() {
               </Badge>
             )}
           </div>
-          {notificationsList.length > 0 && (
+          {mergedNotifications.length > 0 && (
             <Button 
               variant="ghost" 
               size="sm" 
@@ -144,12 +195,12 @@ export default function Notifications() {
 
         {/* Notifications List */}
         <div className="space-y-3 md:space-y-4">
-          {notificationsList.map((notification) => {
+          {mergedNotifications.map((notification) => {
             const Icon = ICON_MAP[notification.icon] || Bell
             return (
               <Card
                 key={notification.id}
-                onClick={() => handleMarkAsRead(notification.id)}
+                onClick={() => handleMarkAsRead(notification.id, notification.source)}
                 className={`relative cursor-pointer transition-all duration-200 py-1 hover:shadow-md ${!notification.read ? "bg-red-50/50 dark:bg-red-900/20 border-red-200 dark:border-red-800" : "bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700"
                   }`}
               >
@@ -171,10 +222,23 @@ export default function Notifications() {
 
                     {/* Content */}
                     <div className="flex-1 min-w-0">
-                      <h3 className={`text-sm sm:text-base md:text-lg font-semibold mb-1 md:mb-2 ${!notification.read ? "text-gray-900 dark:text-white" : "text-gray-700 dark:text-gray-300"
-                        }`}>
-                        {notification.title}
-                      </h3>
+                      <div className="flex items-start justify-between gap-2 mb-1 md:mb-2">
+                        <h3 className={`text-sm sm:text-base md:text-lg font-semibold ${!notification.read ? "text-gray-900 dark:text-white" : "text-gray-700 dark:text-gray-300"
+                          }`}>
+                          {notification.title}
+                        </h3>
+                        <button
+                          type="button"
+                          aria-label="Delete notification"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleDeleteOne(notification.id, notification.source)
+                          }}
+                          className="flex-shrink-0 rounded-full p-1 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      </div>
                       <p className="text-xs sm:text-sm md:text-base text-gray-600 dark:text-gray-400 mb-2 md:mb-3 line-clamp-2">
                         {notification.message}
                       </p>
@@ -191,7 +255,7 @@ export default function Notifications() {
         </div>
 
         {/* Empty State (if no notifications) */}
-        {notificationsList.length === 0 && (
+        {mergedNotifications.length === 0 && (
           <div className="text-center py-12 md:py-16 lg:py-20">
             <Bell className="h-16 w-16 md:h-20 md:w-20 lg:h-24 lg:w-24 text-gray-300 dark:text-gray-600 mx-auto mb-4 md:mb-5 lg:mb-6" />
             <h3 className="text-lg md:text-xl lg:text-2xl font-semibold text-gray-700 dark:text-gray-300 mb-2 md:mb-3">No notifications</h3>

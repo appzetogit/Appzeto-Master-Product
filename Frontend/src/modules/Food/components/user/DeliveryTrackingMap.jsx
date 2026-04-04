@@ -186,31 +186,31 @@ const DeliveryTrackingMap = ({
   const tripStatus = order?.status || order?.orderStatus || 'pending';
   const isOrderPickedUp = ['picked_up', 'out_for_delivery', 'delivered'].includes(tripStatus.toLowerCase());
 
-  // 2. Pro Camera: Intelligent Frame Management
+  // 2. Pro Camera: Intelligent Frame Management (Throttled)
+  const lastCameraUpdateRef = useRef({ time: 0, status: null });
+  
   useEffect(() => {
     if (!map || !restaurantCoords || !customerCoords || !isLoaded) return;
+    
+    const now = Date.now();
+    const statusChanged = lastCameraUpdateRef.current.status !== isOrderPickedUp;
+    const timeSinceLastUpdate = now - lastCameraUpdateRef.current.time;
+
+    // Only fitBounds if status changed OR every 15 seconds to avoid flickering
+    if (!statusChanged && timeSinceLastUpdate < 15000) return;
+
+    lastCameraUpdateRef.current = { time: now, status: isOrderPickedUp };
 
     const bounds = new window.google.maps.LatLngBounds();
     
     if (isOrderPickedUp) {
-      // Focus on Rider -> Customer
       if (riderLocation) bounds.extend(riderLocation);
       bounds.extend(customerCoords);
-      // Include restaurant only if nearby or for context during initial phase
-      if (!riderLocation) bounds.extend(restaurantCoords);
     } else {
-      // Focus on Rider -> Restaurant
-      if (riderLocation) {
-        bounds.extend(riderLocation);
-        bounds.extend(restaurantCoords);
-      } else {
-        // Fallback to Full View
-        bounds.extend(restaurantCoords);
-        bounds.extend(customerCoords);
-      }
+      if (riderLocation) bounds.extend(riderLocation);
+      bounds.extend(restaurantCoords);
     }
 
-    // Apply fitBounds with generous padding for a professional overview
     map.fitBounds(bounds, { 
       top: 100, 
       bottom: 120, 
@@ -218,7 +218,7 @@ const DeliveryTrackingMap = ({
       right: 60 
     });
     
-    debugLog(`?? Camera focusing on ${isOrderPickedUp ? 'Delivery' : 'Pickup'} leg`);
+    debugLog(`[Camera] Focusing on ${isOrderPickedUp ? 'Delivery' : 'Pickup'} leg`);
   }, [map, riderLocation, restaurantCoords, customerCoords, isOrderPickedUp, isLoaded]);
 
   // 3. Directions Management
@@ -255,15 +255,12 @@ const DeliveryTrackingMap = ({
   }, [riderLocation?.lat, riderLocation?.lng, isOrderPickedUp, restaurantCoords?.lat, restaurantCoords?.lng, customerCoords?.lat, customerCoords?.lng]);
 
   const center = useMemo(() => {
-    if (riderLocation) return riderLocation;
-    if (restaurantCoords && customerCoords) {
-      return {
-        lat: (restaurantCoords.lat + customerCoords.lat) / 2,
-        lng: (restaurantCoords.lng + customerCoords.lng) / 2
-      };
-    }
-    return { lat: 0, lng: 0 };
-  }, [riderLocation, restaurantCoords, customerCoords]);
+    // Highly stable center: use restaurant or customer as anchor, not the moving rider
+    if (isOrderPickedUp) return customerCoords || { lat: 0, lng: 0 };
+    return restaurantCoords || { lat: 0, lng: 0 };
+  }, [isOrderPickedUp, restaurantCoords, customerCoords]);
+
+  const zoom = useMemo(() => 15, []);
 
   const baselineDirectionsServiceOptions = useMemo(() => {
     if (!restaurantCoords || !customerCoords) return null;
@@ -281,7 +278,7 @@ const DeliveryTrackingMap = ({
       <GoogleMap
         mapContainerStyle={{ width: '100%', height: '100%' }}
         center={center}
-        zoom={15}
+        zoom={zoom}
         onLoad={setMap}
         options={{
           disableDefaultUI: false,

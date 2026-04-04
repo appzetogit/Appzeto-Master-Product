@@ -1,17 +1,18 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { 
   ArrowLeft, Clock, CheckCircle, XCircle, 
   Loader2, MessageSquare, ShieldCheck, Mail 
 } from 'lucide-react';
 import { deliveryAPI } from '@food/api';
 import { toast } from 'sonner';
+import useDeliveryBackNavigation from '../../hooks/useDeliveryBackNavigation';
 
 /**
  * ViewSupportTicketV2 - Restored Old UI for Ticket Details.
  */
 export const ViewSupportTicketV2 = () => {
-  const navigate = useNavigate();
+  const goBack = useDeliveryBackNavigation();
   const { ticketId } = useParams();
   const [ticket, setTicket] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -20,10 +21,13 @@ export const ViewSupportTicketV2 = () => {
     const fetchTicket = async () => {
       try {
         setLoading(true);
-        // Using getSupportTickets and filtering for simplicity, or building specific GET
-        const response = await deliveryAPI.getSupportTickets();
+        const response = await deliveryAPI.getSupportTicketById(ticketId);
         if (response?.data?.success) {
-          const found = response.data.data.tickets.find(t => t._id === ticketId);
+          const found =
+            response?.data?.data?.ticket ||
+            response?.data?.data ||
+            response?.data?.ticket ||
+            null;
           setTicket(found);
         }
       } catch (error) {
@@ -51,7 +55,7 @@ export const ViewSupportTicketV2 = () => {
     <div className="min-h-screen bg-gray-50 font-poppins pb-20">
       {/* Header */}
       <div className="bg-white px-4 py-5 flex items-center gap-4 fixed top-0 w-full z-50 shadow-sm border-b border-gray-50">
-        <button onClick={() => navigate(-1)} className="p-1 hover:bg-gray-50 rounded-full">
+        <button onClick={goBack} className="p-1 hover:bg-gray-50 rounded-full">
            <ArrowLeft className="w-6 h-6 text-gray-950" />
         </button>
         <h1 className="text-xl font-black text-gray-950 uppercase tracking-tight">Ticket Info</h1>
@@ -91,6 +95,11 @@ export const ViewSupportTicketV2 = () => {
                <p className="text-xs text-orange-600 font-bold leading-relaxed italic">
                  {ticket.adminResponse || "Our support team is currently reviewing your ticket. You'll receive a notification once there is an update."}
                </p>
+               {ticket.respondedAt && (
+                 <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
+                   Updated {new Date(ticket.respondedAt).toLocaleString()}
+                 </p>
+               )}
             </div>
          </div>
 

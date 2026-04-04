@@ -39,10 +39,11 @@ const toClientShape = (doc) => {
     const map = {};
     for (const day of DAY_NAMES) {
         const found = timings.find((t) => normalizeDay(t?.day) === day);
+        const isOpen = found ? found.isOpen !== false : true;
         map[day] = {
-            isOpen: found?.isOpen !== false,
-            openingTime: normalizeTime(found?.openingTime, '09:00'),
-            closingTime: normalizeTime(found?.closingTime, '22:00')
+            isOpen,
+            openingTime: isOpen ? normalizeTime(found?.openingTime, '09:00') : '',
+            closingTime: isOpen ? normalizeTime(found?.closingTime, '22:00') : ''
         };
     }
     return map;
@@ -67,11 +68,12 @@ export async function upsertOutletTimingsForRestaurant(restaurantId, outletTimin
 
     const timings = DAY_NAMES.map((day) => {
         const src = outletTimings[day] && typeof outletTimings[day] === 'object' ? outletTimings[day] : {};
+        const isOpen = src.isOpen !== false;
         return {
             day,
-            isOpen: src.isOpen !== false,
-            openingTime: normalizeTime(src.openingTime, '09:00'),
-            closingTime: normalizeTime(src.closingTime, '22:00')
+            isOpen,
+            openingTime: isOpen ? normalizeTime(src.openingTime, '09:00') : '',
+            closingTime: isOpen ? normalizeTime(src.closingTime, '22:00') : ''
         };
     });
 

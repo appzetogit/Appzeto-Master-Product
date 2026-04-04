@@ -5,6 +5,7 @@ import * as foodApprovalController from '../controllers/foodApproval.controller.
 import * as addonsApprovalController from '../controllers/addonsApproval.controller.js';
 import * as businessSettingsController from '../controllers/businessSettings.controller.js';
 import * as feedbackExperienceController from '../controllers/feedbackExperience.controller.js';
+import * as notificationBroadcastController from '../controllers/notificationBroadcast.controller.js';
 import * as diningAdminController from '../../dining/controllers/diningAdmin.controller.js';
 import * as orderController from '../../orders/controllers/order.controller.js';
 import { getAdminPageController, upsertAdminPageController } from '../controllers/pageContent.controller.js';
@@ -24,6 +25,11 @@ const requireAdmin = (req, _res, next) => {
 };
 
 router.use(requireAdmin);
+
+// ----- Broadcast Notifications -----
+router.post('/notifications/broadcast', notificationBroadcastController.createBroadcastNotificationController);
+router.get('/notifications/broadcast', notificationBroadcastController.getBroadcastNotificationsController);
+router.delete('/notifications/broadcast/:id', notificationBroadcastController.deleteBroadcastNotificationController);
 
 // ----- Customers -----
 router.get('/customers', adminController.getCustomers);
@@ -79,9 +85,12 @@ router.patch('/categories/:id', adminController.updateCategory);
 router.delete('/categories/:id', adminController.deleteCategory);
 router.patch('/categories/:id/toggle', adminController.toggleCategoryStatus);
 router.patch('/categories/:id/approve', adminController.approveCategory);
+router.patch('/categories/:id/reject', adminController.rejectCategory);
+router.patch('/categories/:id/make-global', adminController.makeCategoryGlobal);
 
 // ----- Restaurant Add-ons Approval -----
 router.get('/addons', addonsApprovalController.getRestaurantAddons);
+router.patch('/addons/:id', addonsApprovalController.updateRestaurantAddon);
 router.patch('/addons/:id/approve', addonsApprovalController.approveRestaurantAddon);
 router.patch('/addons/:id/reject', addonsApprovalController.rejectRestaurantAddon);
 
@@ -181,18 +190,16 @@ router.delete('/dining/categories/:id', diningAdminController.deleteDiningCatego
 router.get('/dining/restaurants', diningAdminController.getDiningRestaurants);
 router.patch('/dining/restaurants/:restaurantId', diningAdminController.updateDiningRestaurant);
 
-// ----- Orders & Dispatch Settings -----
+// ----- Orders -----
 router.get('/orders', orderController.listOrdersAdminController);
 router.get('/orders/:orderId', orderController.getOrderByIdAdminController);
-router.patch('/orders/:orderId/assign-delivery', orderController.assignDeliveryPartnerController);
 router.delete('/orders/:orderId', orderController.deleteOrderAdminController);
-router.get('/settings/dispatch', orderController.getDispatchSettingsController);
-router.patch('/settings/dispatch', orderController.updateDispatchSettingsController);
 
 // ----- CMS Pages (About + legal) -----
 router.get('/pages-social-media/:key', getAdminPageController);
 router.put('/pages-social-media/:key', upsertAdminPageController);
 
 router.get('/sidebar-badges', adminController.getSidebarBadges);
+router.get('/notifications/fssai-expired', adminController.getExpiredFssaiNotifications);
 
 export default router;

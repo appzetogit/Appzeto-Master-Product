@@ -15,6 +15,14 @@ const stub = () =>
     config: {},
   });
 
+/** Search API - unified search for user app */
+export const searchAPI = {
+  unifiedSearch: (params = {}) =>
+    apiClient.get("/food/search/unified", { params }),
+  getAdminCategories: (params = {}) =>
+    apiClient.get("/food/search/categories/admin", { params }),
+};
+
 const createStubAPI = () =>
   new Proxy(
     {},
@@ -135,6 +143,20 @@ export const supportAPI = {
     }),
 };
 
+export const notificationAPI = {
+  getInbox: (params = {}, config = {}) =>
+    apiClient.get("/food/notifications/inbox", {
+      params,
+      ...config,
+    }),
+  markAsRead: (id, config = {}) =>
+    apiClient.patch(`/food/notifications/${String(id)}/read`, {}, config),
+  dismiss: (id, config = {}) =>
+    apiClient.delete(`/food/notifications/${String(id)}`, config),
+  dismissAll: (config = {}) =>
+    apiClient.delete("/food/notifications/inbox/all", config),
+};
+
 /** Admin API - new backend only (GET /auth/me, PATCH /auth/admin/profile, POST /auth/admin/change-password) */
 export const adminAPI = {
   getSidebarBadges: () =>
@@ -186,7 +208,8 @@ export const adminAPI = {
       (typeof localStorage !== "undefined"
         ? localStorage.getItem("admin_refreshToken")
         : null);
-    return authService.logout(token);
+    const fcmToken = typeof localStorage !== "undefined" ? localStorage.getItem("fcm_web_registered_token_admin") : null;
+    return authService.logout(token, fcmToken, "web");
   },
   // Restaurant approvals and join requests
   getPendingRestaurants: () =>
@@ -311,6 +334,11 @@ export const adminAPI = {
       params,
       contextModule: "admin",
     }),
+  getExpiredFssaiNotifications: (params = {}) =>
+    apiClient.get("/food/admin/notifications/fssai-expired", {
+      params,
+      contextModule: "admin",
+    }),
   /** GET /food/admin/delivery/support-tickets/stats - counts by status. */
   getDeliverySupportTicketStats: () =>
     apiClient.get("/food/admin/delivery/support-tickets/stats", {
@@ -319,6 +347,19 @@ export const adminAPI = {
   /** PATCH /food/admin/delivery/support-tickets/:id - update adminResponse, status. */
   updateDeliverySupportTicket: (id, body) =>
     apiClient.patch(`/food/admin/delivery/support-tickets/${id}`, body ?? {}, {
+      contextModule: "admin",
+    }),
+  createBroadcastNotification: (body = {}) =>
+    apiClient.post("/food/admin/notifications/broadcast", body ?? {}, {
+      contextModule: "admin",
+    }),
+  getBroadcastNotifications: (params = {}) =>
+    apiClient.get("/food/admin/notifications/broadcast", {
+      params,
+      contextModule: "admin",
+    }),
+  deleteBroadcastNotification: (id) =>
+    apiClient.delete(`/food/admin/notifications/broadcast/${String(id)}`, {
       contextModule: "admin",
     }),
   /** List restaurants for admin. Requires admin auth. */
@@ -380,6 +421,18 @@ export const adminAPI = {
   approveCategory: (id) =>
     apiClient.patch(
       `/food/admin/categories/${String(id)}/approve`,
+      {},
+      { contextModule: "admin" },
+    ),
+  rejectCategory: (id, reason) =>
+    apiClient.patch(
+      `/food/admin/categories/${String(id)}/reject`,
+      { reason: String(reason || "").trim() },
+      { contextModule: "admin" },
+    ),
+  makeCategoryGlobal: (id) =>
+    apiClient.patch(
+      `/food/admin/categories/${String(id)}/make-global`,
       {},
       { contextModule: "admin" },
     ),
@@ -478,25 +531,11 @@ export const adminAPI = {
     apiClient.get(`/food/admin/orders/${String(orderId)}`, {
       contextModule: "admin",
     }),
-  assignDeliveryPartner: (orderId, deliveryPartnerId) =>
-    apiClient.patch(
-      `/food/admin/orders/${String(orderId)}/assign-delivery`,
-      { deliveryPartnerId: String(deliveryPartnerId) },
-      { contextModule: "admin" },
-    ),
   deleteOrder: (orderId) =>
     apiClient.delete(`/food/admin/orders/${String(orderId)}`, {
       contextModule: "admin",
     }),
   /** Dispatch settings – auto vs manual assign (global) */
-  getDispatchSettings: () =>
-    apiClient.get("/food/admin/settings/dispatch", { contextModule: "admin" }),
-  updateDispatchSettings: (dispatchMode) =>
-    apiClient.patch(
-      "/food/admin/settings/dispatch",
-      { dispatchMode },
-      { contextModule: "admin" },
-    ),
   /** Create restaurant (admin). Single API: POST /food/admin/restaurants. Body: JSON with image URLs. */
   createRestaurant: (body) =>
     apiClient.post("/food/admin/restaurants", body ?? {}, {
@@ -809,6 +848,12 @@ export const adminAPI = {
       params: params ?? {},
       contextModule: "admin",
     }),
+  updateRestaurantAddon: (id, body) =>
+    apiClient.patch(
+      `/food/admin/addons/${String(id)}`,
+      body ?? {},
+      { contextModule: "admin" },
+    ),
   approveRestaurantAddon: (id) =>
     apiClient.patch(
       `/food/admin/addons/${String(id)}/approve`,
@@ -897,6 +942,16 @@ export const restaurantAPI = {
         restaurantCurrentCacheTime = Date.now();
         return res;
       }),
+  updateDiningSettings: (body) =>
+    apiClient
+      .patch("/food/restaurant/dining-settings", body ?? {}, {
+        contextModule: "restaurant",
+      })
+      .then((res) => {
+        restaurantCurrentCached = res;
+        restaurantCurrentCacheTime = Date.now();
+        return res;
+      }),
   /** PATCH /food/restaurant/availability. Body: { isAcceptingOrders: boolean } */
   updateAcceptingOrders: (isAcceptingOrders) =>
     apiClient
@@ -926,6 +981,28 @@ export const restaurantAPI = {
     const formData = new FormData();
     formData.append("file", file);
     return apiClient.post("/food/restaurant/profile/menu-image", formData, {
+      contextModule: "restaurant",
+    });
+  },
+  uploadCoverImages: (files = []) => {
+    const normalizedFiles = Array.from(files || []).filter(Boolean);
+    if (normalizedFiles.length === 0) {
+      return Promise.reject(new Error("At least one file is required"));
+    }
+    const formData = new FormData();
+    normalizedFiles.forEach((file) => formData.append("files", file));
+    return apiClient.post("/food/restaurant/profile/cover-images", formData, {
+      contextModule: "restaurant",
+    });
+  },
+  uploadMenuImages: (files = []) => {
+    const normalizedFiles = Array.from(files || []).filter(Boolean);
+    if (normalizedFiles.length === 0) {
+      return Promise.reject(new Error("At least one file is required"));
+    }
+    const formData = new FormData();
+    normalizedFiles.forEach((file) => formData.append("files", file));
+    return apiClient.post("/food/restaurant/profile/menu-images", formData, {
       contextModule: "restaurant",
     });
   },
@@ -1183,26 +1260,9 @@ export const restaurantAPI = {
    * Prefer direct endpoint; fallback to list+filter for backward compatibility.
    */
   getOrderById: async (orderId) => {
-    try {
-      return await apiClient.get(`/food/restaurant/orders/${String(orderId)}`, {
-        contextModule: "restaurant",
-      });
-    } catch (_err) {
-      const res = await restaurantAPI.getOrders({ page: 1, limit: 100 });
-      const orders = res?.data?.data?.orders || [];
-      const match = orders.find(
-        (o) =>
-          String(o._id) === String(orderId) ||
-          String(o.orderId) === String(orderId),
-      );
-      return {
-        ...res,
-        data: {
-          ...res.data,
-          data: { order: match || null },
-        },
-      };
-    }
+    return await apiClient.get(`/food/restaurant/orders/${String(orderId)}`, {
+      contextModule: "restaurant",
+    });
   },
   /** Add-ons (restaurant) - approval handled by admin */
   getAddons: (params = {}) =>
@@ -1232,7 +1292,8 @@ export const restaurantAPI = {
       (typeof localStorage !== "undefined"
         ? localStorage.getItem("restaurant_refreshToken")
         : null);
-    return authService.logout(token);
+    const fcmToken = typeof localStorage !== "undefined" ? localStorage.getItem("fcm_web_registered_token_restaurant") : null;
+    return authService.logout(token, fcmToken, "web");
   },
   /** Backend has no email/password login; use phone OTP only. */
   login: (_email, _password) =>
@@ -1524,7 +1585,8 @@ export const deliveryAPI = {
       (typeof localStorage !== "undefined"
         ? localStorage.getItem("delivery_refreshToken")
         : null);
-    return authService.logout(token);
+    const fcmToken = typeof localStorage !== "undefined" ? localStorage.getItem("fcm_web_registered_token_delivery") : null;
+    return authService.logout(token, fcmToken, "web");
   },
   /** POST /food/delivery/register - multipart FormData (new partner, no token). */
   register: (formData) => {
@@ -1686,10 +1748,8 @@ export const deliveryAPI = {
     const isProbablyOrderIdentity = (value) => {
       const raw = String(value || "").trim();
       if (!raw) return false;
-      // Mongo ObjectId OR our display orderId (FOD-xxxxxx)
-      if (/^[a-f0-9]{24}$/i.test(raw)) return true;
-      if (/^FOD-[A-Z0-9]{4,}$/i.test(raw)) return true;
-      return false;
+      // Mongo ObjectId
+      return /^[a-f0-9]{24}$/i.test(raw);
     };
 
     return (orderId) => {
@@ -1873,6 +1933,14 @@ export const deliveryAPI = {
     }),
   createWithdrawalRequest: (body) =>
     apiClient.post("/food/delivery/wallet/withdraw", body ?? {}, {
+      contextModule: "delivery"
+    }),
+  createDepositOrder: (amount) =>
+    apiClient.post("/food/delivery/wallet/deposit/order", { amount }, {
+      contextModule: "delivery"
+    }),
+  verifyDepositPayment: (body) =>
+    apiClient.post("/food/delivery/wallet/deposit/verify", body ?? {}, {
       contextModule: "delivery"
     }),
   /** Wallet transactions - from wallet response (no separate backend endpoint) */
@@ -2189,6 +2257,10 @@ export const orderAPI = {
     apiClient.patch(`/food/orders/${String(orderId)}/cancel`, body ?? {}, {
       contextModule: "user",
     }),
+  updateOrderInstructions: (orderId, instructions) =>
+    apiClient.patch(`/food/orders/${String(orderId)}/instructions`, { instructions }, {
+      contextModule: "user",
+    }),
   submitOrderRatings: (orderId, body = {}) =>
     apiClient.patch(`/food/orders/${String(orderId)}/ratings`, body ?? {}, { contextModule: "user" }),
   /** Submit a complaint for an order (user). */
@@ -2249,11 +2321,22 @@ const normalizeRestaurantShape = (restaurant) => {
   return {
     _id: restaurant?._id || restaurant?.id || null,
     id: restaurant?.id || restaurant?._id || null,
+    restaurantId: restaurant?.restaurantId || restaurant?._id || restaurant?.id || null,
+    restaurantNameNormalized:
+      restaurant?.restaurantNameNormalized || restaurant?.slug || "",
     slug: restaurant?.slug || "",
     name: normalizeName(restaurant),
     restaurantName: restaurant?.restaurantName || normalizeName(restaurant),
     profileImage: restaurant?.profileImage || null,
+    coverImages: Array.isArray(restaurant?.coverImages)
+      ? restaurant.coverImages
+      : [],
+    menuImages: Array.isArray(restaurant?.menuImages) ? restaurant.menuImages : [],
     image:
+      restaurant?.coverImages?.[0]?.url ||
+      restaurant?.coverImages?.[0] ||
+      restaurant?.menuImages?.[0]?.url ||
+      restaurant?.menuImages?.[0] ||
       restaurant?.image ||
       restaurant?.profileImage?.url ||
       (typeof restaurant?.profileImage === "string"
@@ -2261,6 +2344,36 @@ const normalizeRestaurantShape = (restaurant) => {
         : ""),
     location: restaurant?.location || null,
   };
+};
+
+const collectRestaurantBookingKeys = (restaurantCandidate) => {
+  if (!restaurantCandidate) return [];
+
+  const raw =
+    typeof restaurantCandidate === "object"
+      ? restaurantCandidate
+      : { _id: restaurantCandidate, id: restaurantCandidate, restaurantId: restaurantCandidate };
+
+  const values = [
+    raw?._id,
+    raw?.id,
+    raw?.restaurantId,
+    raw?.slug,
+    raw?.restaurantNameNormalized,
+    raw?.restaurant?._id,
+    raw?.restaurant?.id,
+    raw?.restaurant?.restaurantId,
+    raw?.restaurant?.slug,
+    raw?.restaurant?.restaurantNameNormalized,
+  ];
+
+  return Array.from(
+    new Set(
+      values
+        .map((value) => String(value || "").trim())
+        .filter(Boolean),
+    ),
+  );
 };
 
 const buildLocalBookingId = () =>
@@ -2350,24 +2463,20 @@ export const diningAPI = {
 
     return Promise.resolve({ data: { success: true, data: filtered } });
   },
-  getRestaurantBookings: (restaurantId) => {
-    const id = String(restaurantId || "").trim();
+  getRestaurantBookings: (restaurantRef) => {
+    const keys = collectRestaurantBookingKeys(restaurantRef);
     const bookings = getStoredBookings();
 
     const filtered = bookings
       .filter((booking) => {
-        if (!id) return false;
-        return (
-          String(booking?.restaurantId || "") === id ||
-          String(
-            booking?.restaurant?._id ||
-              booking?.restaurant?.id ||
-              booking?.restaurant?.restaurantId ||
-              booking?.restaurant?.restaurant?._id ||
-              booking?.restaurant?.restaurant?.id ||
-              "",
-          ) === id
-        );
+        if (keys.length === 0) return false;
+        const bookingKeys = collectRestaurantBookingKeys({
+          restaurantId: booking?.restaurantId,
+          ...(booking?.restaurant && typeof booking.restaurant === "object"
+            ? booking.restaurant
+            : {}),
+        });
+        return bookingKeys.some((value) => keys.includes(value));
       })
       .sort(byLatest);
 

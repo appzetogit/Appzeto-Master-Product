@@ -4,6 +4,9 @@ import { ValidationError } from '../../../../core/auth/errors.js';
 const orderItemSchema = z.object({
     itemId: z.string().min(1, 'Item id required'),
     name: z.string().min(1, 'Item name required'),
+    variantId: z.string().optional(),
+    variantName: z.string().optional(),
+    variantPrice: z.number().min(0).optional(),
     price: z.number().min(0),
     quantity: z.number().int().min(1),
     isVeg: z.boolean().optional().default(true),
@@ -13,6 +16,8 @@ const orderItemSchema = z.object({
 
 const addressSchema = z.object({
     label: z.enum(['Home', 'Office', 'Other']).optional(),
+    name: z.string().optional(),
+    fullName: z.string().optional(),
     street: z.string().min(1, 'Street required'),
     additionalDetails: z.string().optional(),
     city: z.string().min(1, 'City required'),
@@ -73,6 +78,8 @@ export function validateCreateOrderDto(body) {
         address: addressSchema.optional(),
         restaurantId: z.string().optional(),
         restaurantName: z.string().optional(),
+        customerName: z.string().optional(),
+        customerPhone: z.string().optional(),
         pricing: pricingSchema,
         deliveryFleet: z.string().optional(),
         note: z.string().optional(),

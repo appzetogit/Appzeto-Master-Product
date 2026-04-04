@@ -5,8 +5,11 @@ import {
     getCurrentRestaurantProfile,
     updateRestaurantProfile,
     updateRestaurantAcceptingOrders,
+    updateCurrentRestaurantDiningSettings,
     uploadRestaurantProfileImage,
     uploadRestaurantMenuImage,
+    uploadRestaurantCoverImages,
+    uploadRestaurantMenuImages,
     listPublicOffers,
     getRestaurantComplaints
 } from '../services/restaurant.service.js';
@@ -74,6 +77,16 @@ export const updateRestaurantAcceptingOrdersController = async (req, res, next) 
     }
 };
 
+export const updateCurrentRestaurantDiningSettingsController = async (req, res, next) => {
+    try {
+        const restaurantId = req.user?.userId;
+        const restaurant = await updateCurrentRestaurantDiningSettings(restaurantId, req.body || {});
+        return sendResponse(res, 200, 'Dining settings updated successfully', { restaurant });
+    } catch (error) {
+        next(error);
+    }
+};
+
 export const uploadRestaurantProfileImageController = async (req, res, next) => {
     try {
         const restaurantId = req.user?.userId;
@@ -88,6 +101,26 @@ export const uploadRestaurantMenuImageController = async (req, res, next) => {
     try {
         const result = await uploadRestaurantMenuImage(req.file);
         return sendResponse(res, 200, 'Menu image uploaded successfully', result);
+    } catch (error) {
+        next(error);
+    }
+};
+
+export const uploadRestaurantCoverImagesController = async (req, res, next) => {
+    try {
+        const restaurantId = req.user?.userId;
+        const result = await uploadRestaurantCoverImages(restaurantId, req.files || []);
+        return sendResponse(res, 200, 'Restaurant photos uploaded successfully', result);
+    } catch (error) {
+        next(error);
+    }
+};
+
+export const uploadRestaurantMenuImagesController = async (req, res, next) => {
+    try {
+        const restaurantId = req.user?.userId;
+        const result = await uploadRestaurantMenuImages(restaurantId, req.files || []);
+        return sendResponse(res, 200, 'Menu photos uploaded successfully', result);
     } catch (error) {
         next(error);
     }

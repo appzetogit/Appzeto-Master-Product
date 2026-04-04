@@ -20,11 +20,13 @@ export const processOrderJob = async (job) => {
     if (action === 'DISPATCH_TIMEOUT_CHECK') {
         try {
             const { processDispatchTimeout } = await import('../../../modules/food/orders/services/order.service.js');
-            await processDispatchTimeout(orderMongoId, data.partnerId);
+            // Pass full data object to allow attempt count and other options
+            await processDispatchTimeout(orderMongoId, data.partnerId, data);
         } catch (err) {
             logger.error(`[BullMQ:order] DISPATCH_TIMEOUT_CHECK failed: ${err.message}`);
         }
     }
+
 
     return { processed: true, action, jobId: job.id };
 };

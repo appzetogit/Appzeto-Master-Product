@@ -23,21 +23,23 @@ import ProfileV2 from '@/modules/DeliveryV2/pages/ProfileV2';
 
 // Icons
 import { 
-  Bell, HelpCircle, Headset, AlertTriangle, 
+  Bell, HelpCircle, AlertTriangle, 
   Wallet, History, User as UserIcon, LayoutGrid,
-  Plus, Minus, Navigation2, Target, Play, CheckCircle2, Clock
+  Plus, Minus, Navigation2, Target, Play, CheckCircle2, Clock, ChevronDown,
+  Contact, Package
 } from 'lucide-react';
 
 import { getHaversineDistance, calculateETA, calculateHeading } from '@/modules/DeliveryV2/utils/geo';
 import { useCompanyName } from "@food/hooks/useCompanyName";
 import { useNavigate } from 'react-router-dom';
+import useNotificationInbox from "@food/hooks/useNotificationInbox";
 
 /** Minimal bottom-sheet popup (Restored from legacy FeedNavbar) */
 function BottomPopup({ isOpen, onClose, title, children }) {
   if (!isOpen) return null;
   return (
-    <div className="fixed inset-0 z-[600] flex items-end" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/40" />
+    <div className="fixed inset-0 z-[600] flex items-end">
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
       <motion.div
         initial={{ y: "100%" }}
         animate={{ y: 0 }}
@@ -67,10 +69,10 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
   const { isOnline, toggleOnline, activeOrder, tripStatus, setRiderLocation, setActiveOrder, updateTripStatus, clearActiveOrder } = useDeliveryStore();
   const { isWithinRange, distanceToTarget } = useProximityCheck();
   const { acceptOrder, reachPickup, pickUpOrder, reachDrop, completeDelivery, resetTrip } = useOrderManager();
-  
   const { newOrder, clearNewOrder, orderStatusUpdate, clearOrderStatusUpdate, isConnected: isSocketConnected, emitLocation } = useDeliveryNotifications();
+  const companyName = useCompanyName();
+  const { unreadCount: notificationUnreadCount } = useNotificationInbox("delivery", { limit: 20 });
 
-  
   const [incomingOrder, setIncomingOrder] = useState(null);
   const [currentTab, setCurrentTab] = useState(tab);
   
@@ -81,7 +83,6 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
 
   const [showVerification, setShowVerification] = useState(false);
   const [showEmergencyPopup, setShowEmergencyPopup] = useState(false);
-  const [showHelpPopup, setShowHelpPopup] = useState(false);
   const [profileImage, setProfileImage] = useState(null);
   const [emergencyNumbers, setEmergencyNumbers] = useState({
     medicalEmergency: "",
@@ -106,7 +107,7 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
   const mapRef = useRef(null);
 
   const isLoggingOut = useRef(false);
-  const handleLogout = React.useCallback(() => {
+  const handleLogout = useCallback(() => {
     if (isLoggingOut.current) return;
     isLoggingOut.current = true;
     
@@ -207,8 +208,6 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
     return () => clearInterval(interval);
   }, [isSimMode, simPath, simIndex, activeOrder, emitLocation, activePolyline, eta, tripStatus]);
 
-  const companyName = useCompanyName();
-
   // Fetch Emergency numbers and Profile (Restored logic)
   useEffect(() => {
     (async () => {
@@ -235,11 +234,6 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
     { title: "Insurance", subtitle: "Policy & claim help", icon: <AlertTriangle className="text-green-600" />, phone: emergencyNumbers.insurance },
   ];
 
-  const helpOptions = [
-    { title: "Support tickets", subtitle: "Check status of tickets raised", icon: <Clock className="text-gray-600" />, path: "/food/delivery/help/tickets" },
-    { title: "Show ID card", subtitle: `See your ${companyName} ID card`, icon: <UserIcon className="text-gray-600" />, path: "/food/delivery/help/id-card" },
-  ];
-
   // Reset simulation when path, order or mode changes
   useEffect(() => {
     if (isSimMode) {
@@ -255,18 +249,6 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
   useEffect(() => {
     setIsModalMinimized(false);
   }, [tripStatus, showVerification, incomingOrder]);
-
-  useEffect(() => {
-    const handleLogout = (e) => {
-      // If the delivery module specifically fails, we exit.
-      if (!e.detail || e.detail.module === "delivery") {
-        toast.error("Session expired. Please login again.");
-        navigate("/food/delivery/login", { replace: true });
-      }
-    };
-    window.addEventListener("authRefreshFailed", handleLogout);
-    return () => window.removeEventListener("authRefreshFailed", handleLogout);
-  }, [navigate]);
 
   // 1. Initial Sync (Force sync with server to avoid 'stuck' persistent state)
   useEffect(() => {
@@ -381,16 +363,16 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
 
       // ETA update is now handled by a separate globally-synchronized effect
 
-      // Phase 11: Geo-fencing Auto-arrival (within 100m)
-      if (distanceToTarget && distanceToTarget <= 100 && !lastAutoArrivalRef.current[tripStatus]) {
+      // Phase 11: Geo-fencing Auto-arrival (within 100m) - Disabled in DEV so UI steps can be tested manually
+      if (!isSimMode && !import.meta.env.DEV && distanceToTarget && distanceToTarget <= 100 && !lastAutoArrivalRef.current[tripStatus]) {
         if (tripStatus === 'PICKING_UP') {
           lastAutoArrivalRef.current[tripStatus] = true;
           reachPickup().catch(() => { lastAutoArrivalRef.current[tripStatus] = false; });
-          toast.success('Auto-arrived at Restaurant');
+          // toast.success('Auto-arrived at Restaurant');
         } else if (tripStatus === 'PICKED_UP') {
           lastAutoArrivalRef.current[tripStatus] = true;
           reachDrop().catch(() => { lastAutoArrivalRef.current[tripStatus] = false; });
-          toast.success('Auto-arrived at Customer');
+          // toast.success('Auto-arrived at Customer');
         }
       }
 
@@ -450,7 +432,107 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
     return () => navigator.geolocation.clearWatch(watchId);
   }, [isOnline, setRiderLocation, isSimMode]);
 
+  // 3.5. Background Ping / Heartbeat
+  // If watchPosition stops firing (e.g. app in background or device stationary),
+  // this ensures we ping the backend periodically. This keeps the token fresh (via 401 interceptor)
+  // and keeps the Delivery Partner "online" in the backend.
+  useEffect(() => {
+    if (!isOnline) return;
+    
+    const pingInterval = setInterval(() => {
+      const now = Date.now();
+      // If no natural GPS update happened in the last 15 seconds, force a ping
+      if (now - lastLocationSentAt.current >= 15000 && lastCoordRef.current) {
+        lastLocationSentAt.current = now;
+        deliveryAPI.updateLocation(
+          lastCoordRef.current.lat, 
+          lastCoordRef.current.lng, 
+          true, 
+          { heading: 0, speed: 0, accuracy: null }
+        ).catch(() => {});
+      }
+    }, 10000); // Check every 10 seconds
+    
+    return () => clearInterval(pingInterval);
+  }, [isOnline]);
+
   useEffect(() => { if (newOrder) setIncomingOrder(newOrder); }, [newOrder]);
+
+  useEffect(() => {
+    if (activeOrder && incomingOrder) {
+      setIncomingOrder(null);
+    }
+  }, [activeOrder, incomingOrder]);
+
+  useEffect(() => {
+    if (!isOnline) return;
+    if (currentTab !== 'feed') return;
+    if (activeOrder) return;
+
+    let cancelled = false;
+
+    const hydrateAvailableOrder = async () => {
+      try {
+        const currentResponse = await deliveryAPI.getCurrentDelivery();
+        const currentPayload =
+          currentResponse?.data?.data?.activeOrder ||
+          currentResponse?.data?.data ||
+          null;
+
+        if (!cancelled && currentPayload && (currentPayload._id || currentPayload.orderId)) {
+          setActiveOrder(currentPayload);
+          return;
+        }
+
+        const availableResponse = await deliveryAPI.getOrders({ limit: 20, page: 1 });
+        const availablePayload =
+          availableResponse?.data?.data ||
+          availableResponse?.data ||
+          {};
+        const availableOrders = Array.isArray(availablePayload?.docs)
+          ? availablePayload.docs
+          : Array.isArray(availablePayload?.items)
+            ? availablePayload.items
+            : Array.isArray(availablePayload)
+              ? availablePayload
+              : [];
+
+        const nextIncomingOrder = availableOrders.find((order) => {
+          const dispatchStatus = String(order?.dispatch?.status || '').toLowerCase();
+          const orderStatus = String(order?.orderStatus || order?.status || '').toLowerCase();
+          return (
+            ['unassigned', 'assigned'].includes(dispatchStatus) &&
+            ['confirmed', 'preparing', 'ready_for_pickup'].includes(orderStatus)
+          );
+        });
+
+        if (!cancelled && nextIncomingOrder) {
+          setIncomingOrder((prev) => {
+            const prevId = prev?.orderId || prev?._id || prev?.orderMongoId;
+            const nextId =
+              nextIncomingOrder?.orderId ||
+              nextIncomingOrder?._id ||
+              nextIncomingOrder?.orderMongoId;
+            return prevId === nextId && prev ? prev : nextIncomingOrder;
+          });
+        }
+      } catch (error) {
+        console.warn('[DeliveryHomeV2] Available order fallback sync failed:', error?.message || error);
+      }
+    };
+
+    void hydrateAvailableOrder();
+    const poller = window.setInterval(() => {
+      if (!document.hidden) {
+        void hydrateAvailableOrder();
+      }
+    }, isSocketConnected ? 12000 : 5000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(poller);
+    };
+  }, [activeOrder, currentTab, isOnline, isSocketConnected, setActiveOrder]);
 
   useEffect(() => {
     if (orderStatusUpdate) {
@@ -483,8 +565,8 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
     <div className="relative h-screen w-full bg-white text-gray-900 overflow-hidden flex flex-col">
       {/* ─── 1. TOP HEADER (Premium Dark Gray) ─── */}
       {currentTab !== 'history' && (
-      <div className="absolute top-0 inset-x-0 bg-[#121212]/95 backdrop-blur-2xl shadow-2xl z-[200] safe-top pb-4 border-b border-white/10">
-        <div className="flex items-center justify-between px-4 py-3">
+      <div className="absolute top-0 inset-x-0 bg-[#121212]/95 backdrop-blur-2xl shadow-2xl z-[200] safe-top pb-2 border-b border-white/10">
+        <div className="flex items-center justify-between px-4 py-2">
           <div className="flex items-center gap-4">
              <div 
                 onClick={() => navigate('/food/delivery/profile')}
@@ -516,8 +598,8 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
           </div>
           <div className="flex items-center gap-3">
              <button onClick={() => setShowEmergencyPopup(true)} className="w-9 h-9 rounded-full bg-red-500/10 flex items-center justify-center text-red-500 border border-red-500/20 active:scale-95 transition-all shadow-lg"><AlertTriangle className="w-4 h-4" /></button>
-             <button onClick={() => setShowHelpPopup(true)} className="w-9 h-9 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-500 border border-blue-500/20 active:scale-95 transition-all shadow-lg"><HelpCircle className="w-4 h-4" /></button>
-             <button onClick={() => navigate('/food/delivery/help/tickets')} className="w-9 h-9 rounded-full bg-white/10 flex items-center justify-center text-white border border-white/10 active:scale-95 transition-all shadow-lg"><Headset className="w-4 h-4" /></button>
+             <button onClick={() => navigate('/food/delivery/help/id-card')} className="w-9 h-9 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-500 border border-blue-500/20 active:scale-95 transition-all shadow-lg"><Contact className="w-4 h-4" /></button>
+             <button onClick={() => navigate('/food/delivery/notifications')} className="relative w-9 h-9 rounded-full bg-white/10 flex items-center justify-center text-white border border-white/10 active:scale-95 transition-all shadow-lg"><Bell className="w-4 h-4" />{notificationUnreadCount > 0 && <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-orange-400 border border-[#1f1f1f]" />}</button>
           </div>
         </div>
 
@@ -528,7 +610,7 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
-              className="px-4 mt-2"
+              className="px-4 mt-1"
             >
               {activeOrder ? (
                 <div className="grid grid-cols-2 gap-3 w-full">
@@ -692,6 +774,7 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
                     order={incomingOrder} 
                     onAccept={(o) => { acceptOrder(o); setIncomingOrder(null); clearNewOrder(); }}
                     onReject={() => { setIncomingOrder(null); clearNewOrder(); }}
+                    onMinimize={() => setIsModalMinimized(true)}
                   />
                 )}
                 {(tripStatus === 'PICKING_UP' || tripStatus === 'REACHED_PICKUP') && (
@@ -703,13 +786,19 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
                     eta={eta}
                     onReachedPickup={reachPickup} 
                     onPickedUp={(billImageUrl) => pickUpOrder(billImageUrl)} 
+                    onMinimize={() => setIsModalMinimized(true)}
                   />
                 )}
                 {(tripStatus === 'PICKED_UP' || tripStatus === 'REACHED_DROP') && (
                   <div className="absolute bottom-4 inset-x-0 z-[120] px-4">
                     {tripStatus === 'PICKED_UP' ? (
                       <div className="bg-white rounded-[3rem] p-8 shadow-[0_-20px_80px_rgba(0,0,0,0.4)] border border-gray-100 flex flex-col items-center">
-                        <div className="w-12 h-1.5 bg-gray-200 rounded-full mb-6" />
+                        {/* Handle / Minimize */}
+                        <div className="w-full flex justify-center pb-4 pt-0 -mt-2">
+                          <button onClick={() => setIsModalMinimized(true)} className="p-1 hover:bg-gray-100 active:scale-95 transition-all rounded-full flex flex-col items-center">
+                             <ChevronDown className="w-6 h-6 text-gray-400 stroke-[3]" />
+                          </button>
+                        </div>
                         <div className="flex justify-between w-full items-center mb-10 px-2 text-left">
                           <div className="flex items-center gap-4">
                             <div className="w-16 h-16 rounded-2xl overflow-hidden border border-gray-100 shadow-sm">
@@ -727,6 +816,19 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
                             </div>
                           </div>
                         </div>
+
+                        {/* Customer Instructions Panel */}
+                        {activeOrder?.note && (
+                          <div className="w-full bg-orange-50 border border-orange-100 rounded-3xl p-5 mb-8 flex gap-4 items-start shadow-sm mx-2">
+                             <div className="w-10 h-10 bg-white rounded-2xl flex items-center justify-center text-orange-500 shadow-sm shrink-0 border border-orange-50">
+                                <Package className="w-5 h-5" />
+                             </div>
+                             <div className="flex-1">
+                                <p className="text-[10px] font-black text-orange-600 uppercase tracking-[0.2em] mb-1.5 opacity-80">Drop Message</p>
+                                <p className="text-sm font-bold text-gray-950 leading-relaxed capitalize">"{activeOrder.note}"</p>
+                             </div>
+                          </div>
+                        )}
                         <ActionSlider label="Slide to Arrive" successLabel="Arrived ✓" disabled={!isWithinRange} onConfirm={reachDrop} color="bg-blue-600" />
                       </div>
                     ) : (
@@ -739,11 +841,13 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
                     )}
                   </div>
                 )}
-                {showVerification && (
+                {showVerification && tripStatus !== 'COMPLETED' && (
                   <DeliveryVerificationModal 
                     order={activeOrder} 
                     onComplete={async (otp) => {
-                      return await completeDelivery(otp);
+                      const res = await completeDelivery(otp);
+                      setShowVerification(false);
+                      return res;
                     }}
                     onClose={() => setShowVerification(false)}
                   />
@@ -769,27 +873,6 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
                className="flex items-center gap-5 p-4 bg-gray-50 rounded-2xl hover:bg-gray-100 active:scale-95 transition-all text-left"
              >
                <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center shadow-sm text-xl">{opt.icon}</div>
-               <div>
-                 <h4 className="font-bold text-gray-900">{opt.title}</h4>
-                 <p className="text-xs text-gray-500 font-medium">{opt.subtitle}</p>
-               </div>
-             </button>
-           ))}
-         </div>
-      </BottomPopup>
-
-      <BottomPopup isOpen={showHelpPopup} title="How can we help?" onClose={() => setShowHelpPopup(false)}>
-         <div className="grid gap-4 py-2">
-           {helpOptions.map((opt, i) => (
-             <button 
-               key={i} 
-               onClick={() => {
-                 setShowHelpPopup(false);
-                 navigate(opt.path);
-               }}
-               className="flex items-center gap-5 p-4 bg-gray-50 rounded-2xl hover:bg-gray-100 active:scale-95 transition-all text-left"
-             >
-               <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center shadow-sm text-gray-700">{opt.icon}</div>
                <div>
                  <h4 className="font-bold text-gray-900">{opt.title}</h4>
                  <p className="text-xs text-gray-500 font-medium">{opt.subtitle}</p>

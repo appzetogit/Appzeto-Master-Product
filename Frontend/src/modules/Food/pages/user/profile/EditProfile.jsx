@@ -23,6 +23,7 @@ import {
 import { useProfile } from "@food/context/ProfileContext"
 import { userAPI } from "@food/api"
 import { toast } from "sonner"
+import useAppBackNavigation from "@food/hooks/useAppBackNavigation"
 import { ImageSourcePicker } from "@food/components/ImageSourcePicker"
 import { isFlutterBridgeAvailable } from "@food/utils/imageUploadUtils"
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider'
@@ -32,6 +33,7 @@ import dayjs from 'dayjs'
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
+const EDIT_PROFILE_DRAFT_KEY = "user_edit_profile_draft"
 
 
 // Gender options
@@ -69,30 +71,60 @@ const saveProfileToStorage = (data) => {
 const normalizePhoneToTenDigits = (value) =>
   String(value || "").replace(/\D/g, "").slice(-10)
 
+const buildFormDataFromProfile = (profile = {}) => ({
+  name: profile.name || "",
+  mobile: normalizePhoneToTenDigits(profile.mobile || profile.phone || ""),
+  email: profile.email || "",
+  dateOfBirth: profile.dateOfBirth
+    ? (typeof profile.dateOfBirth === 'string'
+      ? dayjs(profile.dateOfBirth)
+      : dayjs(profile.dateOfBirth))
+    : null,
+  anniversary: profile.anniversary
+    ? (typeof profile.anniversary === 'string'
+      ? dayjs(profile.anniversary)
+      : dayjs(profile.anniversary))
+    : null,
+  gender: profile.gender || "",
+})
+
+const loadEditProfileDraft = () => {
+  try {
+    const saved = localStorage.getItem(EDIT_PROFILE_DRAFT_KEY)
+    return saved ? JSON.parse(saved) : null
+  } catch (error) {
+    debugError('Error loading edit profile draft from localStorage:', error)
+    return null
+  }
+}
+
+const saveEditProfileDraft = (data) => {
+  try {
+    localStorage.setItem(EDIT_PROFILE_DRAFT_KEY, JSON.stringify(data))
+  } catch (error) {
+    debugError('Error saving edit profile draft to localStorage:', error)
+  }
+}
+
+const clearEditProfileDraft = () => {
+  try {
+    localStorage.removeItem(EDIT_PROFILE_DRAFT_KEY)
+  } catch (error) {
+    debugError('Error clearing edit profile draft from localStorage:', error)
+  }
+}
+
 export default function EditProfile() {
   const navigate = useNavigate()
+  const goBack = useAppBackNavigation()
   const { userProfile, updateUserProfile } = useProfile()
 
   // Load from localStorage or use context
   const storedProfile = loadProfileFromStorage()
-  const initialProfile = storedProfile || userProfile || {}
+  const draftProfile = loadEditProfileDraft()
+  const initialProfile = draftProfile || storedProfile || userProfile || {}
 
-  const initialFormData = {
-    name: initialProfile.name || "",
-    mobile: normalizePhoneToTenDigits(initialProfile.mobile || initialProfile.phone || ""),
-    email: initialProfile.email || "",
-    dateOfBirth: initialProfile.dateOfBirth
-      ? (typeof initialProfile.dateOfBirth === 'string'
-        ? dayjs(initialProfile.dateOfBirth)
-        : dayjs(initialProfile.dateOfBirth))
-      : null,
-    anniversary: initialProfile.anniversary
-      ? (typeof initialProfile.anniversary === 'string'
-        ? dayjs(initialProfile.anniversary)
-        : dayjs(initialProfile.anniversary))
-      : null,
-    gender: initialProfile.gender || "",
-  }
+  const initialFormData = buildFormDataFromProfile(initialProfile)
 
   const [formData, setFormData] = useState(initialFormData)
   const [initialData] = useState(initialFormData)
@@ -108,27 +140,15 @@ export default function EditProfile() {
     dateOfBirth: "",
   })
   const fileInputRef = useRef(null)
+  const hydratedFromDraftRef = useRef(Boolean(draftProfile))
 
   // Update form data when profile changes
   useEffect(() => {
+    if (hydratedFromDraftRef.current) return
+
     const storedProfile = loadProfileFromStorage()
     const profile = storedProfile || userProfile || {}
-    const newFormData = {
-      name: profile.name || "",
-      mobile: normalizePhoneToTenDigits(profile.mobile || profile.phone || ""),
-      email: profile.email || "",
-      dateOfBirth: profile.dateOfBirth
-        ? (typeof profile.dateOfBirth === 'string'
-          ? dayjs(profile.dateOfBirth)
-          : dayjs(profile.dateOfBirth))
-        : null,
-      anniversary: profile.anniversary
-        ? (typeof profile.anniversary === 'string'
-          ? dayjs(profile.anniversary)
-          : dayjs(profile.anniversary))
-        : null,
-      gender: profile.gender || "",
-    }
+    const newFormData = buildFormDataFromProfile(profile)
     setFormData(newFormData)
 
     // Update profile image
@@ -137,6 +157,19 @@ export default function EditProfile() {
       setImagePreview(profile.profileImage)
     }
   }, [userProfile])
+
+  useEffect(() => {
+    saveEditProfileDraft({
+      name: formData.name,
+      phone: formData.mobile,
+      mobile: formData.mobile,
+      email: formData.email,
+      profileImage,
+      dateOfBirth: formData.dateOfBirth ? formData.dateOfBirth.format('YYYY-MM-DD') : null,
+      anniversary: formData.anniversary ? formData.anniversary.format('YYYY-MM-DD') : null,
+      gender: formData.gender || "",
+    })
+  }, [formData, profileImage])
 
   // Get avatar initial
   const avatarInitial = formData.name?.charAt(0).toUpperCase() || 'A'
@@ -232,8 +265,22 @@ export default function EditProfile() {
         setImagePreview(imageUrl)
         toast.success('Profile image uploaded successfully')
 
-        // Update context
-        updateUserProfile({ profileImage: imageUrl })
+        const mergedProfile = {
+          ...(userProfile || {}),
+          name: formData.name,
+          phone: formData.mobile,
+          mobile: formData.mobile,
+          email: formData.email,
+          dateOfBirth: formData.dateOfBirth ? formData.dateOfBirth.format('YYYY-MM-DD') : null,
+          anniversary: formData.anniversary ? formData.anniversary.format('YYYY-MM-DD') : null,
+          gender: formData.gender || "",
+          profileImage: imageUrl,
+        }
+
+        // Update context + local persistence with current form values so refresh keeps all fields
+        updateUserProfile(mergedProfile)
+        saveProfileToStorage(mergedProfile)
+        saveEditProfileDraft(mergedProfile)
 
         // Dispatch event to refresh profile
         window.dispatchEvent(new Event("userAuthChanged"))
@@ -312,12 +359,14 @@ export default function EditProfile() {
         saveProfileToStorage({
           name: updatedUser.name || formData.name,
           phone: updatedUser.phone || formData.mobile,
+          mobile: updatedUser.phone || formData.mobile,
           email: updatedUser.email || formData.email,
           profileImage: updatedUser.profileImage || profileImage,
           dateOfBirth: updatedUser.dateOfBirth || formData.dateOfBirth?.format('YYYY-MM-DD'),
           anniversary: updatedUser.anniversary || formData.anniversary?.format('YYYY-MM-DD'),
           gender: updatedUser.gender || formData.gender,
         })
+        clearEditProfileDraft()
 
         // Dispatch event to refresh profile from API
         window.dispatchEvent(new Event("userAuthChanged"))
@@ -351,7 +400,7 @@ export default function EditProfile() {
       <div className="bg-white dark:bg-[#1a1a1a] sticky top-0 z-10 border-b border-gray-100 dark:border-gray-800">
         <div className="max-w-7xl mx-auto flex items-center gap-3 px-4 sm:px-6 md:px-8 lg:px-10 xl:px-12 py-4 md:py-5 lg:py-6">
           <button
-            onClick={() => navigate(-1)}
+            onClick={goBack}
             className="w-9 h-9 flex items-center justify-center hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors flex-shrink-0"
           >
             <ArrowLeft className="h-5 w-5 text-gray-700 dark:text-white" />

@@ -109,8 +109,6 @@ import exploreTop10 from "@food/assets/explore more icons/top 10.png";
 import exploreCollection from "@food/assets/explore more icons/collection.png";
 
 // Import local banners
-import bannerVideo from "@/assets/banner.MP4";
-
 // Banner images for hero carousel - will be fetched from API
 
 // Animated placeholder for search - moved outside component to prevent recreation
@@ -417,6 +415,7 @@ export default function Home() {
   const [landingCategories, setLandingCategories] = useState([]);
   const [landingExploreMore, setLandingExploreMore] = useState([]);
   const [exploreMoreHeading, setExploreMoreHeading] = useState("Explore More");
+  const [headerVideoUrl, setHeaderVideoUrl] = useState("");
   const [recommendedRestaurantIds, setRecommendedRestaurantIds] = useState([]);
   const [
     recommendedRestaurantsFromSettings,
@@ -892,6 +891,7 @@ export default function Home() {
         );
         const settings = settingsRes?.data?.data || {};
         setExploreMoreHeading(settings.exploreMoreHeading || "Explore More");
+        setHeaderVideoUrl(settings.headerVideoUrl || "");
         setRecommendedRestaurantIds(settings.recommendedRestaurantIds || []);
         setRecommendedRestaurantsFromSettings(
           settings.recommendedRestaurants || [],
@@ -901,6 +901,7 @@ export default function Home() {
         if (!cancelled) {
           setLandingExploreMore([]);
           setExploreMoreHeading("Explore More");
+          setHeaderVideoUrl("");
           setRecommendedRestaurantsFromSettings([]);
         }
       })
@@ -2520,14 +2521,16 @@ export default function Home() {
           onVegModeChange={handleVegModeChange}
           quickThemeColor={quickThemeColor}
           bannerContent={
-            <video
-              src={bannerVideo}
-              autoPlay
-              loop
-              muted
-              playsInline
-              className="h-full w-full scale-[1.06] object-cover object-top"
-            />
+            headerVideoUrl ? (
+              <video
+                src={headerVideoUrl}
+                autoPlay
+                loop
+                muted
+                playsInline
+                className="h-[132%] w-[124%] max-w-none -translate-y-4 scale-[0.9] object-cover object-center"
+              />
+            ) : null
           }
         />
       </div>

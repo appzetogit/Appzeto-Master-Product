@@ -7,10 +7,12 @@ import { foodImages } from "@food/constants/images";
 import OptimizedImage from "@food/components/OptimizedImage";
 import { useLocation } from "@food/hooks/useLocation";
 import { useZone } from "@food/hooks/useZone";
+import useAppBackNavigation from "@food/hooks/useAppBackNavigation";
 import { API_BASE_URL } from "@food/api/config";
 
 export default function Categories() {
   const navigate = useNavigate();
+  const goBack = useAppBackNavigation();
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
@@ -74,7 +76,7 @@ export default function Categories() {
     <div className="min-h-screen bg-white pb-10">
       {/* Header */}
       <div className="sticky top-0 z-50 bg-white/80 backdrop-blur-md border-b border-neutral-100 px-4 py-4 flex items-center gap-4">
-        <button onClick={() => navigate(-1)} className="p-2 hover:bg-neutral-100 rounded-full transition-colors active:scale-95">
+        <button onClick={goBack} className="p-2 hover:bg-neutral-100 rounded-full transition-colors active:scale-95">
           <ArrowLeft className="h-6 w-6 text-neutral-800" />
         </button>
         <div className="flex-1">

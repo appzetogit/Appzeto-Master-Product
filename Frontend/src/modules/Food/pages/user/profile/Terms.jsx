@@ -5,10 +5,12 @@ import { motion } from "framer-motion"
 import AnimatedPage from "@food/components/user/AnimatedPage"
 import { Button } from "@food/components/ui/button"
 import api from "@food/api"
+import useAppBackNavigation from "@food/hooks/useAppBackNavigation"
 import { API_ENDPOINTS } from "@food/api/config"
 
 export default function Terms() {
   const navigate = useNavigate()
+  const goBack = useAppBackNavigation()
   const [loading, setLoading] = useState(true)
   const [termsData, setTermsData] = useState({
     title: 'Terms of Service',
@@ -35,7 +37,7 @@ export default function Terms() {
 
   const handleBack = () => {
     if (window.history.length > 2) {
-      navigate(-1)
+      goBack()
     } else {
       navigate('/food/user')
     }

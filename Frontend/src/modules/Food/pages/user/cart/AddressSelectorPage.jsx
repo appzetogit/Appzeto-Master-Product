@@ -11,6 +11,7 @@ import { toast } from "sonner"
 import { locationAPI, userAPI } from "@food/api"
 import { Loader } from '@googlemaps/js-api-loader'
 import AnimatedPage from "@food/components/user/AnimatedPage"
+import useAppBackNavigation from "@food/hooks/useAppBackNavigation"
 
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
@@ -46,6 +47,7 @@ const getAddressIcon = (address) => {
 
 export default function AddressSelectorPage() {
   const navigate = useNavigate()
+  const goBack = useAppBackNavigation()
   const { location, loading, requestLocation } = useGeoLocation()
   const { addresses = [], addAddress, updateAddress, setDefaultAddress, userProfile } = useProfile()
   const [showAddressForm, setShowAddressForm] = useState(false)
@@ -83,7 +85,7 @@ export default function AddressSelectorPage() {
   const getAddressId = (address) => address?.id || address?._id || null
 
   const handleBack = () => {
-    navigate(-1)
+    goBack()
   }
 
   const addressAutocompleteSuggestions = useMemo(() => {
