@@ -21,7 +21,7 @@ const sellerCategorySchema = new mongoose.Schema(
     },
     parentId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "SellerCategory",
+      ref: "quick_category",
       default: null,
     },
     depth: {
@@ -40,7 +40,7 @@ const sellerCategorySchema = new mongoose.Schema(
     },
   },
   {
-    collection: "seller_categories",
+    collection: "quick_categories",
     timestamps: true,
   },
 );

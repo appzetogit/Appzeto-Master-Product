@@ -1,5 +1,5 @@
 import mongoose from "mongoose";
-import { SellerCategory } from "../models/sellerCategory.model.js";
+import { QuickCategory } from "../../models/category.model.js";
 import { SellerNotification } from "../models/sellerNotification.model.js";
 
 const DEFAULT_CATEGORY_TREE = [
@@ -61,6 +61,8 @@ const categoryNode = (doc) => ({
   id: doc._id,
   name: doc.name,
   slug: doc.slug,
+  type: doc.type || "header",
+  parentId: doc.parentId || null,
   children: [],
 });
 
@@ -72,17 +74,18 @@ const toObjectId = (value) => {
 const walkSeed = async (nodes, parentId = null, depth = 0, parentKey = "") => {
   for (let index = 0; index < nodes.length; index += 1) {
     const node = nodes[index];
-    const key = [parentKey, node.slug].filter(Boolean).join("/");
-    const doc = await SellerCategory.findOneAndUpdate(
-      { key },
+    const type =
+      depth <= 0 ? "header" : depth === 1 ? "category" : "subcategory";
+    const doc = await QuickCategory.findOneAndUpdate(
+      { slug: node.slug, parentId },
       {
         $setOnInsert: {
           name: node.name,
           slug: node.slug,
-          key,
           parentId,
-          depth,
+          type,
           sortOrder: index,
+          status: "active",
           isActive: true,
         },
       },
@@ -90,21 +93,21 @@ const walkSeed = async (nodes, parentId = null, depth = 0, parentKey = "") => {
     );
 
     if (Array.isArray(node.children) && node.children.length) {
-      await walkSeed(node.children, doc._id, depth + 1, key);
+      await walkSeed(node.children, doc._id, depth + 1, parentKey);
     }
   }
 };
 
 export const ensureSellerCategoriesSeeded = async () => {
-  const existingCount = await SellerCategory.countDocuments();
+  const existingCount = await QuickCategory.countDocuments();
   if (existingCount > 0) return;
   await walkSeed(DEFAULT_CATEGORY_TREE);
 };
 
 export const buildSellerCategoryTree = async () => {
   await ensureSellerCategoriesSeeded();
-  const docs = await SellerCategory.find({ isActive: true })
-    .sort({ depth: 1, sortOrder: 1, name: 1 })
+  const docs = await QuickCategory.find({ isActive: true })
+    .sort({ sortOrder: 1, name: 1 })
     .lean();
 
   const lookup = new Map();
@@ -128,23 +131,23 @@ export const buildSellerCategoryTree = async () => {
 
 export const getDefaultSellerCategoryPath = async () => {
   await ensureSellerCategoriesSeeded();
-  const header = await SellerCategory.findOne({ depth: 0, isActive: true })
+  const header = await QuickCategory.findOne({ type: "header", isActive: true })
     .sort({ sortOrder: 1, createdAt: 1 })
     .lean();
   if (!header) return null;
 
-  const category = await SellerCategory.findOne({
+  const category = await QuickCategory.findOne({
     parentId: header._id,
-    depth: 1,
+    type: "category",
     isActive: true,
   })
     .sort({ sortOrder: 1, createdAt: 1 })
     .lean();
 
   const subcategory = category
-    ? await SellerCategory.findOne({
+    ? await QuickCategory.findOne({
         parentId: category._id,
-        depth: 2,
+        type: "subcategory",
         isActive: true,
       })
         .sort({ sortOrder: 1, createdAt: 1 })
@@ -168,28 +171,62 @@ export const resolveSellerCategoryIds = async ({
     .map((value) => toObjectId(value))
     .filter(Boolean);
 
-  if (selectedIds.length === 3) {
-    const docs = await SellerCategory.find({ _id: { $in: selectedIds } }).lean();
+  if (selectedIds.length >= 1) {
+    const docs = await QuickCategory.find({ _id: { $in: selectedIds } }).lean();
     const byId = new Map(docs.map((doc) => [String(doc._id), doc]));
+    const selectedHeader = headerId ? byId.get(String(headerId)) : null;
+    const selectedCategory = categoryId ? byId.get(String(categoryId)) : null;
+    const selectedSubcategory = subcategoryId
+      ? byId.get(String(subcategoryId))
+      : null;
 
-    const header = byId.get(String(headerId));
-    const category = byId.get(String(categoryId));
-    const subcategory = byId.get(String(subcategoryId));
+    const category =
+      selectedCategory?.type === "category"
+        ? selectedCategory
+        : selectedSubcategory?.type === "subcategory" &&
+            selectedSubcategory.parentId
+          ? await QuickCategory.findOne({
+              _id: selectedSubcategory.parentId,
+              type: "category",
+              isActive: true,
+            }).lean()
+          : null;
 
-    if (
-      header &&
-      category &&
-      subcategory &&
-      header.depth === 0 &&
-      category.depth === 1 &&
-      subcategory.depth === 2 &&
-      String(category.parentId) === String(header._id) &&
-      String(subcategory.parentId) === String(category._id)
-    ) {
+    const header =
+      selectedHeader?.type === "header"
+        ? selectedHeader
+        : category?.parentId
+          ? await QuickCategory.findOne({
+              _id: category.parentId,
+              type: "header",
+              isActive: true,
+            }).lean()
+          : null;
+
+    const subcategory =
+      selectedSubcategory?.type === "subcategory" ? selectedSubcategory : null;
+
+    if (category && header && String(category.parentId) === String(header._id)) {
       return {
         headerId: header._id,
         categoryId: category._id,
-        subcategoryId: subcategory._id,
+        subcategoryId:
+          subcategory && String(subcategory.parentId) === String(category._id)
+            ? subcategory._id
+            : null,
+      };
+    }
+
+    if (
+      selectedHeader?.type === "header" &&
+      !selectedCategory &&
+      !selectedSubcategory
+    ) {
+      const fallback = await getDefaultSellerCategoryPath();
+      return {
+        headerId: selectedHeader._id,
+        categoryId: fallback?.categoryId || null,
+        subcategoryId: fallback?.subcategoryId || null,
       };
     }
   }

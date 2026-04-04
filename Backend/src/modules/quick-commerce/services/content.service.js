@@ -21,6 +21,13 @@ const normalizeStatusQuery = () => ({
   ],
 });
 
+const approvedOrLegacyFilter = {
+  $or: [
+    { approvalStatus: { $exists: false } },
+    { approvalStatus: 'approved' },
+  ],
+};
+
 export const getQuickSettings = async () => {
   const collection = getCollection('quick_settings');
   if (!collection) return null;
@@ -102,10 +109,17 @@ export const getQuickOfferSections = async () => {
 
   const [products, categories] = await Promise.all([
     productIds.size
-      ? QuickProduct.find({ _id: { $in: Array.from(productIds) } }).lean()
+      ? QuickProduct.find({ _id: { $in: Array.from(productIds) }, ...approvedOrLegacyFilter, isActive: true }).lean()
       : Promise.resolve([]),
     categoryIds.size
-      ? QuickCategory.find({ _id: { $in: Array.from(categoryIds) } }).lean()
+      ? QuickCategory.find({
+          _id: { $in: Array.from(categoryIds) },
+          isActive: true,
+          $or: [
+            { type: { $ne: 'subcategory' } },
+            approvedOrLegacyFilter,
+          ],
+        }).lean()
       : Promise.resolve([]),
   ]);
 
