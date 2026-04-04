@@ -39,6 +39,7 @@ const normalizeQuickProductForSharedCart = (product) => {
     id,
     _id: product?._id || id,
     orderType: "quick",
+    type: "quick",
     image: product?.image || product?.mainImage,
     mainImage: product?.mainImage || product?.image,
     price:
@@ -48,6 +49,8 @@ const normalizeQuickProductForSharedCart = (product) => {
     originalPrice: product?.originalPrice ?? product?.price ?? product?.salePrice ?? 0,
     quickStoreName: getQuickStoreName(product),
     quickStoreId: getQuickStoreId(product),
+    sourceId: getQuickStoreId(product),
+    sourceName: getQuickStoreName(product),
     restaurant: "Quick Commerce",
     restaurantId: "quick-commerce",
   };

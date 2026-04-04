@@ -19,6 +19,7 @@ import {
 } from "../../../../core/notifications/firebase.service.js";
 import { FoodTransaction } from '../models/foodTransaction.model.js';
 import { FoodSupportTicket } from '../../user/models/supportTicket.model.js';
+import { Seller } from '../../../quick-commerce/seller/models/seller.model.js';
 import {
     createRazorpayOrder,
     createPaymentLink,
@@ -142,6 +143,192 @@ function toGeoPoint(lat, lng) {
   const b = Number(lng);
   if (!Number.isFinite(a) || !Number.isFinite(b)) return undefined;
   return { type: "Point", coordinates: [b, a] };
+}
+
+function getItemType(item, fallbackOrderType = "food") {
+  if (item?.type === "quick" || item?.orderType === "quick") return "quick";
+  if (item?.type === "food" || item?.orderType === "food") return "food";
+  return fallbackOrderType === "quick" ? "quick" : "food";
+}
+
+function buildSourceIdForItem(item, itemType) {
+  if (item?.sourceId) return String(item.sourceId);
+  if (itemType === "quick") {
+    return String(
+      item?.quickStoreId ||
+        item?.storeId ||
+        item?.sellerId ||
+        item?.restaurantId ||
+        "quick-commerce",
+    );
+  }
+  return String(item?.restaurantId || item?.sourceRestaurantId || "");
+}
+
+function normalizeOrderItems(items = [], fallbackOrderType = "food") {
+  return (Array.isArray(items) ? items : []).map((item) => {
+    const itemType = getItemType(item, fallbackOrderType);
+    const sourceId = buildSourceIdForItem(item, itemType);
+    return {
+      ...item,
+      type: itemType,
+      sourceId,
+      sourceName:
+        item?.sourceName ||
+        (itemType === "quick"
+          ? item?.quickStoreName || item?.storeName || item?.sellerName || ""
+          : item?.restaurant || item?.restaurantName || ""),
+    };
+  });
+}
+
+function getPointLatLng(locationLike) {
+  const coords = locationLike?.coordinates;
+  if (!Array.isArray(coords) || coords.length !== 2) return null;
+  const [lng, lat] = coords;
+  if (!Number.isFinite(Number(lat)) || !Number.isFinite(Number(lng))) return null;
+  return { lat: Number(lat), lng: Number(lng) };
+}
+
+function angleBetweenPickupVectors(userPoint, firstPoint, secondPoint) {
+  if (!userPoint || !firstPoint || !secondPoint) return null;
+  const v1x = Number(firstPoint.lng) - Number(userPoint.lng);
+  const v1y = Number(firstPoint.lat) - Number(userPoint.lat);
+  const v2x = Number(secondPoint.lng) - Number(userPoint.lng);
+  const v2y = Number(secondPoint.lat) - Number(userPoint.lat);
+  const mag1 = Math.hypot(v1x, v1y);
+  const mag2 = Math.hypot(v2x, v2y);
+  if (mag1 === 0 || mag2 === 0) return 0;
+  const cosine = Math.min(1, Math.max(-1, (v1x * v2x + v1y * v2y) / (mag1 * mag2)));
+  return Math.acos(cosine) * (180 / Math.PI);
+}
+
+async function fetchPickupSourcesByType(items = []) {
+  const foodSourceIds = [...new Set(items.filter((item) => item.type === "food").map((item) => item.sourceId).filter(Boolean))];
+  const quickSourceIds = [...new Set(items.filter((item) => item.type === "quick").map((item) => item.sourceId).filter(Boolean))];
+
+  const [restaurants, sellers] = await Promise.all([
+    foodSourceIds.length
+      ? FoodRestaurant.find({ _id: { $in: foodSourceIds.filter((id) => mongoose.isValidObjectId(id)).map((id) => new mongoose.Types.ObjectId(id)) } })
+          .select("restaurantName location addressLine1 area city state zoneId status")
+          .lean()
+      : [],
+    quickSourceIds.length
+      ? Seller.find({ _id: { $in: quickSourceIds.filter((id) => mongoose.isValidObjectId(id)).map((id) => new mongoose.Types.ObjectId(id)) } })
+          .select("shopName name location shopInfo approvalStatus approved isActive")
+          .lean()
+      : [],
+  ]);
+
+  const sourceMap = new Map();
+  for (const restaurant of restaurants) {
+    sourceMap.set(String(restaurant._id), {
+      type: "food",
+      sourceId: String(restaurant._id),
+      sourceName: restaurant.restaurantName || restaurant.name || "Restaurant",
+      status: restaurant.status,
+      location: restaurant.location,
+      zoneId: restaurant.zoneId || null,
+      address:
+        restaurant.location?.address ||
+        restaurant.location?.formattedAddress ||
+        restaurant.addressLine1 ||
+        [restaurant.area, restaurant.city, restaurant.state].filter(Boolean).join(", "),
+    });
+  }
+  for (const seller of sellers) {
+    sourceMap.set(String(seller._id), {
+      type: "quick",
+      sourceId: String(seller._id),
+      sourceName: seller.shopName || seller.name || "Quick Commerce",
+      status:
+        seller.approvalStatus ||
+        (seller.approved && seller.isActive ? "approved" : "inactive"),
+      location: seller.location,
+      zoneId: seller.shopInfo?.zoneId || null,
+      address:
+        seller.location?.formattedAddress ||
+        seller.location?.address ||
+        "",
+    });
+  }
+  return sourceMap;
+}
+
+function buildPickupPointsFromItems(items = [], sourceMap = new Map()) {
+  const grouped = new Map();
+  for (const item of items) {
+    const key = `${item.type}:${item.sourceId}`;
+    if (!grouped.has(key)) {
+      const source = sourceMap.get(String(item.sourceId)) || {};
+      grouped.set(key, {
+        pickupType: item.type,
+        sourceId: String(item.sourceId),
+        sourceName: item.sourceName || source.sourceName || "",
+        address: source.address || "",
+        location: source.location?.coordinates
+          ? { type: "Point", coordinates: source.location.coordinates }
+          : undefined,
+        itemIds: [],
+      });
+    }
+    grouped.get(key).itemIds.push(String(item.itemId || item.id || item.name));
+  }
+  return [...grouped.values()];
+}
+
+function evaluateCombinedPickupEligibility(pickupPoints = [], deliveryAddress) {
+  const foodPickup = pickupPoints.find((point) => point.pickupType === "food");
+  const quickPickup = pickupPoints.find((point) => point.pickupType === "quick");
+  const foodPoint = getPointLatLng(foodPickup?.location);
+  const quickPoint = getPointLatLng(quickPickup?.location);
+  const userPoint = getPointLatLng(deliveryAddress?.location);
+  if (!foodPoint || !quickPoint || !userPoint) {
+    return {
+      eligible: false,
+      pickupDistanceKm: null,
+      sameDirection: false,
+      reason: "Pickup or delivery coordinates are unavailable",
+    };
+  }
+
+  const pickupDistanceKm = haversineKm(foodPoint.lat, foodPoint.lng, quickPoint.lat, quickPoint.lng);
+  const angle = angleBetweenPickupVectors(userPoint, foodPoint, quickPoint);
+  const sameDirection = angle == null ? false : angle <= 35;
+  const eligible = pickupDistanceKm <= 2 && sameDirection;
+  return {
+    eligible,
+    pickupDistanceKm: Number.isFinite(pickupDistanceKm) ? Number(pickupDistanceKm.toFixed(2)) : null,
+    sameDirection,
+    reason: eligible
+      ? "Pickups are close and aligned for a shared rider"
+      : pickupDistanceKm > 2
+        ? "Pickups are more than 2 km apart"
+        : "Pickups are not in the same direction",
+  };
+}
+
+async function listNearbyPartnersForPoint(point, { maxKm = 15, limit = 5 } = {}) {
+  const latLng = getPointLatLng(point?.location);
+  if (!latLng) return [];
+
+  const partners = await FoodDeliveryPartner.find({
+    status: "approved",
+    availabilityStatus: "online",
+    lastLat: { $exists: true, $ne: null },
+    lastLng: { $exists: true, $ne: null },
+  })
+    .select("_id lastLat lastLng")
+    .lean();
+
+  return partners
+    .map((partner) => ({
+      partnerId: partner._id,
+      distanceKm: haversineKm(latLng.lat, latLng.lng, partner.lastLat, partner.lastLng),
+    }))
+    .filter((partner) => Number.isFinite(partner.distanceKm) && partner.distanceKm <= maxKm)
+    .sort((a, b) => a.distanceKm - b.distanceKm)
+    .slice(0, Math.max(1, limit));
 }
 
 function pushStatusHistory(order, { byRole, byId, from, to, note = "" }) {
@@ -443,8 +630,15 @@ export async function updateDispatchSettings(dispatchMode, adminId) {
 
 // ----- Calculate (validation + return pricing from payload) -----
 export async function calculateOrder(userId, dto) {
-  const orderType = dto.orderType === "quick" ? "quick" : "food";
-  const items = Array.isArray(dto.items) ? dto.items : [];
+  const items = normalizeOrderItems(dto.items, dto.orderType);
+  const hasFoodItems = items.some((item) => item.type === "food");
+  const hasQuickItems = items.some((item) => item.type === "quick");
+  const orderType =
+    hasFoodItems && hasQuickItems
+      ? "mixed"
+      : hasQuickItems
+        ? "quick"
+        : "food";
   const subtotal = items.reduce(
     (sum, it) => sum + (Number(it.price) || 0) * (Number(it.quantity) || 1),
     0,
@@ -461,6 +655,18 @@ export async function calculateOrder(userId, dto) {
     platformFee: 5,
     gstRate: 5,
   };
+
+  const sourceMap = await fetchPickupSourcesByType(items);
+  const pickupPoints = buildPickupPointsFromItems(items, sourceMap);
+  const eligibility =
+    orderType === "mixed"
+      ? evaluateCombinedPickupEligibility(pickupPoints, dto.address)
+      : {
+          eligible: false,
+          pickupDistanceKm: null,
+          sameDirection: false,
+          reason: "",
+        };
 
   if (orderType === "quick") {
     const packagingFee = 0;
@@ -493,12 +699,30 @@ export async function calculateOrder(userId, dto) {
     };
   }
 
-  const restaurant = await FoodRestaurant.findById(dto.restaurantId)
-    .select("status")
-    .lean();
-  if (!restaurant) throw new ValidationError("Restaurant not found");
-  if (restaurant.status !== "approved")
+  const foodSourceIds = [
+    ...new Set(
+      items
+        .filter((item) => item.type === "food")
+        .map((item) => item.sourceId)
+        .filter(Boolean),
+    ),
+  ];
+  const primaryRestaurantId = dto.restaurantId || foodSourceIds[0];
+  const primaryRestaurant = sourceMap.get(String(primaryRestaurantId));
+  if (!primaryRestaurant) throw new ValidationError("Restaurant not found");
+  if (primaryRestaurant.status !== "approved")
     throw new ValidationError("Restaurant not available");
+
+  const inactiveQuickSource = [...sourceMap.values()].find(
+    (source) =>
+      source.type === "quick" &&
+      !["approved", "active"].includes(String(source.status || "").toLowerCase()),
+  );
+  if (inactiveQuickSource) {
+    throw new ValidationError(
+      `${inactiveQuickSource.sourceName || "Quick store"} is not available`,
+    );
+  }
 
   const packagingFee = 0;
   const platformFee = Number(feeSettings.platformFee || 0);
@@ -569,7 +793,7 @@ export async function calculateOrder(userId, dto) {
       const endOk = !offer.endDate || now < new Date(offer.endDate);
       const scopeOk =
         offer.restaurantScope !== "selected" ||
-        String(offer.restaurantId || "") === String(dto.restaurantId || "");
+        String(offer.restaurantId || "") === String(primaryRestaurantId || "");
       const minOk = subtotal >= (Number(offer.minOrderValue) || 0);
       let usageOk = true;
       if (
@@ -625,41 +849,120 @@ export async function calculateOrder(userId, dto) {
       }
     }
   }
+  const quickDeliveryFee = orderType === "mixed"
+    ? Number(feeSettings.deliveryFee || 25)
+    : 0;
+  const normalDeliveryFee =
+    orderType === "mixed" ? Math.max(deliveryFee, quickDeliveryFee) : deliveryFee;
+  const expressDeliveryFee =
+    orderType === "mixed" ? deliveryFee + quickDeliveryFee : deliveryFee;
+  const selectedDeliveryFee =
+    orderType === "mixed" ? normalDeliveryFee : deliveryFee;
   const total = Math.max(
     0,
-    subtotal + packagingFee + deliveryFee + platformFee + tax - discount,
+    subtotal + packagingFee + selectedDeliveryFee + platformFee + tax - discount,
   );
+  const deliveryOptions =
+    orderType === "mixed" && eligibility.eligible
+      ? [
+          {
+            code: "normal",
+            label: "Normal delivery",
+            deliveryFee: normalDeliveryFee,
+            total: Math.max(
+              0,
+              subtotal +
+                packagingFee +
+                normalDeliveryFee +
+                platformFee +
+                tax -
+                discount,
+            ),
+            riderCount: 1,
+          },
+          {
+            code: "express",
+            label: "Express delivery",
+            deliveryFee: expressDeliveryFee,
+            total: Math.max(
+              0,
+              subtotal +
+                packagingFee +
+                expressDeliveryFee +
+                platformFee +
+                tax -
+                discount,
+            ),
+            riderCount: 2,
+          },
+        ]
+      : [];
   return {
     pricing: {
       subtotal,
       tax,
       packagingFee,
-      deliveryFee,
+      deliveryFee: selectedDeliveryFee,
       platformFee,
       discount,
       total,
       currency: "INR",
       couponCode: appliedCoupon?.code || codeRaw || null,
       appliedCoupon,
+      deliveryOptions,
+      pickupDistanceKm: eligibility.pickupDistanceKm,
+      combinedPickupEligible: eligibility.eligible,
+      sameDirection: eligibility.sameDirection,
+      pickupPoints,
     },
   };
 }
 
 // ----- Create order -----
 export async function createOrder(userId, dto) {
-  const orderType = dto.orderType === "quick" ? "quick" : "food";
-  let restaurant = null;
-  if (orderType === "food") {
-    restaurant = await FoodRestaurant.findById(dto.restaurantId)
-      .select("status restaurantName zoneId location")
-      .lean();
-    if (!restaurant) throw new ValidationError("Restaurant not found");
-    if (restaurant.status !== "approved")
+  const items = normalizeOrderItems(dto.items, dto.orderType);
+  const hasFoodItems = items.some((item) => item.type === "food");
+  const hasQuickItems = items.some((item) => item.type === "quick");
+  const orderType =
+    hasFoodItems && hasQuickItems
+      ? "mixed"
+      : hasQuickItems
+        ? "quick"
+        : "food";
+  const sourceMap = await fetchPickupSourcesByType(items);
+  const foodSourceIds = [
+    ...new Set(
+      items
+        .filter((item) => item.type === "food")
+        .map((item) => item.sourceId)
+        .filter(Boolean),
+    ),
+  ];
+  const primaryRestaurantId = dto.restaurantId || foodSourceIds[0] || null;
+  const primaryRestaurant = primaryRestaurantId
+    ? sourceMap.get(String(primaryRestaurantId))
+    : null;
+  if (hasFoodItems) {
+    if (!primaryRestaurant) throw new ValidationError("Restaurant not found");
+    if (primaryRestaurant.status !== "approved")
       throw new ValidationError("Restaurant not accepting orders");
+  }
+  const inactiveQuickSource = [...sourceMap.values()].find(
+    (source) =>
+      source.type === "quick" &&
+      !["approved", "active"].includes(String(source.status || "").toLowerCase()),
+  );
+  if (inactiveQuickSource) {
+    throw new ValidationError(
+      `${inactiveQuickSource.sourceName || "Quick store"} is not accepting orders`,
+    );
   }
 
   const orderId = await ensureUniqueOrderId();
-  const settings = orderType === "food" ? await getDispatchSettings() : null;
+  const settings =
+    orderType === "food" || orderType === "mixed"
+      ? await getDispatchSettings()
+      : null;
   const dispatchMode = settings?.dispatchMode || "manual";
 
   const deliveryAddress = dto.address
@@ -681,9 +984,28 @@ export async function createOrder(userId, dto) {
     dto.paymentMethod === "card" ? "razorpay" : dto.paymentMethod;
   const isCash = paymentMethod === "cash";
   const isWallet = paymentMethod === "wallet";
+  const pickupPoints = buildPickupPointsFromItems(items, sourceMap);
+  const combinedPickup = evaluateCombinedPickupEligibility(
+    pickupPoints,
+    deliveryAddress,
+  );
+  const requestedDeliveryFleet =
+    dto.deliveryFleet ||
+    (orderType === "mixed" ? "normal" : orderType === "quick" ? "quick" : "standard");
+  if (orderType === "mixed" && requestedDeliveryFleet === "express" && !combinedPickup.eligible) {
+    throw new ValidationError(combinedPickup.reason || "Express delivery is not available for this mixed order");
+  }
+  const dispatchStrategy =
+    orderType !== "mixed"
+      ? "single"
+      : requestedDeliveryFleet === "express"
+        ? "express_split"
+        : combinedPickup.eligible
+          ? "single"
+          : "split";
 
   // Ensure pricing is present and consistent.
-  const computedSubtotal = (dto.items || []).reduce((sum, item) => {
+  const computedSubtotal = items.reduce((sum, item) => {
     const price = Number(item?.price);
     const qty = Number(item?.quantity);
     if (!Number.isFinite(price) || !Number.isFinite(qty)) return sum;
@@ -735,11 +1057,11 @@ export async function createOrder(userId, dto) {
 
   let distanceKm = null;
   if (
-    orderType === "food" &&
-    restaurant?.location?.coordinates?.length === 2 &&
+    (orderType === "food" || orderType === "mixed") &&
+    primaryRestaurant?.location?.coordinates?.length === 2 &&
     dto.address?.location?.coordinates?.length === 2
   ) {
-    const [rLng, rLat] = restaurant.location.coordinates;
+    const [rLng, rLat] = primaryRestaurant.location.coordinates;
     const [dLng, dLat] = dto.address.location.coordinates;
     const d = haversineKm(rLat, rLng, dLat, dLng);
     distanceKm = Number.isFinite(d) ? d : null;
@@ -750,14 +1072,16 @@ export async function createOrder(userId, dto) {
   }
 
   const riderEarning =
-    orderType === "food" ? await getRiderEarning(distanceKm) : 0;
+    orderType === "food" || (orderType === "mixed" && dispatchStrategy === "single")
+      ? await getRiderEarning(distanceKm)
+      : 0;
   
   // Calculate restaurant commission from subtotal
   const { commissionAmount: restaurantCommission } =
-    orderType === "food"
+    hasFoodItems
       ? await foodTransactionService.getRestaurantCommissionSnapshot({
           pricing: normalizedPricing,
-          restaurantId: dto.restaurantId,
+          restaurantId: primaryRestaurantId,
         })
       : { commissionAmount: 0 };
 
@@ -771,26 +1095,58 @@ export async function createOrder(userId, dto) {
       riderEarning,
   );
 
+  const dispatchPlan = {
+    strategy: dispatchStrategy,
+    combinedPickupEligible: combinedPickup.eligible,
+    pickupDistanceKm: combinedPickup.pickupDistanceKm,
+    sameDirection: combinedPickup.sameDirection,
+    reason: combinedPickup.reason,
+    legs: pickupPoints.map((point) => ({
+      legId: `${point.pickupType}:${point.sourceId}`,
+      pickupType: point.pickupType,
+      sourceId: point.sourceId,
+      sourceName: point.sourceName || "",
+      assignedAt: null,
+      deliveryPartnerId: null,
+      partnerCandidates: [],
+    })),
+  };
+
+  if (dispatchStrategy === "express_split" || dispatchStrategy === "split") {
+    const legCandidates = await Promise.all(
+      pickupPoints.map(async (point) => ({
+        legId: `${point.pickupType}:${point.sourceId}`,
+        partnerCandidates: await listNearbyPartnersForPoint(point),
+      })),
+    );
+    for (const leg of dispatchPlan.legs) {
+      const found = legCandidates.find((candidate) => candidate.legId === leg.legId);
+      if (found) leg.partnerCandidates = found.partnerCandidates;
+    }
+  }
+
   const order = new FoodOrder({
     orderType,
     orderId,
     userId: new mongoose.Types.ObjectId(userId),
     restaurantId:
-      orderType === "food" ? new mongoose.Types.ObjectId(dto.restaurantId) : null,
+      hasFoodItems && primaryRestaurantId ? new mongoose.Types.ObjectId(primaryRestaurantId) : null,
     zoneId:
-      orderType === "food"
+      hasFoodItems
         ? dto.zoneId
           ? new mongoose.Types.ObjectId(dto.zoneId)
-          : restaurant.zoneId
+          : primaryRestaurant?.zoneId || undefined
         : undefined,
-    items: dto.items,
+    items,
+    pickupPoints,
     ...(deliveryAddress ? { deliveryAddress } : {}),
     pricing: normalizedPricing,
     payment,
     orderStatus: "created",
-    ...(orderType === "food"
+    ...(orderType === "food" || orderType === "mixed"
       ? { dispatch: { modeAtCreation: dispatchMode, status: "unassigned" } }
       : {}),
+    dispatchPlan,
     statusHistory: [
       {
         at: new Date(),
@@ -802,7 +1158,12 @@ export async function createOrder(userId, dto) {
     ],
     note: dto.note || "",
     sendCutlery: dto.sendCutlery !== false,
-    deliveryFleet: orderType === "food" ? dto.deliveryFleet || "standard" : "quick",
+    deliveryFleet:
+      orderType === "mixed"
+        ? requestedDeliveryFleet
+        : orderType === "food"
+          ? dto.deliveryFleet || "standard"
+          : "quick",
     scheduledAt: dto.scheduledAt ? new Date(dto.scheduledAt) : null,
     riderEarning,
     platformProfit,
@@ -850,16 +1211,22 @@ export async function createOrder(userId, dto) {
     await notifyOwnersSafely([{ ownerType: "USER", ownerId: userId }], {
       title: isAwaitingOnlinePayment
         ? "Complete Payment to Confirm Order"
-        : orderType === "quick"
+        : orderType === "mixed"
+          ? "Mixed Order Confirmed!"
+          : orderType === "quick"
           ? "Quick Order Confirmed!"
           : "Order Confirmed!",
       body: isAwaitingOnlinePayment
-        ? orderType === "quick"
+        ? orderType === "mixed"
+          ? `Order #${orderId} is created. Complete payment to confirm your mixed delivery.`
+          : orderType === "quick"
           ? `Order #${orderId} is created. Please complete payment to confirm your quick order.`
-          : `Order #${orderId} is created. Please complete payment to send it to ${restaurant.restaurantName || "the restaurant"}.`
-        : orderType === "quick"
+          : `Order #${orderId} is created. Please complete payment to send it to ${primaryRestaurant?.sourceName || "the restaurant"}.`
+        : orderType === "mixed"
+          ? `Your mixed order #${orderId} has been placed successfully.`
+          : orderType === "quick"
           ? `Your quick order #${orderId} has been placed successfully.`
-          : `Your order #${orderId} from ${restaurant.restaurantName || "the restaurant"} has been placed successfully.`,
+          : `Your order #${orderId} from ${primaryRestaurant?.sourceName || "the restaurant"} has been placed successfully.`,
       image: "https://i.ibb.co/3m2Yh7r/Appzeto-Brand-Image.png",
       data: {
         type: isAwaitingOnlinePayment
@@ -872,7 +1239,7 @@ export async function createOrder(userId, dto) {
     });
 
     // Restaurant gets new-order request only when payment flow is eligible.
-    if (orderType === "food") {
+    if (hasFoodItems) {
       await notifyRestaurantNewOrder(order);
     }
   } catch {
@@ -881,7 +1248,7 @@ export async function createOrder(userId, dto) {
   const couponCode = dto.pricing?.couponCode
     ? String(dto.pricing.couponCode).trim().toUpperCase()
     : "";
-  if (orderType === "food" && couponCode) {
+  if ((orderType === "food" || orderType === "mixed") && couponCode) {
     const offer = await FoodOffer.findOne({ couponCode }).lean();
     if (offer) {
       await FoodOffer.updateOne({ _id: offer._id }, { $inc: { usedCount: 1 } });
@@ -896,7 +1263,7 @@ export async function createOrder(userId, dto) {
   }
 
   if (
-    orderType === "food" &&
+    (orderType === "food" || (orderType === "mixed" && dispatchStrategy === "single")) &&
     dispatchMode === "auto" &&
     (isCash ||
       order.payment.status === "paid" ||
@@ -954,7 +1321,7 @@ export async function verifyPayment(userId, dto) {
   });
 
   // After online payment is verified, now notify restaurant about the new order.
-  if (order.orderType === "food") {
+  if (order.orderType === "food" || order.orderType === "mixed") {
     await notifyRestaurantNewOrder(order);
   }
 
@@ -970,7 +1337,11 @@ export async function verifyPayment(userId, dto) {
     },
   });
 
-  const settings = order.orderType === "food" ? await getDispatchSettings() : null;
+  const settings =
+    order.orderType === "food" ||
+    (order.orderType === "mixed" && order.dispatchPlan?.strategy === "single")
+      ? await getDispatchSettings()
+      : null;
   if (settings?.dispatchMode === "auto") {
     try {
       await tryAutoAssign(order._id);
@@ -1763,6 +2134,10 @@ export async function listOrdersAvailableDelivery(deliveryPartnerId, query) {
       {
         "dispatch.status": "unassigned",
         orderStatus: { $in: ["preparing", "ready_for_pickup"] },
+        $or: [
+          { orderType: { $ne: "mixed" } },
+          { "dispatchPlan.strategy": "single" },
+        ],
       },
       // My assigned/accepted orders – keep showing until terminal.
       {
@@ -1822,6 +2197,15 @@ export async function acceptOrderDelivery(orderId, deliveryPartnerId) {
     !["preparing", "ready_for_pickup", "picked_up"].includes(order.orderStatus)
   ) {
     throw new ValidationError("Order not ready for delivery assignment");
+  }
+  if (
+    order.orderType === "mixed" &&
+    order.dispatchPlan?.strategy &&
+    order.dispatchPlan.strategy !== "single"
+  ) {
+    throw new ValidationError(
+      "This mixed order requires split dispatch handling and cannot be accepted in the single-rider flow yet",
+    );
   }
 
   const wasUnassigned =
