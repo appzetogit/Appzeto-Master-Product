@@ -16,7 +16,7 @@ import SectionRenderer from "../components/experience/SectionRenderer";
 import { useLocation as useAppLocation } from '../context/LocationContext';
 
 const CategoryProductsPage = () => {
-    const { categoryName: catId } = useParams();
+    const { categoryId: catId } = useParams();
     const navigate = useNavigate();
     const location = useLocation();
     const { currentLocation } = useAppLocation();
@@ -120,10 +120,11 @@ const CategoryProductsPage = () => {
     }, [safeProducts]);
 
     return (
-        <div className="flex flex-col min-h-screen bg-white max-w-md mx-auto relative font-sans">
-            {/* Header */}
+        <div className="flex min-h-screen flex-col bg-white font-sans pt-[112px] md:pt-[136px]">
+            <div className="mx-auto flex w-full max-w-md flex-1 flex-col">
+            {/* Category Subheader */}
             <header className={cn(
-                "sticky top-0 z-50 bg-white border-b border-gray-50 px-4 py-4 flex items-center justify-between",
+                "bg-white px-4 py-4 flex items-center justify-between border-b border-gray-50",
                 isProductDetailOpen && "hidden md:flex"
             )}>
                 <div className="flex items-center gap-3">
@@ -142,7 +143,7 @@ const CategoryProductsPage = () => {
 
             <div className="flex flex-1 relative items-start">
                 {/* Sidebar */}
-                <aside className="w-[80px] border-r border-gray-50 flex flex-col bg-white overflow-y-auto hide-scrollbar sticky top-[60px] h-[calc(100vh-60px)] pb-32">
+                <aside className="w-[80px] border-r border-gray-50 flex flex-col bg-white overflow-y-auto hide-scrollbar sticky top-[112px] md:top-[136px] h-[calc(100vh-112px)] md:h-[calc(100vh-136px)] pb-32">
                     {subCategories.map((cat) => (
                         <button
                             key={cat.id}
@@ -187,6 +188,7 @@ const CategoryProductsPage = () => {
 
             <MiniCart />
             <ProductDetailSheet />
+            </div>
 
             <style dangerouslySetInnerHTML={{
                 __html: `

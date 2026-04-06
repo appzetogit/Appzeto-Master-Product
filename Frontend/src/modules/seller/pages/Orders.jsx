@@ -100,6 +100,7 @@ const Orders = () => {
                     image: item.image
                 })),
                 total: order.pricing?.total || 0,
+                orderType: String(order.orderType || "quick").toLowerCase(),
                 status: getLegacyStatusFromOrder(order),
                 workflowStatus: order.workflowStatus,
                 workflowVersion: order.workflowVersion,
@@ -522,6 +523,14 @@ const Orders = () => {
                                             <div className="flex items-start justify-between gap-3">
                                                 <div className="min-w-0 flex-1" onClick={() => handleViewDetails(order)}>
                                                     <p className="text-xs font-black text-slate-900 truncate">#{order.id}</p>
+                                                    <div className="mt-1">
+                                                        <Badge
+                                                            variant={order.orderType === "mixed" ? "secondary" : "primary"}
+                                                            className="text-[10px] px-2 py-0 font-black uppercase tracking-wider"
+                                                        >
+                                                            {order.orderType}
+                                                        </Badge>
+                                                    </div>
                                                     <p className="text-xs font-semibold text-slate-600 mt-0.5 flex items-center gap-1">
                                                         <HiOutlineCalendarDays className="h-3 w-3 shrink-0" />
                                                         {order.date} • {order.time}
@@ -616,6 +625,14 @@ const Orders = () => {
                                                             <span className="text-xs font-bold text-slate-900 group-hover:text-primary transition-colors cursor-pointer" onClick={() => handleViewDetails(order)}>
                                                                 #{order.id}
                                                             </span>
+                                                            <div className="mt-1">
+                                                                <Badge
+                                                                    variant={order.orderType === "mixed" ? "secondary" : "primary"}
+                                                                    className="text-[10px] px-2 py-0 font-black uppercase tracking-wider"
+                                                                >
+                                                                    {order.orderType}
+                                                                </Badge>
+                                                            </div>
                                                             <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-600 mt-1">
                                                                 <HiOutlineCalendarDays className="h-3 w-3" />
                                                                 {order.date} • {order.time}

@@ -18,6 +18,7 @@ import { useLocationSelector } from "@food/components/user/UserLayout"
 import { orderAPI, restaurantAPI, adminAPI, userAPI, API_ENDPOINTS } from "@food/api"
 import { API_BASE_URL } from "@food/api/config"
 import { initRazorpayPayment } from "@food/utils/razorpay"
+import { sanitizeOrderImage, sanitizeOrderNotes } from "@food/utils/orderPayload"
 import { toast } from "sonner"
 import { getCompanyNameAsync } from "@food/utils/businessSettings"
 import { useCompanyName } from "@food/hooks/useCompanyName"
@@ -99,10 +100,9 @@ const mapOrderItem = (item) => ({
   variantName: item.variantName || undefined,
   variantPrice: item.variantPrice || item.price,
   quantity: item.quantity || 1,
-  image: item.image || "",
-  description: item.description || "",
+  image: sanitizeOrderImage(item.image || item.imageUrl || ""),
   isVeg: item.isVeg !== false,
-  notes: item.notes || "",
+  notes: sanitizeOrderNotes(item.notes || ""),
   preparationTime: item.preparationTime,
 })
 

@@ -20,6 +20,7 @@ import {
 import { FoodTransaction } from '../models/foodTransaction.model.js';
 import { FoodSupportTicket } from '../../user/models/supportTicket.model.js';
 import { Seller } from '../../../quick-commerce/seller/models/seller.model.js';
+import { SellerOrder } from '../../../quick-commerce/seller/models/sellerOrder.model.js';
 import {
     createRazorpayOrder,
     createPaymentLink,
@@ -537,6 +538,166 @@ async function notifyRestaurantNewOrder(orderDoc) {
     );
   } catch {
     // Do not block order/payment flow if notification fails.
+  }
+}
+
+function buildSellerOrderAddress(deliveryAddress) {
+  if (!deliveryAddress) return { address: "", city: "" };
+  const coords = deliveryAddress?.location?.coordinates;
+  return {
+    address: deliveryAddress.street || "",
+    city: deliveryAddress.city || "",
+    ...(Array.isArray(coords) && coords.length === 2
+      ? {
+          location: {
+            lat: Number(coords[1]),
+            lng: Number(coords[0]),
+          },
+        }
+      : {}),
+  };
+}
+
+function buildSellerOrdersFromParent(orderDoc, { customerName = "", customerPhone = "" } = {}) {
+  const order = orderDoc?.toObject ? orderDoc.toObject() : orderDoc || {};
+  const quickItems = Array.isArray(order.items)
+    ? order.items.filter((item) => item?.type === "quick")
+    : [];
+  if (!quickItems.length) return [];
+
+  const quickSubtotal = quickItems.reduce(
+    (sum, item) => sum + Number(item?.price || 0) * Number(item?.quantity || 0),
+    0,
+  );
+  const totalDeliveryFee = Number(order?.pricing?.deliveryFee || 0);
+  const sellerBuckets = new Map();
+
+  for (const item of quickItems) {
+    const sellerId = String(item?.sourceId || "").trim();
+    if (!sellerId || !mongoose.isValidObjectId(sellerId)) continue;
+    if (!sellerBuckets.has(sellerId)) sellerBuckets.set(sellerId, []);
+    sellerBuckets.get(sellerId).push(item);
+  }
+
+  return Array.from(sellerBuckets.entries()).map(([sellerId, sellerItems]) => {
+    const sellerSubtotal = sellerItems.reduce(
+      (sum, item) => sum + Number(item?.price || 0) * Number(item?.quantity || 0),
+      0,
+    );
+    const allocatedDeliveryFee =
+      quickSubtotal > 0
+        ? Number(((totalDeliveryFee * sellerSubtotal) / quickSubtotal).toFixed(2))
+        : 0;
+
+    return {
+      orderType: order.orderType === "mixed" ? "mixed" : "quick",
+      parentOrderId: order._id || null,
+      sellerId: new mongoose.Types.ObjectId(sellerId),
+      orderId: order.orderId,
+      customer: {
+        name:
+          String(customerName || order?.userId?.name || "").trim() || "Customer",
+        phone:
+          String(customerPhone || order?.deliveryAddress?.phone || "").trim() || "",
+      },
+      items: sellerItems.map((item) => ({
+        productId: mongoose.isValidObjectId(String(item?.itemId || ""))
+          ? new mongoose.Types.ObjectId(String(item.itemId))
+          : null,
+        name: item?.name || "Item",
+        price: Number(item?.price || 0),
+        quantity: Math.max(1, Number(item?.quantity || 1)),
+        image: item?.image || "",
+      })),
+      pricing: {
+        subtotal: sellerSubtotal,
+        total: sellerSubtotal + allocatedDeliveryFee,
+      },
+      status: "pending",
+      workflowStatus: "SELLER_PENDING",
+      sellerPendingExpiresAt: new Date(Date.now() + 2 * 60 * 1000),
+      address: buildSellerOrderAddress(order.deliveryAddress),
+      payment: {
+        method: ["cash", "cod"].includes(String(order?.payment?.method || "").toLowerCase())
+          ? "cash"
+          : "online",
+      },
+    };
+  });
+}
+
+async function upsertSellerOrdersForParent(orderDoc, options = {}) {
+  const sellerOrders = buildSellerOrdersFromParent(orderDoc, options);
+  if (!sellerOrders.length) return [];
+
+  return Promise.all(
+    sellerOrders.map((sellerOrder) =>
+      SellerOrder.findOneAndUpdate(
+        {
+          sellerId: sellerOrder.sellerId,
+          orderId: sellerOrder.orderId,
+        },
+        { $set: sellerOrder },
+        {
+          upsert: true,
+          new: true,
+          setDefaultsOnInsert: true,
+        },
+      ).lean(),
+    ),
+  );
+}
+
+async function notifySellerNewOrders(orderDoc, sellerOrders = []) {
+  try {
+    if (!orderDoc || !canExposeOrderToRestaurant(orderDoc) || !sellerOrders.length) return;
+
+    const io = getIO();
+    for (const sellerOrder of sellerOrders) {
+      if (!sellerOrder?.sellerId) continue;
+      const payload = {
+        orderId: sellerOrder.orderId,
+        sellerOrderId: sellerOrder._id?.toString?.() || "",
+        orderType: sellerOrder.orderType || "quick",
+        status: sellerOrder.status,
+        workflowStatus: sellerOrder.workflowStatus,
+        items: sellerOrder.items || [],
+        pricing: sellerOrder.pricing || {},
+        createdAt: sellerOrder.createdAt || new Date(),
+      };
+
+      if (io) {
+        io.to(rooms.seller(sellerOrder.sellerId)).emit("new_order", payload);
+        io.to(rooms.seller(sellerOrder.sellerId)).emit("order:new", payload);
+        io.to(rooms.seller(sellerOrder.sellerId)).emit("play_notification_sound", {
+          orderId: sellerOrder.orderId,
+          sellerOrderId: sellerOrder._id?.toString?.() || "",
+        });
+      }
+
+      await notifyOwnerSafely(
+        { ownerType: "SELLER", ownerId: sellerOrder.sellerId },
+        {
+          title:
+            sellerOrder.orderType === "mixed"
+              ? "New mixed order received"
+              : "New quick order received",
+          body:
+            sellerOrder.orderType === "mixed"
+              ? `Order ${sellerOrder.orderId} includes a mixed-order seller leg waiting for action.`
+              : `Order ${sellerOrder.orderId} is waiting for seller action.`,
+          data: {
+            type: "new_seller_order",
+            orderId: sellerOrder.orderId,
+            sellerOrderId: sellerOrder._id?.toString?.() || "",
+            orderType: sellerOrder.orderType || "quick",
+            link: `/seller/orders`,
+          },
+        },
+      );
+    }
+  } catch (error) {
+    logger.warn(`Seller order notify failed: ${error?.message || error}`);
   }
 }
 
@@ -1197,6 +1358,12 @@ export async function createOrder(userId, dto) {
   await order.save();
 
   await foodTransactionService.createInitialTransaction(order);
+  const sellerOrders = hasQuickItems
+    ? await upsertSellerOrdersForParent(order, {
+        customerName: dto.customerName,
+        customerPhone: dto.customerPhone || dto.address?.phone,
+      })
+    : [];
 
   if (paymentMethod === "razorpay" && order.payment?.razorpay?.orderId) {
     // Audit can still happen here or via FinanceService events
@@ -1241,6 +1408,9 @@ export async function createOrder(userId, dto) {
     // Restaurant gets new-order request only when payment flow is eligible.
     if (hasFoodItems) {
       await notifyRestaurantNewOrder(order);
+    }
+    if (hasQuickItems) {
+      await notifySellerNewOrders(order, sellerOrders);
     }
   } catch {
     // Don't block order placement on socket failures.
@@ -1323,6 +1493,10 @@ export async function verifyPayment(userId, dto) {
   // After online payment is verified, now notify restaurant about the new order.
   if (order.orderType === "food" || order.orderType === "mixed") {
     await notifyRestaurantNewOrder(order);
+  }
+  if (order.orderType === "quick" || order.orderType === "mixed") {
+    const sellerOrders = await upsertSellerOrdersForParent(order);
+    await notifySellerNewOrders(order, sellerOrders);
   }
 
   // Notify Customer about payment success

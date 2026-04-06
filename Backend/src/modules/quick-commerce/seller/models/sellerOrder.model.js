@@ -2,6 +2,18 @@ import mongoose from "mongoose";
 
 const sellerOrderSchema = new mongoose.Schema(
   {
+    orderType: {
+      type: String,
+      enum: ["quick", "mixed"],
+      default: "quick",
+      index: true,
+    },
+    parentOrderId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "FoodOrder",
+      default: null,
+      index: true,
+    },
     sellerId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Seller",
@@ -87,6 +99,7 @@ const sellerOrderSchema = new mongoose.Schema(
 );
 
 sellerOrderSchema.index({ sellerId: 1, createdAt: -1 });
+sellerOrderSchema.index({ sellerId: 1, orderType: 1, createdAt: -1 });
 sellerOrderSchema.index({ sellerId: 1, orderId: 1 }, { unique: true });
 
 export const SellerOrder = mongoose.model("SellerOrder", sellerOrderSchema);

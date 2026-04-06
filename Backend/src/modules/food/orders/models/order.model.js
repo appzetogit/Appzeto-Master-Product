@@ -199,7 +199,7 @@ const deliveryStateSchema = new mongoose.Schema(
 const statusHistorySchema = new mongoose.Schema(
     {
         at: { type: Date, default: Date.now },
-        byRole: { type: String, enum: ['USER', 'RESTAURANT', 'DELIVERY_PARTNER', 'ADMIN', 'SYSTEM'] },
+        byRole: { type: String, enum: ['USER', 'RESTAURANT', 'SELLER', 'DELIVERY_PARTNER', 'ADMIN', 'SYSTEM'] },
         byId: { type: mongoose.Schema.Types.ObjectId },
         from: { type: String },
         to: { type: String },

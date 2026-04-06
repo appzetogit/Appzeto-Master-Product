@@ -73,6 +73,126 @@ const getOrderAddressPoint = (order) => {
   return { lat, lng };
 };
 
+const buildSellerAddressFromParentOrder = (order) => {
+  const coords = order?.deliveryAddress?.location?.coordinates;
+  return {
+    address: String(order?.deliveryAddress?.street || "").trim(),
+    city: String(order?.deliveryAddress?.city || "").trim(),
+    ...(Array.isArray(coords) && coords.length === 2
+      ? {
+          location: {
+            lat: Number(coords[1]),
+            lng: Number(coords[0]),
+          },
+        }
+      : {}),
+  };
+};
+
+const buildSellerOrderFromParentOrder = (order, sellerId) => {
+  const sellerKey = String(sellerId || "").trim();
+  if (!sellerKey) return null;
+
+  const quickItems = Array.isArray(order?.items)
+    ? order.items.filter(
+        (item) =>
+          item?.type === "quick" && String(item?.sourceId || "").trim() === sellerKey,
+      )
+    : [];
+  if (!quickItems.length) return null;
+
+  const quickSubtotal = (Array.isArray(order?.items) ? order.items : [])
+    .filter((item) => item?.type === "quick")
+    .reduce(
+      (sum, item) => sum + Number(item?.price || 0) * Number(item?.quantity || 0),
+      0,
+    );
+  const sellerSubtotal = quickItems.reduce(
+    (sum, item) => sum + Number(item?.price || 0) * Number(item?.quantity || 0),
+    0,
+  );
+  const allocatedDeliveryFee =
+    quickSubtotal > 0
+      ? Number(
+          (
+            (Number(order?.pricing?.deliveryFee || 0) * sellerSubtotal) /
+            quickSubtotal
+          ).toFixed(2),
+        )
+      : 0;
+
+  return {
+    orderType: order?.orderType === "mixed" ? "mixed" : "quick",
+    parentOrderId: order?._id || null,
+    sellerId,
+    orderId: order?.orderId,
+    customer: {
+      name: "Customer",
+      phone: String(order?.deliveryAddress?.phone || "").trim(),
+    },
+    items: quickItems.map((item) => ({
+      productId: mongoose.isValidObjectId(String(item?.itemId || ""))
+        ? new mongoose.Types.ObjectId(String(item.itemId))
+        : null,
+      name: item?.name || "Item",
+      price: Number(item?.price || 0),
+      quantity: Math.max(1, Number(item?.quantity || 1)),
+      image: item?.image || "",
+    })),
+    pricing: {
+      subtotal: sellerSubtotal,
+      total: sellerSubtotal + allocatedDeliveryFee,
+    },
+    status: "pending",
+    workflowStatus: "SELLER_PENDING",
+    sellerPendingExpiresAt: new Date(Date.now() + 2 * 60 * 1000),
+    address: buildSellerAddressFromParentOrder(order),
+    payment: {
+      method: ["cash", "cod"].includes(String(order?.payment?.method || "").toLowerCase())
+        ? "cash"
+        : "online",
+    },
+  };
+};
+
+const backfillSellerOrdersForMixedParentOrders = async (sellerId) => {
+  const sellerKey = String(sellerId || "").trim();
+  if (!sellerKey) return;
+
+  const [existingSellerOrders, mixedOrders] = await Promise.all([
+    SellerOrder.find({ sellerId }).select("orderId").lean(),
+    QuickOrder.find({
+      orderType: "mixed",
+      items: { $elemMatch: { type: "quick", sourceId: sellerKey } },
+    })
+      .select("orderId orderType items pricing deliveryAddress payment")
+      .sort({ createdAt: -1 })
+      .limit(200)
+      .lean(),
+  ]);
+
+  const existingOrderIds = new Set(
+    existingSellerOrders.map((item) => String(item.orderId || "").trim()).filter(Boolean),
+  );
+
+  const missingDocs = mixedOrders
+    .filter((order) => !existingOrderIds.has(String(order.orderId || "").trim()))
+    .map((order) => buildSellerOrderFromParentOrder(order, sellerId))
+    .filter(Boolean);
+
+  if (!missingDocs.length) return;
+
+  await Promise.all(
+    missingDocs.map((doc) =>
+      SellerOrder.findOneAndUpdate(
+        { sellerId: doc.sellerId, orderId: doc.orderId },
+        { $set: doc },
+        { upsert: true, new: true, setDefaultsOnInsert: true },
+      ),
+    ),
+  );
+};
+
 const listNearbyOnlineDeliveryPartnersByCoords = async (
   origin,
   { maxKm = 15, limit = 10 } = {},
@@ -1096,6 +1216,7 @@ export const markAllSellerNotificationsReadController = async (req, res) => {
 export const getSellerOrdersController = async (req, res) => {
   try {
     const sellerId = sellerScope(req);
+    await backfillSellerOrdersForMixedParentOrders(sellerId);
     const page = Math.max(1, num(req.query?.page, 1));
     const limit = Math.max(1, Math.min(100, num(req.query?.limit, 50)));
     const skip = (page - 1) * limit;
@@ -1122,10 +1243,10 @@ export const getSellerOrdersController = async (req, res) => {
 
     const quickOrders = orderIds.length
       ? await QuickOrder.find({
-        orderType: "quick",
+        orderType: { $in: ["quick", "mixed"] },
         orderId: { $in: orderIds },
       })
-        .select("orderId dispatch")
+        .select("orderId dispatch orderType orderStatus")
         .lean()
       : [];
 
@@ -1155,6 +1276,7 @@ export const getSellerOrdersController = async (req, res) => {
 
       return {
         ...item,
+        orderType: item.orderType || quickOrder?.orderType || "quick",
         dispatchStatus: quickOrder?.dispatch?.status || "unassigned",
         deliveryPartner: acceptedPartner
           ? {
@@ -1228,24 +1350,52 @@ export const updateSellerOrderStatusController = async (req, res) => {
                 ? "delivered"
                 : "placed";
 
-    await QuickOrder.updateOne(
-      { orderId: order.orderId, orderType: "quick" },
-      {
-        $set: {
-          orderStatus: customerStatus,
-          workflowStatus: order.workflowStatus,
-        },
-        $push: {
-          statusHistory: {
-            byRole: "RESTAURANT",
-            byId: sellerId,
-            from: previousSellerStatus,
-            to: customerStatus,
-            note: `Seller updated quick order to ${nextStatus}`,
+    const parentOrder = await QuickOrder.findOne({
+      orderId: order.orderId,
+      orderType: { $in: ["quick", "mixed"] },
+    })
+      .select("_id orderId orderType orderStatus")
+      .lean();
+
+    if (!parentOrder?._id) {
+      return sendError(res, 404, "Parent order not found");
+    }
+
+    if (parentOrder?.orderType === "mixed") {
+      await QuickOrder.updateOne(
+        { _id: parentOrder._id },
+        {
+          $push: {
+            statusHistory: {
+              byRole: "SELLER",
+              byId: sellerId,
+              from: previousSellerStatus,
+              to: nextStatus,
+              note: `Seller updated mixed-order leg to ${nextStatus}`,
+            },
           },
         },
-      },
-    );
+      );
+    } else {
+      await QuickOrder.updateOne(
+        { _id: parentOrder._id },
+        {
+          $set: {
+            orderStatus: customerStatus,
+            workflowStatus: order.workflowStatus,
+          },
+          $push: {
+            statusHistory: {
+              byRole: "SELLER",
+              byId: sellerId,
+              from: previousSellerStatus,
+              to: customerStatus,
+              note: `Seller updated quick order to ${nextStatus}`,
+            },
+          },
+        },
+      );
+    }
 
     try {
       const io = getIO();
@@ -1253,9 +1403,13 @@ export const updateSellerOrderStatusController = async (req, res) => {
         const payload = {
           orderId: order.orderId,
           sellerOrderId: order._id?.toString?.() || "",
-          orderStatus: customerStatus,
+          orderStatus:
+            parentOrder?.orderType === "mixed"
+              ? parentOrder?.orderStatus || "created"
+              : customerStatus,
           workflowStatus: order.workflowStatus,
           sellerStatus: nextStatus,
+          orderType: parentOrder?.orderType || order.orderType || "quick",
           message: `Seller updated order to ${STATUS_LABELS[nextStatus]}.`,
         };
 
@@ -1289,12 +1443,12 @@ export const resendSellerOrderDispatchController = async (req, res) => {
     }
 
     const quickOrder = await QuickOrder.findOne({
-      orderType: "quick",
+      orderType: { $in: ["quick", "mixed"] },
       orderId: sellerOrder.orderId,
     }).populate("userId");
 
     if (!quickOrder) {
-      return sendError(res, 404, "Quick order not found");
+      return sendError(res, 404, "Parent order not found");
     }
 
     if (["delivered", "cancelled_by_user", "cancelled_by_restaurant", "cancelled_by_admin"].includes(String(quickOrder.orderStatus || "").toLowerCase())) {

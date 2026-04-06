@@ -560,7 +560,7 @@ export const removeProduct = async (req, res) => {
 
 export const getAdminOrders = async (req, res) => {
   const { status, page = 1, limit = 50 } = req.query || {};
-  const query = { orderType: 'quick' };
+  const query = { orderType: { $in: ['quick', 'mixed'] } };
   if (status && status !== 'all') query.orderStatus = status;
 
   const currentPage = Math.max(1, parseInt(page, 10) || 1);
@@ -580,10 +580,15 @@ export const getAdminOrders = async (req, res) => {
       items: orders.map((order) => ({
         id: order._id,
         _id: order._id,
+        orderId: order.orderId,
         orderNumber: order.orderId,
+        orderType: order.orderType || 'quick',
         total: order.pricing?.total || 0,
         status: order.orderStatus,
         itemCount: order.items.reduce((sum, item) => sum + item.quantity, 0),
+        items: order.items || [],
+        pricing: order.pricing || {},
+        payment: order.payment || {},
         sessionId: order.sessionId,
         createdAt: order.createdAt,
       })),
@@ -602,7 +607,7 @@ export const deleteAdminOrder = async (req, res) => {
   }
 
   const orderQuery = {
-    orderType: 'quick',
+    orderType: { $in: ['quick', 'mixed'] },
     $or: [
       { orderId: rawOrderId },
       ...(mongoose.isValidObjectId(rawOrderId) ? [{ _id: rawOrderId }] : []),

@@ -17,6 +17,30 @@ const getOnboardingStorageKey = () => {
 }
 const ONBOARDING_STORAGE_KEY = getOnboardingStorageKey()
 
+const hasUsableLocation = (location) => {
+  if (!location || typeof location !== "object") return false
+
+  const hasAddressText =
+    Boolean(String(location.formattedAddress || "").trim()) ||
+    Boolean(String(location.address || "").trim()) ||
+    Boolean(String(location.addressLine1 || "").trim()) ||
+    Boolean(String(location.area || "").trim()) ||
+    Boolean(String(location.city || "").trim())
+
+  const coordinates = Array.isArray(location.coordinates)
+    ? location.coordinates
+    : null
+  const hasCoordinates =
+    coordinates?.length >= 2 &&
+    coordinates.every((value) => Number.isFinite(Number(value)))
+
+  const hasLatLng =
+    Number.isFinite(Number(location.latitude)) &&
+    Number.isFinite(Number(location.longitude))
+
+  return hasAddressText || hasCoordinates || hasLatLng
+}
+
 // Helper function to check if a step is complete
 const isStepComplete = (stepData, stepNumber) => {
   if (!stepData) return false
@@ -29,8 +53,7 @@ const isStepComplete = (stepData, stepNumber) => {
       stepData.ownerEmail &&
       stepData.ownerPhone &&
       stepData.primaryContactNumber &&
-      stepData.location?.area &&
-      stepData.location?.city
+      hasUsableLocation(stepData.location)
     )
   }
 

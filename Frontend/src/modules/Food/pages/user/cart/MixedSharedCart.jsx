@@ -9,6 +9,7 @@ import { useProfile } from "@food/context/ProfileContext";
 import { orderAPI } from "@food/api";
 import { initRazorpayPayment } from "@food/utils/razorpay";
 import { useCompanyName } from "@food/hooks/useCompanyName";
+import { sanitizeOrderImage, sanitizeOrderNotes } from "@food/utils/orderPayload";
 
 const RUPEE_SYMBOL = "\u20B9";
 
@@ -52,9 +53,9 @@ const mapCartItemsToPayload = (cart) =>
       variantId: item.variantId || undefined,
       variantName: item.variantName || undefined,
       variantPrice: item.variantPrice || item.price || 0,
-      image: item.image || item.imageUrl || "",
+      image: sanitizeOrderImage(item.image || item.imageUrl || ""),
       isVeg: item.isVeg ?? true,
-      notes: item.notes || "",
+      notes: sanitizeOrderNotes(item.notes || ""),
     };
   });
 

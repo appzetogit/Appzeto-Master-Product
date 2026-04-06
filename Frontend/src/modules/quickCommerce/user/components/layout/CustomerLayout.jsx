@@ -19,15 +19,25 @@ const CustomerLayout = ({ children, showHeader: showHeaderProp, fullHeight = fal
     const hideHeaderRoutes = ['/', '/categories', '/orders', '/transactions', '/profile', '/profile/edit', '/wishlist', '/addresses', '/wallet', '/support', '/privacy', '/about', '/terms', '/checkout', '/search', '/chat', '/product', '/cart'];
     const hideBottomNavRoutes = ['/cart', '/checkout', '/search', '/chat'];
     const hideCartRoutes = ['/cart', '/checkout', '/search', '/chat'];
+    const matchesRoutePrefix = (routePrefix) =>
+        path === routePrefix || path.startsWith(`${routePrefix}/`);
 
     // If props are passed, use them. Otherwise, use route-based logic.
-    const showHeader = showHeaderProp !== undefined ? showHeaderProp : (!hideHeaderRoutes.includes(path) && !path.startsWith('/category') && !path.startsWith('/orders') && !path.startsWith('/product') && !path.startsWith('/cart'));
+    const showHeader = showHeaderProp !== undefined
+        ? showHeaderProp
+        : (
+            !hideHeaderRoutes.includes(path) &&
+            !matchesRoutePrefix('/category') &&
+            !matchesRoutePrefix('/orders') &&
+            !matchesRoutePrefix('/product') &&
+            !matchesRoutePrefix('/cart')
+        );
     const showBottomNav = showBottomNavProp !== undefined ? showBottomNavProp : !hideBottomNavRoutes.includes(path);
-    const showCart = showCartProp !== undefined ? showCartProp : (!hideCartRoutes.includes(path) && !path.startsWith('/orders'));
+    const showCart = showCartProp !== undefined ? showCartProp : (!hideCartRoutes.includes(path) && !matchesRoutePrefix('/orders'));
 
     // Condition to hide the MobileFooterMessage ("India's last minute app") on specific pages
     const hideFooterMessageRoutes = ['/profile', '/profile/edit'];
-    const showFooterMessage = showBottomNav && !hideFooterMessageRoutes.includes(path) && !path.startsWith('/category');
+    const showFooterMessage = showBottomNav && !hideFooterMessageRoutes.includes(path) && !matchesRoutePrefix('/category');
 
     // Hide elements on mobile only when product detail is open
     // On desktop, we want to keep the header visible even if the modal is open

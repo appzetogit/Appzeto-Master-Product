@@ -79,7 +79,7 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
   // Track URL changes (Prop changes) to update sub-page content
   useEffect(() => {
     setCurrentTab(tab);
-  }, [tab]);
+}, [tab]);
 
   const [showVerification, setShowVerification] = useState(false);
   const [showEmergencyPopup, setShowEmergencyPopup] = useState(false);

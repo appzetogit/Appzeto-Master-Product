@@ -56,6 +56,7 @@ const OrdersList = () => {
                 const formatted = dbOrders.map(o => ({
                     id: String(o.orderId || o._id || ''),
                     _id: o._id,
+                    orderType: String(o.orderType || 'quick').toLowerCase(),
                     customer: String(o.customer?.name || 'Unknown'),
                     seller: String(o.seller?.shopName || o.storeName || 'Unknown'),
                     items: o.items?.length || 0,
@@ -306,6 +307,17 @@ const OrdersList = () => {
                                                     <ArrowUpRight className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-all text-slate-400" />
                                                 </h4>
                                                 <div className="flex items-center gap-2 mt-1">
+                                                    <Badge
+                                                        variant={order.orderType === 'mixed' ? 'secondary' : 'outline'}
+                                                        className={cn(
+                                                            "text-[9px] font-bold py-0.5 uppercase",
+                                                            order.orderType === 'mixed'
+                                                                ? "bg-blue-50 text-blue-700 border-blue-200"
+                                                                : "border-slate-200 text-slate-400"
+                                                        )}
+                                                    >
+                                                        {order.orderType}
+                                                    </Badge>
                                                     <Badge variant="outline" className="text-[9px] font-bold border-slate-200 text-slate-400 py-0.5">
                                                         {order.items} {order.items > 1 ? 'Items' : 'Item'}
                                                     </Badge>

@@ -5,7 +5,7 @@ import { MapPin, Search, Save, Loader2, ArrowLeft } from "lucide-react"
 import RestaurantNavbar from "@food/components/restaurant/RestaurantNavbar"
 import { restaurantAPI } from "@food/api"
 import { getGoogleMapsApiKey } from "@food/utils/googleMapsApiKey"
-import { Loader } from "@googlemaps/js-api-loader"
+import { loadGoogleMaps as loadGoogleMapsSdk } from "@core/services/googleMapsLoader"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -165,16 +165,6 @@ export default function ZoneSetup() {
       }
       
       setGoogleMapsApiKey(apiKey)
-      
-      // Wait for Google Maps to be loaded from main.jsx if it's loading
-      let retries = 0
-      const maxRetries = 100 // Wait up to 10 seconds
-      
-      debugLog("?? Waiting for Google Maps to load from main.jsx...")
-      while (!window.google && retries < maxRetries) {
-        await new Promise(resolve => setTimeout(resolve, 100))
-        retries++
-      }
 
       // Wait for mapRef to be available (retry mechanism)
       let refRetries = 0
@@ -191,30 +181,14 @@ export default function ZoneSetup() {
         return
       }
 
-      // If Google Maps is already loaded, use it directly
-      if (window.google && window.google.maps) {
-        debugLog("? Google Maps already loaded from main.jsx, initializing map...")
-        initializeMap(window.google)
-        return
+      debugLog("?? Loading Google Maps SDK...")
+      const maps = await loadGoogleMapsSdk(apiKey)
+      if (!maps || !window.google?.maps) {
+        throw new Error("Google Maps SDK did not finish loading")
       }
 
-      // If Google Maps is not loaded yet and we have an API key, use Loader as fallback
-      if (apiKey) {
-        debugLog("?? Google Maps not loaded from main.jsx, loading with Loader...")
-        const loader = new Loader({
-          apiKey: apiKey,
-          version: "weekly",
-          libraries: ["places"]
-        })
-
-        const google = await loader.load()
-        debugLog("? Google Maps loaded via Loader, initializing map...")
-        initializeMap(google)
-      } else {
-        debugError("? No API key available")
-        setMapLoading(false)
-        alert("Google Maps API key not found. Please contact administrator.")
-      }
+      debugLog("? Google Maps loaded, initializing map...")
+      initializeMap(window.google)
     } catch (error) {
       debugError("? Error loading Google Maps:", error)
       setMapLoading(false)
