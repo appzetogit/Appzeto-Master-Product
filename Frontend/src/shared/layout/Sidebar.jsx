@@ -343,7 +343,7 @@ const Sidebar = ({ items, title, isOpen, onClose }) => {
     <>
       {/* Desktop Sidebar */}
       <aside className={cn(
-        "fixed left-0 inset-y-0 w-56 bg-[#0a0c10] text-gray-400 border-r border-white/5 shadow-[20px_0_60px_rgba(0,0,0,0.4)] md:flex flex-col z-50 transition-all duration-300",
+        "fixed left-0 inset-y-0 w-80 bg-[#0a0c10] text-gray-400 border-r border-white/5 shadow-[20px_0_60px_rgba(0,0,0,0.4)] md:flex flex-col z-50 transition-all duration-300",
         (role === "admin" || role === "seller") ? "hidden md:flex" : "flex",
       )}>
         <SidebarContent {...commonProps} />
@@ -363,7 +363,7 @@ const Sidebar = ({ items, title, isOpen, onClose }) => {
             />
 
             {/* Outer Container (Fixed Shell - NO TRANSFORM) */}
-            <div className="absolute left-0 inset-y-0 w-56 flex flex-col pointer-events-none">
+            <div className="absolute left-0 inset-y-0 w-80 flex flex-col pointer-events-none">
               {/* Inner Animation Wrapper (TRANSFORM APPLIED HERE) */}
               <motion.div
                 initial={{ x: "-100%" }}
