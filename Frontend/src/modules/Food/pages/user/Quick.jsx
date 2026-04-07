@@ -1,10 +1,10 @@
 import { useLayoutEffect } from "react";
 import QuickCommerceHomePage from "../../../quickCommerce/user/pages/Home";
-import { CartProvider as QuickCartProvider } from "../../../quickCommerce/user/context/CartContext";
 import { LocationProvider as QuickLocationProvider } from "../../../quickCommerce/user/context/LocationContext";
 import { ProductDetailProvider as QuickProductDetailProvider } from "../../../quickCommerce/user/context/ProductDetailContext";
 import { WishlistProvider as QuickWishlistProvider } from "../../../quickCommerce/user/context/WishlistContext";
 import { CartAnimationProvider as QuickCartAnimationProvider } from "../../../quickCommerce/user/context/CartAnimationContext";
+import { CartProvider as QuickCartProvider } from "../../../quickCommerce/user/context/CartContext";
 
 export default function Quick({ onThemeChange, embeddedHeaderColor }) {
   useLayoutEffect(() => {
@@ -51,8 +51,8 @@ export default function Quick({ onThemeChange, embeddedHeaderColor }) {
   return (
     <div className="min-h-screen bg-white">
       <QuickLocationProvider>
-        <QuickWishlistProvider>
-          <QuickCartProvider>
+        <QuickCartProvider>
+          <QuickWishlistProvider>
             <QuickCartAnimationProvider>
               <QuickProductDetailProvider>
                 <QuickCommerceHomePage
@@ -62,8 +62,8 @@ export default function Quick({ onThemeChange, embeddedHeaderColor }) {
                 />
               </QuickProductDetailProvider>
             </QuickCartAnimationProvider>
-          </QuickCartProvider>
-        </QuickWishlistProvider>
+          </QuickWishlistProvider>
+        </QuickCartProvider>
       </QuickLocationProvider>
     </div>
   );

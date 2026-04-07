@@ -174,9 +174,26 @@ const meInFlight = new Map(); // module -> Promise
 
 function hasAccessToken(module) {
   try {
-    return Boolean(localStorage.getItem(`${module}_accessToken`));
+    return Boolean(getAccessTokenForModule(module));
   } catch {
     return false;
+  }
+}
+
+function getAccessTokenForModule(module) {
+  try {
+    if (module === "user") {
+      return (
+        localStorage.getItem("user_accessToken") ||
+        localStorage.getItem("auth_customer") ||
+        localStorage.getItem("accessToken") ||
+        null
+      );
+    }
+
+    return localStorage.getItem(`${module}_accessToken`);
+  } catch {
+    return null;
   }
 }
 
@@ -186,15 +203,17 @@ const BACKOFF_MS = 10000; // 10s wait on 429
 
 function getMeOnce(module) {
   const now = Date.now();
+  const currentToken = getAccessTokenForModule(module);
+  const cacheKey = `${module}:${currentToken || "no-token"}`;
   
   // 1. Check Backoff (e.g. from previous 429)
-  const backoff = meBackoff.get(module);
+  const backoff = meBackoff.get(cacheKey);
   if (backoff && now < backoff) {
     return Promise.reject(new Error("Rate limited. Retrying too soon."));
   }
 
   // 2. Check Cache
-  const cached = meCache.get(module);
+  const cached = meCache.get(cacheKey);
   if (cached && now - cached.at < ME_CACHE_MS) {
     return Promise.resolve(cached.res);
   }
@@ -205,26 +224,26 @@ function getMeOnce(module) {
   }
 
   // 4. Return In-Flight Promise
-  const existing = meInFlight.get(module);
+  const existing = meInFlight.get(cacheKey);
   if (existing) return existing;
 
   const p = apiClient
     .get(AUTH.ME, { contextModule: module })
     .then((res) => {
-      meCache.set(module, { at: Date.now(), res });
+      meCache.set(cacheKey, { at: Date.now(), res });
       return res;
     })
     .catch((err) => {
       if (err?.response?.status === 429) {
-        meBackoff.set(module, Date.now() + BACKOFF_MS);
+        meBackoff.set(cacheKey, Date.now() + BACKOFF_MS);
       }
       throw err;
     })
     .finally(() => {
-      meInFlight.delete(module);
+      meInFlight.delete(cacheKey);
     });
 
-  meInFlight.set(module, p);
+  meInFlight.set(cacheKey, p);
   return p;
 }
 

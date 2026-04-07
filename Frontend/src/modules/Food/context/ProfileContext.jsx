@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useMemo, useCallback } from "react"
 import { authAPI, userAPI } from "@food/api"
+import { clearUserSession } from "@food/utils/auth"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -39,7 +40,15 @@ export function ProfileProvider({ children }) {
   const syncAddressesToStorage = (nextAddresses) => {
     localStorage.setItem("userAddresses", JSON.stringify(nextAddresses))
   }
+  const getUserSessionToken = () =>
+    localStorage.getItem("user_accessToken") ||
+    localStorage.getItem("auth_customer") ||
+    localStorage.getItem("accessToken") ||
+    null
+  const hasUserSession = Boolean(getUserSessionToken())
+
   const [userProfile, setUserProfile] = useState(() => {
+    if (!hasUserSession) return null
     const userStr = localStorage.getItem("user_user")
     if (userStr) {
       try {
@@ -64,32 +73,34 @@ export function ProfileProvider({ children }) {
   const [addresses, setAddresses] = useState([])
 
   const [paymentMethods, setPaymentMethods] = useState(() => {
+    if (!hasUserSession) return []
     const saved = localStorage.getItem("userPaymentMethods")
     return saved ? JSON.parse(saved) : []
   })
 
   const [favorites, setFavorites] = useState(() => {
+    if (!hasUserSession) return []
     const saved = localStorage.getItem("userFavorites")
     return saved ? JSON.parse(saved) : []
   })
 
   // Dish favorites state - stored in localStorage for persistence
   const [dishFavorites, setDishFavorites] = useState(() => {
+    if (!hasUserSession) return []
     const saved = localStorage.getItem("userDishFavorites")
     return saved ? JSON.parse(saved) : []
   })
 
   // VegMode state - stored in localStorage for persistence
   const [vegMode, setVegMode] = useState(() => {
+    if (!hasUserSession) return false
     const saved = localStorage.getItem("userVegMode")
     // Default to false (OFF) if not set
     return saved !== null ? saved === "true" : false
   })
 
   // Helper to check if authenticated
-  const isAuthenticated = useMemo(() => {
-    return localStorage.getItem("user_authenticated") === "true" || !!localStorage.getItem("user_accessToken")
-  }, [userProfile])
+  const isAuthenticated = Boolean(getUserSessionToken())
 
   // Save to localStorage whenever userProfile, addresses or paymentMethods change
   useEffect(() => {
@@ -132,8 +143,7 @@ export function ProfileProvider({ children }) {
   useEffect(() => {
     const fetchUserProfile = async () => {
       // Check if user is authenticated
-      const isAuthenticated = localStorage.getItem("user_authenticated") === "true" || 
-                             localStorage.getItem("user_accessToken")
+      const isAuthenticated = Boolean(getUserSessionToken())
       
       if (!isAuthenticated) {
         setUserProfile(null)
@@ -142,6 +152,7 @@ export function ProfileProvider({ children }) {
         setFavorites([])
         setDishFavorites([])
         setVegMode(false)
+        clearUserSession()
         USER_SESSION_PREFERENCE_KEYS.forEach((key) => {
           localStorage.removeItem(key)
         })

@@ -11,7 +11,7 @@ import {
 import { getQuickCartPath, getQuickHomePath, getQuickSearchPath } from '../utils/routes';
 import { resolveQuickImageUrl } from '../utils/image';
 import logo from '../assets/Logo.png';
-import { useQuickCart } from '../context/QuickCartContext';
+import { useCart } from '../context/CartContext';
 
 // MUI Icons
 import AccessTimeIcon from "@mui/icons-material/AccessTime";
@@ -121,7 +121,7 @@ function CategoryNavColumn({
 
 export default function QuickHeader({ showSearch = true, activeCategory = null, categories = [], onCategorySelect, isEmbedded = false, isInline = false }) {
   const navigate = useNavigate();
-  const { cartCount } = useQuickCart();
+  const { cartCount } = useCart();
   const { scrollY } = useScroll();
   const pathname = typeof window !== "undefined" ? window.location.pathname : "";
 

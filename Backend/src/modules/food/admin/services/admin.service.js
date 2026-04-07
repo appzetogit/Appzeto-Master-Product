@@ -31,6 +31,9 @@ import { FoodRestaurantWithdrawal } from '../../restaurant/models/foodRestaurant
 import { FoodDeliveryWithdrawal } from '../../delivery/models/foodDeliveryWithdrawal.model.js';
 import { FoodDeliveryWallet } from '../../delivery/models/deliveryWallet.model.js';
 import { FoodDeliveryCashDeposit } from '../../delivery/models/foodDeliveryCashDeposit.model.js';
+import { initiateRazorpayRefund } from '../../orders/helpers/razorpay.helper.js';
+import { refundWalletBalance } from '../../user/services/userWallet.service.js';
+import * as foodTransactionService from '../../orders/services/foodTransaction.service.js';
 import {
     backfillLegacyCategoryWorkflow,
     categoryAllowsFoodType,
@@ -4803,5 +4806,148 @@ export async function getSidebarBadges() {
         console.error('Error fetching sidebar badges:', error);
         return {};
     }
+}
+
+const USER_CANCEL_FULL_REFUND_WINDOW_MS = 30 * 1000;
+const CANCELLED_ORDER_STATUSES_FOR_REFUND = ['cancelled_by_user', 'cancelled_by_restaurant', 'cancelled_by_admin'];
+
+function isOnlinePrepaidMethod(method) {
+    return ['razorpay', 'razorpay_qr'].includes(String(method || '').trim().toLowerCase());
+}
+
+function getUserCancellationElapsedMs(order) {
+    const createdAt = order?.createdAt ? new Date(order.createdAt) : null;
+    if (!createdAt || Number.isNaN(createdAt.getTime())) return null;
+
+    const history = Array.isArray(order?.statusHistory) ? [...order.statusHistory].reverse() : [];
+    const cancelledEntry = history.find((entry) => String(entry?.to || '') === 'cancelled_by_user');
+    const cancelledAtCandidate = cancelledEntry?.at || order?.updatedAt || null;
+    if (!cancelledAtCandidate) return null;
+
+    const cancelledAt = new Date(cancelledAtCandidate);
+    if (Number.isNaN(cancelledAt.getTime())) return null;
+    return cancelledAt.getTime() - createdAt.getTime();
+}
+
+export async function processRefund(orderId, refundAmount) {
+    if (!orderId || !mongoose.Types.ObjectId.isValid(String(orderId))) {
+        throw new ValidationError('Invalid order id');
+    }
+
+    const order = await FoodOrder.findById(orderId);
+    if (!order) {
+        throw new ValidationError('Order not found');
+    }
+
+    if (!CANCELLED_ORDER_STATUSES_FOR_REFUND.includes(String(order.orderStatus || ''))) {
+        throw new ValidationError('Only cancelled orders can be refunded');
+    }
+
+    if (order.payment?.refund?.status === 'processed' || order.payment?.status === 'refunded') {
+        throw new ValidationError('Refund already processed for this order');
+    }
+
+    const totalAmount = Number(order?.pricing?.total || 0);
+    if (!Number.isFinite(totalAmount) || totalAmount <= 0) {
+        throw new ValidationError('No refundable amount found for this order');
+    }
+
+    const normalizedAmount =
+        refundAmount === null || refundAmount === undefined || refundAmount === ''
+            ? totalAmount
+            : Number(refundAmount);
+
+    if (!Number.isFinite(normalizedAmount) || normalizedAmount <= 0) {
+        throw new ValidationError('Refund amount must be greater than 0');
+    }
+
+    if (normalizedAmount > totalAmount) {
+        throw new ValidationError(`Refund amount cannot exceed ₹${totalAmount.toFixed(2)}`);
+    }
+
+    const paymentMethod = String(order?.payment?.method || '').trim().toLowerCase();
+    const isWalletPayment = paymentMethod === 'wallet';
+    const isOnlinePayment = isOnlinePrepaidMethod(paymentMethod);
+
+    if (!isWalletPayment && !isOnlinePayment) {
+        throw new ValidationError('Refund is only available for prepaid orders');
+    }
+
+    const requestedPartial = Math.abs(normalizedAmount - totalAmount) > 0.009;
+    const userCancelledOnlineAfterWindow =
+        String(order.orderStatus) === 'cancelled_by_user' &&
+        isOnlinePayment &&
+        (() => {
+            const elapsedMs = getUserCancellationElapsedMs(order);
+            return elapsedMs !== null && elapsedMs > USER_CANCEL_FULL_REFUND_WINDOW_MS;
+        })();
+
+    if (requestedPartial && !userCancelledOnlineAfterWindow) {
+        throw new ValidationError(
+            'Partial refund is allowed only for user-cancelled online orders after 30 seconds. Admin or restaurant cancellations must be refunded in full.'
+        );
+    }
+
+    const processedAt = new Date();
+    if (isWalletPayment) {
+        await refundWalletBalance(
+            order.userId,
+            normalizedAmount,
+            'Order refund',
+            {
+                orderId: String(order._id),
+                orderReadableId: String(order.orderId || ''),
+                source: 'admin_manual_refund'
+            }
+        );
+
+        order.payment.status = 'refunded';
+        order.payment.refund = {
+            status: 'processed',
+            amount: normalizedAmount,
+            refundId: `wallet_refund_${Date.now()}`,
+            processedAt
+        };
+    } else {
+        const paymentId = order.payment?.razorpay?.paymentId;
+        if (!paymentId) {
+            throw new ValidationError('Original payment reference not found for this online order');
+        }
+
+        const refundResult = await initiateRazorpayRefund(paymentId, normalizedAmount);
+        if (!refundResult?.success) {
+            order.payment.refund = {
+                status: 'failed',
+                amount: normalizedAmount
+            };
+            await order.save();
+            throw new ValidationError(refundResult?.error || 'Failed to process Razorpay refund');
+        }
+
+        order.payment.status = 'refunded';
+        order.payment.refund = {
+            status: 'processed',
+            amount: normalizedAmount,
+            refundId: refundResult.refundId || '',
+            processedAt
+        };
+    }
+
+    await order.save();
+
+    try {
+        await foodTransactionService.updateTransactionStatus(order._id, 'refunded', {
+            status: 'refunded',
+            note:
+                normalizedAmount < totalAmount
+                    ? `Partial refund of ₹${normalizedAmount.toFixed(2)} processed by admin`
+                    : `Full refund of ₹${normalizedAmount.toFixed(2)} processed by admin`,
+            recordedByRole: 'ADMIN'
+        });
+    } catch (_err) {
+        // Keep the refund completed even if finance history sync needs follow-up.
+    }
+
+    return order.toObject();
 }
 

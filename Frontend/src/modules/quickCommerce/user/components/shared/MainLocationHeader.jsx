@@ -341,7 +341,9 @@ const MainLocationHeader = ({
     <>
       <div
         className={cn(
-          embedded ? "relative z-20" : "fixed top-0 left-0 right-0 z-200",
+          embedded
+            ? "sticky top-0 z-40"
+            : "fixed top-0 left-0 right-0 z-200",
           isProductDetailOpen && "hidden md:block",
         )}>
         <motion.div
@@ -359,7 +361,7 @@ const MainLocationHeader = ({
           className={cn(
             "px-4 overflow-hidden transition-all duration-300",
             embedded
-              ? "shadow-none"
+              ? "border-b border-black/5 shadow-[0_10px_24px_rgba(15,23,42,0.10)] backdrop-blur-xl"
               : "sticky top-0 shadow-[0_4px_20px_rgba(0,0,0,0.15)]",
           )}>
           {/* Subtle Glow Overlay */}

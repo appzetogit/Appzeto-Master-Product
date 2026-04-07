@@ -20,6 +20,7 @@ import originalSound from "@food/assets/audio/original.mp3"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
+const USER_CANCEL_FULL_REFUND_WINDOW_MS = 30 * 1000
 
 
 // Status configuration with titles, colors, and icons
@@ -446,6 +447,19 @@ export default function OrdersPage({ statusKey = "all" }) {
       }
 
       const backendStatus = String(order.orderStatus || "").toLowerCase()
+      const cancelledAtCandidate = Array.isArray(order.statusHistory)
+        ? [...order.statusHistory]
+            .reverse()
+            .find((entry) => String(entry?.to || "").toLowerCase() === backendStatus)?.at
+        : null
+      const cancelledAt = cancelledAtCandidate ? new Date(cancelledAtCandidate) : null
+      const cancelledAtMs =
+        cancelledAt && !Number.isNaN(cancelledAt.getTime())
+          ? cancelledAt.getTime()
+          : null
+      const createdAtMs = createdAt ? createdAt.getTime() : null
+      const cancellationElapsedMs =
+        createdAtMs !== null && cancelledAtMs !== null ? cancelledAtMs - createdAtMs : null
       let displayStatus = order.orderStatus
       if (!backendStatus || backendStatus === "created" || backendStatus === "confirmed") {
         displayStatus = "Pending"
@@ -516,7 +530,30 @@ export default function OrdersPage({ statusKey = "all" }) {
         deliveryType: order.deliveryType || "Home Delivery",
         orderOtp: order.deliveryOtp,
         address: order.address || order.customerAddress || order.deliveryAddress,
-        refundStatus: order.payment?.refund?.status || (order.payment?.status === 'refunded' ? 'processed' : null)
+        refundStatus: order.payment?.refund?.status || (order.payment?.status === 'refunded' ? 'processed' : null),
+        refundPolicy: {
+          isUserCancelledOnline:
+            backendStatus === "cancelled_by_user" &&
+            ["razorpay", "razorpay_qr"].includes(String(paymentMethod || "").toLowerCase()),
+          allowPartialRefund:
+            backendStatus === "cancelled_by_user" &&
+            ["razorpay", "razorpay_qr"].includes(String(paymentMethod || "").toLowerCase()) &&
+            cancellationElapsedMs !== null &&
+            cancellationElapsedMs > USER_CANCEL_FULL_REFUND_WINDOW_MS,
+          requiresFullRefund:
+            backendStatus === "cancelled_by_admin" ||
+            backendStatus === "cancelled_by_restaurant" ||
+            paymentMethod === "wallet" ||
+            (
+              backendStatus === "cancelled_by_user" &&
+              ["razorpay", "razorpay_qr"].includes(String(paymentMethod || "").toLowerCase()) &&
+              (
+                cancellationElapsedMs === null ||
+                cancellationElapsedMs <= USER_CANCEL_FULL_REFUND_WINDOW_MS
+              )
+            ),
+          cancellationElapsedMs,
+        },
       }
     })
   }, [orders])
@@ -749,15 +786,15 @@ export default function OrdersPage({ statusKey = "all" }) {
 
   // Handle refund button click - show modal for wallet payments, confirm dialog for others
   const handleRefund = (order) => {
-    const isWalletPayment = order.paymentType === "Wallet" || order.payment?.method === "wallet";
-    
-    if (isWalletPayment) {
-      // Show modal for wallet refunds
+    const allowCustomAmount = order.refundPolicy?.allowPartialRefund
+
+    if (allowCustomAmount) {
       setSelectedOrderForRefund(order)
       setRefundModalOpen(true)
     } else {
-      // For non-wallet payments, use the old confirm dialog flow
-      const confirmMessage = `Are you sure you want to process refund for order ${order.orderId}?\n\nThis will initiate a Razorpay refund to the customer's original payment method.`;
+      const confirmMessage = order.refundPolicy?.requiresFullRefund
+        ? `Order ${order.orderId} is eligible for full refund only.\n\nFull refund of \u20B9${Number(order.totalAmount || 0).toFixed(2)} will be processed. Continue?`
+        : `Are you sure you want to process refund for order ${order.orderId}?\n\nThis will initiate a full refund to the customer's original payment method.`;
       
       if (!confirm(confirmMessage)) {
         return

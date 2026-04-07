@@ -1,5 +1,4 @@
 import SearchPage from "../../../quickCommerce/user/pages/SearchPage";
-import { CartProvider as QuickCartProvider } from "../../../quickCommerce/user/context/CartContext";
 import { LocationProvider as QuickLocationProvider } from "../../../quickCommerce/user/context/LocationContext";
 import { ProductDetailProvider as QuickProductDetailProvider } from "../../../quickCommerce/user/context/ProductDetailContext";
 import { WishlistProvider as QuickWishlistProvider } from "../../../quickCommerce/user/context/WishlistContext";
@@ -10,13 +9,11 @@ export default function QuickSearch() {
     <div className="min-h-screen bg-white">
       <QuickLocationProvider>
         <QuickWishlistProvider>
-          <QuickCartProvider>
-            <QuickCartAnimationProvider>
-              <QuickProductDetailProvider>
-                <SearchPage />
-              </QuickProductDetailProvider>
-            </QuickCartAnimationProvider>
-          </QuickCartProvider>
+          <QuickCartAnimationProvider>
+            <QuickProductDetailProvider>
+              <SearchPage />
+            </QuickProductDetailProvider>
+          </QuickCartAnimationProvider>
         </QuickWishlistProvider>
       </QuickLocationProvider>
     </div>

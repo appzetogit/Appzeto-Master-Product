@@ -193,6 +193,7 @@ router.patch('/dining/restaurants/:restaurantId', diningAdminController.updateDi
 // ----- Orders -----
 router.get('/orders', orderController.listOrdersAdminController);
 router.get('/orders/:orderId', orderController.getOrderByIdAdminController);
+router.post('/orders/:orderId/refund', adminController.processRefund);
 router.delete('/orders/:orderId', orderController.deleteOrderAdminController);
 
 // ----- CMS Pages (About + legal) -----

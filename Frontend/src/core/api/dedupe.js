@@ -4,9 +4,12 @@ const DEFAULT_CACHE_TTL_MS = 30 * 1000; // 30 seconds
 const apiCache = new Map();
 const inFlightRequests = new Map();
 
-const buildCacheKey = (url, params = {}) => {
+const buildCacheKey = (url, params = {}, requestConfig = {}) => {
     const entries = Object.entries(params || {}).sort(([a], [b]) => a.localeCompare(b));
-    return `${url}?${JSON.stringify(entries)}`;
+    const headers = requestConfig?.headers || {};
+    const authHeader = headers.Authorization || headers.authorization || "";
+    const contextModule = requestConfig?.contextModule || "";
+    return `${url}?${JSON.stringify(entries)}|${String(contextModule)}|${String(authHeader)}`;
 };
 
 /**
@@ -18,7 +21,7 @@ export const getWithDedupe = async (url, params = {}, options = {}) => {
     const requestConfig = { ...options };
     delete requestConfig.ttl;
     delete requestConfig.forceRefresh;
-    const key = buildCacheKey(url, params);
+    const key = buildCacheKey(url, params, requestConfig);
     const now = Date.now();
 
     if (!forceRefresh) {

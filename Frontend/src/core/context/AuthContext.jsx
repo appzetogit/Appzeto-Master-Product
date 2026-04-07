@@ -75,10 +75,14 @@ export const AuthProvider = ({ children }) => {
                 setIsLoading(true);
                 try {
                     // Use deduplicated fetch to avoid multiple simultaneous profile calls
+                    const requestConfig = { ttl: 5000, contextModule: currentRole };
+                    if (token) {
+                        requestConfig.headers = { Authorization: `Bearer ${token}` };
+                    }
                     const response = await getWithDedupe(
                         getProfileEndpoint(currentRole),
                         {},
-                        { ttl: 5000 }
+                        requestConfig
                     );
                     setUser(extractProfilePayload(response));
                 } catch (error) {

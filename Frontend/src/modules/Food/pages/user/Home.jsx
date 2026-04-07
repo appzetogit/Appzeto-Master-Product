@@ -94,11 +94,11 @@ import OptimizedImage from "@food/components/OptimizedImage";
 import { getRestaurantAvailabilityStatus } from "@food/utils/restaurantAvailability";
 import HomeHeader from "@food/components/user/home/HomeHeader";
 import QuickCommerceHomePage from "../../../quickCommerce/user/pages/Home";
-import { CartProvider as QuickCartProvider } from "../../../quickCommerce/user/context/CartContext";
 import { LocationProvider as QuickLocationProvider } from "../../../quickCommerce/user/context/LocationContext";
 import { ProductDetailProvider as QuickProductDetailProvider } from "../../../quickCommerce/user/context/ProductDetailContext";
 import { WishlistProvider as QuickWishlistProvider } from "../../../quickCommerce/user/context/WishlistContext";
 import { CartAnimationProvider as QuickCartAnimationProvider } from "../../../quickCommerce/user/context/CartAnimationContext";
+import { CartProvider as QuickCartProvider } from "../../../quickCommerce/user/context/CartContext";
 import PromoRow from "@food/components/user/home/PromoRow";
 // import FestBanner from "@food/components/user/home/FestBanner";
 
@@ -121,6 +121,17 @@ const placeholders = [
   'Search "thali"',
   'Search "momos"',
   'Search "dosa"',
+];
+
+const quickPlaceholders = [
+  'Search "milk"',
+  'Search "bread"',
+  'Search "eggs"',
+  'Search "chips"',
+  'Search "fruits"',
+  'Search "atta"',
+  'Search "cold drink"',
+  'Search "ice cream"',
 ];
 
 const WEBVIEW_SESSION_CACHE_BUSTER = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -1287,11 +1298,22 @@ export default function Home() {
 
   const handleTabChange = (tab) => {
     setActiveTab(tab);
-    if (tab === "quick") {
+    const normalizedPath =
+      routerLocation.pathname.length > 1
+        ? routerLocation.pathname.replace(/\/+$/, "")
+        : routerLocation.pathname;
+
+    if (tab === "quick" && normalizedPath !== "/quick") {
       navigate("/quick");
-    } else {
-      navigate("/food/user");
+      return;
     }
+
+    if (tab === "food" && normalizedPath === "/quick") {
+      navigate("/food/user");
+      return;
+    }
+
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
   };
 
 
@@ -2283,12 +2305,16 @@ export default function Home() {
   }, [openLocationSelector]);
 
   const handleSearchFocus = useCallback(() => {
+    if (activeTab === "quick") {
+      navigate("/quick/search");
+      return;
+    }
     // Sync heroSearch with global searchValue when opening overlay
     if (heroSearch) {
       setSearchValue(heroSearch);
     }
     openSearch();
-  }, [heroSearch, openSearch, setSearchValue]);
+  }, [activeTab, heroSearch, navigate, openSearch, setSearchValue]);
 
   const handleSearchClose = useCallback(() => {
     closeSearch();
@@ -2298,10 +2324,12 @@ export default function Home() {
   // Animated placeholder cycling
   useEffect(() => {
     const interval = setInterval(() => {
-      setPlaceholderIndex((prev) => (prev + 1) % placeholders.length);
+      const activePlaceholders =
+        activeTab === "quick" ? quickPlaceholders : placeholders;
+      setPlaceholderIndex((prev) => (prev + 1) % activePlaceholders.length);
     }, 2000);
     return () => clearInterval(interval);
-  }, []);
+  }, [activeTab]);
 
   // Memoized Hero Banner Component for better perf
   const HeroBannerSection = useMemo(() => {
@@ -2510,7 +2538,7 @@ export default function Home() {
           handleLocationClick={handleLocationClick}
           handleSearchFocus={handleSearchFocus}
           placeholderIndex={placeholderIndex}
-          placeholders={placeholders}
+          placeholders={activeTab === "quick" ? quickPlaceholders : placeholders}
           vegMode={vegMode}
           onVegModeChange={handleVegModeChange}
           quickThemeColor={quickThemeColor}
@@ -2930,8 +2958,8 @@ export default function Home() {
         >
           <div className="bg-white">
             <QuickLocationProvider>
-              <QuickWishlistProvider>
-                <QuickCartProvider>
+              <QuickCartProvider>
+                <QuickWishlistProvider>
                   <QuickCartAnimationProvider>
                     <QuickProductDetailProvider>
                       <QuickCommerceHomePage
@@ -2945,8 +2973,8 @@ export default function Home() {
                       />
                     </QuickProductDetailProvider>
                   </QuickCartAnimationProvider>
-                </QuickCartProvider>
-              </QuickWishlistProvider>
+                </QuickWishlistProvider>
+              </QuickCartProvider>
             </QuickLocationProvider>
           </div>
         </motion.div>

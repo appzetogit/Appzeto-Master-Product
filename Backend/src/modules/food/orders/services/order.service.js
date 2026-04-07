@@ -38,6 +38,7 @@ import * as foodTransactionService from './foodTransaction.service.js';
 
 const ORDER_ID_PREFIX = "FOD-";
 const ORDER_ID_LENGTH = 6;
+const USER_CANCEL_FULL_REFUND_WINDOW_MS = 30 * 1000;
 
 /**
  * Fire-and-forget BullMQ enqueue for order lifecycle events.
@@ -2339,8 +2340,9 @@ export async function cancelOrder(orderId, userId, reason) {
     note: reason || "",
   });
 
-  // ✅ NEW: Automated Razorpay Refund on User Cancel
+  // User-cancelled online refunds are handled from admin so the 30-second policy can be enforced.
   if (
+    false &&
     order.payment.status === "paid" &&
     order.payment.method === "razorpay" &&
     order.payment.razorpay?.paymentId &&
@@ -2384,9 +2386,16 @@ export async function cancelOrder(orderId, userId, reason) {
 
   // Sync transaction status
   try {
-    const isOnlinePaid = order.payment.method === "razorpay" && (order.payment.status === "paid" || order.payment.status === "refunded");
+    const isOnlinePaid =
+      ["razorpay", "razorpay_qr"].includes(String(order.payment.method || "")) &&
+      (order.payment.status === "paid" || order.payment.status === "refunded");
     await foodTransactionService.updateTransactionStatus(order._id, 'cancelled_by_user', {
-        status: isOnlinePaid ? 'refunded' : 'failed',
+        status:
+          order.payment.status === "refunded"
+            ? 'refunded'
+            : isOnlinePaid
+              ? 'captured'
+              : 'failed',
         note: `Order cancelled by user: ${reason || "No reason"}`,
         recordedByRole: 'USER',
         recordedById: userId
@@ -2396,9 +2405,14 @@ export async function cancelOrder(orderId, userId, reason) {
   }
 
   // Notify User and Restaurant about the cancellation
-  const isOnlinePaid = order.payment.method === "razorpay" && (order.payment.status === "paid" || order.payment.status === "refunded");
-  const refundDetail = isOnlinePaid ? ` Your refund of ₹${order.pricing.total} is being processed and will be credited to your original payment method within 5-7 working days.` : "";
-  
+  const isOnlinePaid =
+    ["razorpay", "razorpay_qr"].includes(String(order.payment.method || "")) &&
+    (order.payment.status === "paid" || order.payment.status === "refunded");
+  const refundPolicyDetail =
+    isOnlinePaid
+      ? ` Refund review will follow the cancellation policy: full refund within ${USER_CANCEL_FULL_REFUND_WINDOW_MS / 1000} seconds, otherwise admin may process a partial refund.`
+      : "";
+
   await notifyOwnersSafely(
     [
       { ownerType: "USER", ownerId: userId },
@@ -2406,7 +2420,7 @@ export async function cancelOrder(orderId, userId, reason) {
     ],
     {
       title: "Order Cancelled ❌",
-      body: `Order #${order.orderId} has been cancelled successfully.${refundDetail}`,
+      body: `Order #${order.orderId} has been cancelled successfully.${refundPolicyDetail}`,
       image: "https://i.ibb.co/3m2Yh7r/Appzeto-Brand-Image.png",
       data: {
         type: "order_cancelled",
@@ -2424,7 +2438,7 @@ export async function cancelOrder(orderId, userId, reason) {
         orderMongoId: order._id?.toString?.(),
         orderId: order.orderId,
         orderStatus: order.orderStatus,
-        message: `Order #${order.orderId} has been cancelled successfully.${refundDetail}`
+        message: `Order #${order.orderId} has been cancelled successfully.${refundPolicyDetail}`
       };
       io.to(rooms.user(userId)).emit("order_status_update", payload);
       io.to(rooms.restaurant(order.restaurantId)).emit("order_status_update", payload);

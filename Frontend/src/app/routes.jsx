@@ -13,6 +13,8 @@ const FoodApp = lazy(() => import('../modules/Food/routes'))
 const AuthApp = lazy(() => import('../modules/auth/routes'))
 const QuickCommerceApp = lazy(() => import('../modules/quickCommerce/routes'))
 const SellerApp = lazy(() => import('../modules/seller/routes'))
+const FoodUserLayout = lazy(() => import('../modules/Food/components/user/UserLayout'))
+const FoodHomePage = lazy(() => import('../modules/Food/pages/user/Home'))
 
 const PageLoader = () => <AppShellSkeleton />
 
@@ -28,6 +30,18 @@ const FoodAppWrapper = () => {
   return (
     <Suspense fallback={<PageLoader />}>
       <FoodApp />
+    </Suspense>
+  )
+}
+
+const QuickHomeWithCurrentLayout = () => {
+  return (
+    <Suspense fallback={<PageLoader />}>
+      <Routes>
+        <Route element={<FoodUserLayout />}>
+          <Route index element={<FoodHomePage />} />
+        </Route>
+      </Routes>
     </Suspense>
   )
 }
@@ -104,6 +118,9 @@ const AppRoutes = () => {
 
       {/* Food Module */}
       <Route path="/food/*" element={<FoodAppWrapper />} />
+
+      {/* Quick storefront landing keeps the shared food layout */}
+      <Route path="/quick" element={<QuickHomeWithCurrentLayout />} />
 
       {/* Quick storefront */}
       <Route

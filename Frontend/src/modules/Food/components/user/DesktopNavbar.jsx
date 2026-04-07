@@ -51,7 +51,11 @@ export default function DesktopNavbar({ showLogo = true }) {
     }
 
     // Check active routes - support both /user/* and /* paths
-    const isQuick = location.pathname.endsWith("/quick")
+    const normalizedPath =
+        location.pathname.length > 1
+            ? location.pathname.replace(/\/+$/, "")
+            : location.pathname
+    const isQuick = normalizedPath === "/quick" || normalizedPath.startsWith("/quick/")
     const isDining = location.pathname === "/food/user/dining" || location.pathname === "/food/dining"
     const isUnder250 = location.pathname === "/food/user/under-250" || location.pathname === "/food/under-250"
     const isProfile = location.pathname.startsWith("/food/user/profile") || location.pathname.startsWith("/food/profile")
@@ -61,6 +65,9 @@ export default function DesktopNavbar({ showLogo = true }) {
         location.pathname === "/food" ||
         location.pathname === "/food/user/under-250" ||
         location.pathname === "/food/under-250"
+    const searchPlaceholder = isQuick
+        ? 'Search for milk, bread, eggs...'
+        : "Search for restaurants, food..."
 
     // Load business settings logo
     useEffect(() => {
@@ -226,11 +233,15 @@ export default function DesktopNavbar({ showLogo = true }) {
                                             }}
                                             onKeyDown={(e) => {
                                                 if (e.key === "Enter" && heroSearch.trim()) {
-                                                    navigate(`/food/search?q=${encodeURIComponent(heroSearch.trim())}`)
+                                                    navigate(
+                                                        isQuick
+                                                            ? `/quick/search?q=${encodeURIComponent(heroSearch.trim())}`
+                                                            : `/food/search?q=${encodeURIComponent(heroSearch.trim())}`
+                                                    )
                                                 }
                                             }}
                                             className="h-6 p-0 border-0 bg-transparent text-sm font-medium placeholder:text-gray-500 focus-visible:ring-0 focus-visible:ring-offset-0"
-                                            placeholder="Search for restaurants, food..."
+                                            placeholder={searchPlaceholder}
                                         />
                                         {heroSearch && (
                                             <Button
