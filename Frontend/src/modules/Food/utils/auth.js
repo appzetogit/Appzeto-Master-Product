@@ -153,6 +153,7 @@ export function clearModuleAuth(module) {
   if (module === "user") {
     localStorage.removeItem("auth_customer");
     localStorage.removeItem("accessToken");
+    clearUserSession();
   }
   // Clear cached FCM web token for this module
   localStorage.removeItem(`fcm_web_registered_token_${module}`);
@@ -161,6 +162,24 @@ export function clearModuleAuth(module) {
   }
   // Also clear any sessionStorage data
   sessionStorage.removeItem(`${module}AuthData`);
+}
+
+/**
+ * Clear user-specific profile/session caches to prevent cross-account leakage.
+ */
+export function clearUserSession() {
+  const keys = [
+    "userProfile",
+    "user_user",
+    "user",
+    "user_edit_profile_draft",
+    "userAddresses",
+    "userPaymentMethods",
+    "userFavorites",
+    "userDishFavorites",
+  ];
+
+  keys.forEach((key) => localStorage.removeItem(key));
 }
 
 /**
@@ -251,6 +270,8 @@ export function setAuthData(module, token, user, refreshToken = null) {
     // Prevent stale restaurant profile data from previous account after re-login.
     if (module === "restaurant") {
       clearRestaurantSessionCache();
+    } else if (module === "user") {
+      clearUserSession();
     }
 
     localStorage.setItem(tokenKey, token);
@@ -301,6 +322,9 @@ export function setAuthData(module, token, user, refreshToken = null) {
       try {
         localStorage.removeItem('accessToken');
         localStorage.removeItem('user');
+        if (module === "user") {
+          clearUserSession();
+        }
         // Retry storing
         localStorage.setItem(`${module}_accessToken`, token);
         if (module === "user") {
