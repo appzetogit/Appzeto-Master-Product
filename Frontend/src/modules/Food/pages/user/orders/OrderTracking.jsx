@@ -6,6 +6,7 @@ import {
   ArrowLeft,
   Share2,
   RefreshCw,
+  Download,
   Phone,
   User,
   ChevronRight,
@@ -19,6 +20,8 @@ import {
   CircleSlash,
   Loader2
 } from "lucide-react"
+import { jsPDF } from "jspdf"
+import autoTable from "jspdf-autotable"
 import AnimatedPage from "@food/components/user/AnimatedPage"
 import { Card, CardContent } from "@food/components/ui/card"
 import { Button } from "@food/components/ui/button"
@@ -49,6 +52,7 @@ const SAFE_RESTAURANT_PIN = typeof RESTAURANT_PIN_SVG !== 'undefined' ? RESTAURA
 const debugLog = (...args) => console.log('[OrderTracking]', ...args)
 const debugWarn = (...args) => console.warn('[OrderTracking]', ...args)
 const debugError = (...args) => console.error('[OrderTracking]', ...args)
+const INVOICE_BRAND_NAME = "Appzeto"
 
 
 // Animated checkmark component
@@ -360,6 +364,28 @@ const getPartnerDisplayAvatar = (avatar, name = "Delivery Partner") => {
   return `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=eff6ff&color=1d4ed8&size=128`
 }
 
+const formatPartnerRating = (rating) => {
+  const numericRating = Number(rating)
+  if (!Number.isFinite(numericRating) || numericRating <= 0) return ""
+  return numericRating.toFixed(1)
+}
+
+const formatInvoiceCurrency = (value) => `Rs. ${Number(value || 0).toFixed(2)}`
+
+const formatInvoiceDateTime = (value) => {
+  if (!value) return "N/A"
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return "N/A"
+  return date.toLocaleString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+  })
+}
+
 const normalizeDeliveryPartner = (partnerRef, fallbackName = "Delivery Partner") => {
   if (!partnerRef) return null
 
@@ -369,6 +395,8 @@ const normalizeDeliveryPartner = (partnerRef, fallbackName = "Delivery Partner")
       name: fallbackName,
       phone: "",
       avatar: "",
+      rating: null,
+      totalRatings: 0,
     }
   }
 
@@ -389,6 +417,8 @@ const normalizeDeliveryPartner = (partnerRef, fallbackName = "Delivery Partner")
         partnerRef?.profileImage ||
         "",
     ).trim(),
+    rating: Number.isFinite(Number(partnerRef?.rating)) ? Number(partnerRef.rating) : null,
+    totalRatings: Number(partnerRef?.totalRatings || 0),
   }
 }
 
@@ -434,6 +464,8 @@ const buildTrackingDeliveryPartners = (apiOrder, previousOrder = null) => {
         name: deliveryPartner.name,
         phone: deliveryPartner.phone,
         avatar: deliveryPartner.avatar,
+        rating: deliveryPartner.rating,
+        totalRatings: deliveryPartner.totalRatings,
       }
     })
     .filter(Boolean)
@@ -458,6 +490,8 @@ const buildTrackingDeliveryPartners = (apiOrder, previousOrder = null) => {
         name: singlePartner.name,
         phone: singlePartner.phone,
         avatar: singlePartner.avatar,
+        rating: singlePartner.rating,
+        totalRatings: singlePartner.totalRatings,
       },
     ]
   }
@@ -1577,6 +1611,187 @@ export default function OrderTracking() {
     }
   }
 
+  const handleDownloadInvoice = useCallback(() => {
+    if (!order) {
+      toast.error("Order details are not ready yet")
+      return
+    }
+
+    try {
+      const doc = new jsPDF({ unit: "pt", format: "a4" })
+      const pageWidth = doc.internal.pageSize.getWidth()
+      const pageHeight = doc.internal.pageSize.getHeight()
+      const margin = 40
+      let y = 54
+
+      const paymentMethodLabel = String(order?.paymentMethod || order?.payment?.method || "N/A")
+        .replace(/_/g, " ")
+        .replace(/\b\w/g, (char) => char.toUpperCase())
+      const paymentStatusLabel = String(order?.payment?.status || "N/A")
+        .replace(/_/g, " ")
+        .replace(/\b\w/g, (char) => char.toUpperCase())
+      const customerName = String(order?.userName || profile?.name || "Customer").trim()
+      const customerPhone = String(order?.userPhone || profile?.phone || "").trim()
+      const pickupSourceList = Array.isArray(order?.pickupSources) ? order.pickupSources : []
+      const deliveryAddress = String(
+        order?.address?.formattedAddress ||
+        [order?.address?.street, order?.address?.additionalDetails, order?.address?.city, order?.address?.state, order?.address?.zipCode]
+          .filter(Boolean)
+          .join(", ")
+      ).trim() || "Address not available"
+
+      const pickupSummary = pickupSourceList.map((source, index) => (
+        `${pickupSourceList.length > 1 ? `${source.label || "Pickup"} ${index + 1}` : (source.label || "Pickup")}: ${source.name || "Source"}${source.address ? `, ${source.address}` : ""}`
+      ))
+
+      doc.setFillColor(18, 18, 18)
+      doc.rect(0, 0, pageWidth, 116, "F")
+      doc.setTextColor(255, 255, 255)
+      doc.setFont("helvetica", "bold")
+      doc.setFontSize(24)
+      doc.text(INVOICE_BRAND_NAME, margin, 52)
+      doc.setFontSize(11)
+      doc.setFont("helvetica", "normal")
+      doc.text("Tax Invoice", margin, 72)
+      doc.text(`Order Invoice`, pageWidth - margin, 52, { align: "right" })
+      doc.text(`Invoice Ref: INV-${order?.orderId || order?.id || "N/A"}`, pageWidth - margin, 72, { align: "right" })
+      doc.text(`Issued: ${formatInvoiceDateTime(order?.createdAt)}`, pageWidth - margin, 90, { align: "right" })
+
+      y = 148
+      doc.setTextColor(17, 24, 39)
+      doc.setFont("helvetica", "bold")
+      doc.setFontSize(11)
+      doc.text("Billed To", margin, y)
+      doc.text("Order Snapshot", pageWidth / 2 + 10, y)
+
+      doc.setFont("helvetica", "normal")
+      doc.setFontSize(10)
+      const billedToLines = [
+        customerName,
+        customerPhone ? `Phone: ${customerPhone}` : "",
+        deliveryAddress,
+      ].filter(Boolean)
+      const snapshotLines = [
+        `Order ID: ${order?.orderId || order?.id || "N/A"}`,
+        `Order Type: ${String(order?.orderType || "food").toUpperCase()}`,
+        `Status: ${String(order?.status || orderStatus || "created").replace(/_/g, " ")}`,
+        `Payment Method: ${paymentMethodLabel}`,
+        `Payment Status: ${paymentStatusLabel}`,
+      ]
+
+      let billedY = y + 18
+      billedToLines.forEach((line) => {
+        const lines = doc.splitTextToSize(line, pageWidth / 2 - 60)
+        doc.text(lines, margin, billedY)
+        billedY += lines.length * 14
+      })
+
+      let snapshotY = y + 18
+      snapshotLines.forEach((line) => {
+        doc.text(line, pageWidth / 2 + 10, snapshotY)
+        snapshotY += 14
+      })
+
+      y = Math.max(billedY, snapshotY) + 18
+      doc.setDrawColor(229, 231, 235)
+      doc.line(margin, y, pageWidth - margin, y)
+      y += 22
+
+      doc.setFont("helvetica", "bold")
+      doc.setFontSize(11)
+      doc.text(order?.orderType === "mixed" ? "Pickup Points" : "Pickup Source", margin, y)
+      doc.setFont("helvetica", "normal")
+      doc.setFontSize(10)
+      y += 16
+
+      const pickupLines = pickupSummary.length > 0 ? pickupSummary : [
+        `${order?.restaurant || "Restaurant"}${order?.restaurantAddress ? `, ${order.restaurantAddress}` : ""}`,
+      ]
+      pickupLines.forEach((line) => {
+        const wrapped = doc.splitTextToSize(line, pageWidth - margin * 2)
+        doc.text(wrapped, margin, y)
+        y += wrapped.length * 14
+      })
+
+      y += 10
+      autoTable(doc, {
+        startY: y,
+        margin: { left: margin, right: margin },
+        head: [["Item", "Qty", "Unit Price", "Line Total"]],
+        body: (order?.items || []).map((item) => ([
+          item?.variantName ? `${item.name || "Item"} (${item.variantName})` : (item?.name || "Item"),
+          String(item?.quantity || 1),
+          formatInvoiceCurrency(item?.price || 0),
+          formatInvoiceCurrency((Number(item?.price || 0) * Number(item?.quantity || 1))),
+        ])),
+        theme: "striped",
+        headStyles: {
+          fillColor: [17, 24, 39],
+          textColor: 255,
+          fontStyle: "bold",
+        },
+        styles: {
+          font: "helvetica",
+          fontSize: 9,
+          cellPadding: 8,
+          textColor: [31, 41, 55],
+        },
+        columnStyles: {
+          0: { cellWidth: 250 },
+          1: { halign: "center", cellWidth: 55 },
+          2: { halign: "right", cellWidth: 90 },
+          3: { halign: "right", cellWidth: 90 },
+        },
+      })
+
+      y = (doc.lastAutoTable?.finalY || y) + 24
+      const totalsXLabel = pageWidth - margin - 150
+      const totalsXValue = pageWidth - margin
+      const totals = [
+        ["Subtotal", formatInvoiceCurrency(order?.subtotal)],
+        ["Delivery Fee", formatInvoiceCurrency(order?.deliveryFee)],
+        ["Platform Fee", formatInvoiceCurrency(order?.platformFee)],
+        ["Packaging Fee", formatInvoiceCurrency(order?.packagingFee)],
+        ["GST & Taxes", formatInvoiceCurrency(order?.gst)],
+      ]
+
+      if (Number(order?.discount || 0) > 0) {
+        totals.push(["Discount", `- ${formatInvoiceCurrency(order?.discount)}`])
+      }
+
+      doc.setFontSize(10)
+      totals.forEach(([label, value]) => {
+        doc.setFont("helvetica", "normal")
+        doc.text(label, totalsXLabel, y)
+        doc.text(value, totalsXValue, y, { align: "right" })
+        y += 16
+      })
+
+      doc.setDrawColor(17, 24, 39)
+      doc.line(totalsXLabel, y + 2, totalsXValue, y + 2)
+      y += 20
+      doc.setFont("helvetica", "bold")
+      doc.setFontSize(13)
+      doc.text("Grand Total", totalsXLabel, y)
+      doc.text(formatInvoiceCurrency(order?.totalAmount || order?.total || 0), totalsXValue, y, { align: "right" })
+
+      const footerY = pageHeight - 72
+      doc.setDrawColor(229, 231, 235)
+      doc.line(margin, footerY - 18, pageWidth - margin, footerY - 18)
+      doc.setFont("helvetica", "normal")
+      doc.setFontSize(9)
+      doc.setTextColor(107, 114, 128)
+      doc.text(`${INVOICE_BRAND_NAME} order support invoice`, margin, footerY)
+      doc.text("This is a system-generated invoice for your order.", pageWidth - margin, footerY, { align: "right" })
+
+      doc.save(`${INVOICE_BRAND_NAME}_Invoice_${order?.orderId || order?.id || Date.now()}.pdf`)
+      toast.success("Invoice downloaded")
+    } catch (error) {
+      debugError("Error generating invoice PDF:", error)
+      toast.error("Failed to download invoice")
+    }
+  }, [order, orderStatus, profile?.name, profile?.phone])
+
   // --------------------------------------------------------------------------
   // RENDER (Final JSX)
   // --------------------------------------------------------------------------
@@ -2040,6 +2255,18 @@ export default function OrderTracking() {
                       ? `${partner.label} for ${partner.sourceName}`
                       : partner?.statusText || 'Your delivery partner is arriving'}
                   </p>
+                  {formatPartnerRating(partner?.rating) ? (
+                    <div className="mt-1 flex items-center gap-1.5 text-xs text-amber-600">
+                      <span className="font-semibold">★ {formatPartnerRating(partner?.rating)}</span>
+                      <span className="text-gray-400">
+                        {Number(partner?.totalRatings || 0) > 0
+                          ? `(${Number(partner?.totalRatings)} ratings)`
+                          : '(New rider)'}
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="mt-1 text-xs text-gray-400">Rating not available yet</div>
+                  )}
                 </div>
                 <motion.button
                   className="w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center"
@@ -2286,6 +2513,20 @@ export default function OrderTracking() {
             />
           </motion.div>
         )}
+
+        <motion.div
+          className="bg-white rounded-xl shadow-sm overflow-hidden"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.82 }}
+        >
+          <SectionItem
+            icon={Download}
+            title="Download invoice"
+            subtitle="Get a dynamic PDF invoice for this order"
+            onClick={handleDownloadInvoice}
+          />
+        </motion.div>
 
       </div>
 

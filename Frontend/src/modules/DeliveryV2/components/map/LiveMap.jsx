@@ -10,7 +10,10 @@ import {
 } from '@react-google-maps/api';
 import { useDeliveryStore } from '@/modules/DeliveryV2/store/useDeliveryStore';
 import { zoneAPI } from '@food/api';
-import { buildVisibleRouteFromRiderPosition } from '@food/utils/liveTrackingPolyline';
+import {
+  buildVisibleRouteFromRiderPosition,
+  trimPolylineFromDistanceAlongRoute,
+} from '@food/utils/liveTrackingPolyline';
 import { normalizeLocationPoint, normalizePickupPoints } from '@/modules/DeliveryV2/utils/orderRouting';
 
 const mapContainerStyle = {
@@ -49,6 +52,8 @@ export const LiveMap = ({
   onPolylineReceived,
   zoom = 12,
   simulationPath = [],
+  simulationIndex = 0,
+  simulationProgress = 0,
   simulationLocked = false,
 }) => {
   const { riderLocation, activeOrder, tripStatus } = useDeliveryStore();
@@ -72,6 +77,8 @@ export const LiveMap = ({
   const [map, setMapInternal] = useState(null);
   const [zones, setZones] = useState([]);
   const [lastDirectionsAt, setLastDirectionsAt] = useState(0);
+  const routeProgressDistanceRef = useRef(0);
+  const routeProgressSignatureRef = useRef('');
 
   const handleMapLoad = (mapInstance) => {
     mapInstance.setOptions({
@@ -90,6 +97,8 @@ export const LiveMap = ({
   useEffect(() => {
     setLastDirectionsAt(0);
     setDirections(null);
+    routeProgressDistanceRef.current = 0;
+    routeProgressSignatureRef.current = '';
   }, [tripStatus, activeOrder?._id]);
 
   const targetLocation = useMemo(() => {
@@ -233,10 +242,60 @@ export const LiveMap = ({
 
     if (fullPath.length < 2) return fullPath;
 
-    return buildVisibleRouteFromRiderPosition(fullPath, parsedRiderLocation, {
+    if (simulationLocked) {
+      let traversedDistance = 0;
+      const safeIndex = Math.max(0, Math.min(Number(simulationIndex) || 0, fullPath.length - 2));
+      const safeProgress = Math.max(0, Math.min(Number(simulationProgress) || 0, 1));
+
+      for (let i = 0; i < safeIndex; i++) {
+        traversedDistance += window.google.maps.geometry.spherical.computeDistanceBetween(
+          new window.google.maps.LatLng(fullPath[i].lat, fullPath[i].lng),
+          new window.google.maps.LatLng(fullPath[i + 1].lat, fullPath[i + 1].lng),
+        );
+      }
+
+      if (safeIndex < fullPath.length - 1) {
+        const currentSegmentDistance = window.google.maps.geometry.spherical.computeDistanceBetween(
+          new window.google.maps.LatLng(fullPath[safeIndex].lat, fullPath[safeIndex].lng),
+          new window.google.maps.LatLng(fullPath[safeIndex + 1].lat, fullPath[safeIndex + 1].lng),
+        );
+        traversedDistance += currentSegmentDistance * safeProgress;
+      }
+
+      return trimPolylineFromDistanceAlongRoute(fullPath, traversedDistance).trimmedPolyline;
+    }
+
+    const routeSignature = [
+      activeOrder?._id || activeOrder?.orderId || '',
+      tripStatus || '',
+      fullPath.length,
+      fullPath[0]?.lat,
+      fullPath[0]?.lng,
+      fullPath[fullPath.length - 1]?.lat,
+      fullPath[fullPath.length - 1]?.lng,
+    ].join(':');
+
+    if (routeProgressSignatureRef.current !== routeSignature) {
+      routeProgressSignatureRef.current = routeSignature;
+      routeProgressDistanceRef.current = 0;
+    }
+
+    const visibleRoute = buildVisibleRouteFromRiderPosition(fullPath, parsedRiderLocation, {
       offRouteThresholdMeters: 35,
-    }).visiblePolyline;
-  }, [directions, parsedRiderLocation, simulationLocked, simulationPath]);
+    });
+
+    const forwardOnlyDistance = Math.max(
+      routeProgressDistanceRef.current || 0,
+      Number(visibleRoute?.distanceAlongRoute || 0),
+    );
+    routeProgressDistanceRef.current = forwardOnlyDistance;
+
+    const clampedRoute = trimPolylineFromDistanceAlongRoute(fullPath, forwardOnlyDistance);
+
+    return visibleRoute?.isOffRoute
+      ? [parsedRiderLocation, ...clampedRoute.trimmedPolyline]
+      : clampedRoute.trimmedPolyline;
+  }, [activeOrder?._id, activeOrder?.orderId, directions, parsedRiderLocation, simulationIndex, simulationLocked, simulationPath, simulationProgress, tripStatus]);
 
   if (loadError) return <div className="absolute inset-0 flex items-center justify-center bg-gray-50 text-red-500 font-bold">Map Load Error</div>;
   if (!isLoaded) return <div className="absolute inset-0 flex items-center justify-center bg-gray-50"><div className="w-10 h-10 border-4 border-green-500 border-t-transparent rounded-full animate-spin" /></div>;

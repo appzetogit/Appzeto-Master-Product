@@ -107,6 +107,26 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
   const mapRef = useRef(null);
   const isSimModeRef = useRef(isSimMode);
 
+  const handleGeolocationError = useCallback((error) => {
+    const hasKnownRiderLocation = Boolean(useDeliveryStore.getState().riderLocation);
+
+    if (!error) {
+      if (!hasKnownRiderLocation) {
+        toast.error('GPS Needed!');
+      }
+      return;
+    }
+
+    if (error.code === error.PERMISSION_DENIED) {
+      toast.error('Location permission denied. Please allow location access.');
+      return;
+    }
+
+    if (!hasKnownRiderLocation) {
+      toast.error('GPS Needed!');
+    }
+  }, []);
+
   useEffect(() => {
     isSimModeRef.current = isSimMode;
   }, [isSimMode]);
@@ -439,14 +459,14 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
           // B. SOCKET LIVE (SILKY SMOOTH)
           if (payload.orderId) emitLocation(payload);
         }
-      }, () => toast.error('GPS Needed!'), { 
+      }, handleGeolocationError, {
         enableHighAccuracy: true,
         maximumAge: 0,
         timeout: 5000
       });
       
       return () => navigator.geolocation.clearWatch(watchId);
-    }, [isOnline, setRiderLocation, isSimMode, activeOrder, activePolyline, emitLocation, eta, tripStatus, distanceToTarget, reachPickup, reachDrop]);
+  }, [isOnline, setRiderLocation, isSimMode, activeOrder, activePolyline, emitLocation, eta, tripStatus, distanceToTarget, reachPickup, reachDrop, handleGeolocationError]);
 
   // 3.5. Background Ping / Heartbeat
   // If watchPosition stops firing (e.g. app in background or device stationary),
@@ -704,6 +724,8 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
                  onPolylineReceived={handlePolylineReceived}
                  zoom={zoom}
                  simulationPath={simPath}
+                 simulationIndex={simIndex}
+                 simulationProgress={simProgress}
                  simulationLocked={isSimMode && simPath.length > 1}
                />
              
