@@ -63,6 +63,8 @@ const getQuickStoreId = (product) =>
 
 const normalizeQuickProductForSharedCart = (product) => {
   const id = getProductId(product);
+  const quickStoreId = getQuickStoreId(product);
+  const quickStoreName = getQuickStoreName(product);
   return {
     ...product,
     id,
@@ -76,12 +78,12 @@ const normalizeQuickProductForSharedCart = (product) => {
         ? product.price
         : product?.salePrice ?? 0,
     originalPrice: product?.originalPrice ?? product?.price ?? product?.salePrice ?? 0,
-    quickStoreName: getQuickStoreName(product),
-    quickStoreId: getQuickStoreId(product),
-    sourceId: getQuickStoreId(product),
-    sourceName: getQuickStoreName(product),
-    restaurant: "Quick Commerce",
-    restaurantId: "quick-commerce",
+    quickStoreName,
+    quickStoreId,
+    sourceId: quickStoreId,
+    sourceName: quickStoreName,
+    restaurant: quickStoreName,
+    restaurantId: quickStoreId,
   };
 };
 
@@ -99,6 +101,9 @@ const useStandaloneQuickCart = () => {
     if (!items) return [];
     return items.map((item) => ({
       ...item,
+      quickStoreId: getQuickStoreId(item),
+      quickStoreName: getQuickStoreName(item),
+      ...item,
       id: getProductId(item),
       _id: getProductId(item),
       productId: getProductId(item),
@@ -110,8 +115,10 @@ const useStandaloneQuickCart = () => {
       mrp: Number(item.mrp || item.price || 0),
       orderType: "quick",
       type: "quick",
-      restaurant: "Quick Commerce",
-      restaurantId: "quick-commerce",
+      sourceId: getQuickStoreId(item),
+      sourceName: getQuickStoreName(item),
+      restaurant: getQuickStoreName(item),
+      restaurantId: getQuickStoreId(item),
     }));
   };
 
@@ -176,8 +183,12 @@ const useStandaloneQuickCart = () => {
           itemId: id,
           orderType: "quick",
           type: "quick",
-          restaurant: "Quick Commerce",
-          restaurantId: "quick-commerce",
+          quickStoreId: getQuickStoreId(product),
+          quickStoreName: getQuickStoreName(product),
+          sourceId: getQuickStoreId(product),
+          sourceName: getQuickStoreName(product),
+          restaurant: getQuickStoreName(product),
+          restaurantId: getQuickStoreId(product),
           quantity: 1,
           image: product.image || product.mainImage,
           mainImage: product.mainImage || product.image,

@@ -1313,14 +1313,14 @@ export async function deleteZone(req, res, next) {
 export async function processRefund(req, res, next) {
     try {
         const { orderId } = req.params;
-        const { refundAmount } = req.body;
+        const { refundAmount, refundTo } = req.body;
         if (!orderId || !mongoose.Types.ObjectId.isValid(orderId)) {
             return res.status(400).json({ success: false, message: 'Invalid order id' });
         }
         
         // This is a stub for the actual refund logic.
         // We will assume adminService.processRefund exists and handles the refund.
-        const updated = await adminService.processRefund(orderId, refundAmount);
+        const updated = await adminService.processRefund(orderId, refundAmount, refundTo);
         
         // Let's add the push notification here if we have access to the user ID
         // First we need to get the order to find the user ID

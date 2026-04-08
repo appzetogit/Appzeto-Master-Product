@@ -4,7 +4,6 @@ import { useDeliveryStore } from '@/modules/DeliveryV2/store/useDeliveryStore';
 import { useProximityCheck } from '@/modules/DeliveryV2/hooks/useProximityCheck';
 import { useOrderManager } from '@/modules/DeliveryV2/hooks/useOrderManager';
 import { useDeliveryNotifications } from '@food/hooks/useDeliveryNotifications';
-import { writeOrderTracking } from '@food/realtimeTracking';
 import { deliveryAPI } from '@food/api';
 import { toast } from 'sonner';
 
@@ -74,8 +73,8 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
   const companyName = useCompanyName();
   const { unreadCount: notificationUnreadCount } = useNotificationInbox("delivery", { limit: 20 });
 
-  const [incomingOrder, setIncomingOrder] = useState(null);
-  const [currentTab, setCurrentTab] = useState(tab);
+    const [incomingOrder, setIncomingOrder] = useState(null);
+    const [currentTab, setCurrentTab] = useState(tab);
   
   // Track URL changes (Prop changes) to update sub-page content
   useEffect(() => {
@@ -90,14 +89,14 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
     accidentHelpline: "",
     contactPolice: "",
     insurance: "",
-  });
-  
-  const [isModalMinimized, setIsModalMinimized] = useState(false);
-  const [eta, setEta] = useState(null);
-  const lastLocationSentAt = useRef(0);
-  const lastCoordRef = useRef(null);
-  const rollingSpeedRef = useRef([]);
-  const lastAutoArrivalRef = useRef({ PICKING_UP: false, PICKED_UP: false });
+    });
+    
+    const [isModalMinimized, setIsModalMinimized] = useState(false);
+    const [eta, setEta] = useState(null);
+    const lastLocationSentAt = useRef(0);
+    const lastCoordRef = useRef(null);
+    const rollingSpeedRef = useRef([]);
+    const lastAutoArrivalRef = useRef({ PICKING_UP: false, PICKED_UP: false });
 
   const [zoom, setZoom] = useState(14);
   const [isSimMode, setIsSimMode] = useState(false);
@@ -106,6 +105,41 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
   const [simProgress, setSimProgress] = useState(0); // 0 to 1 between points
   const [activePolyline, setActivePolyline] = useState(null);
   const mapRef = useRef(null);
+  const isSimModeRef = useRef(isSimMode);
+
+  useEffect(() => {
+    isSimModeRef.current = isSimMode;
+  }, [isSimMode]);
+
+  const handleSimPathReceived = useCallback((nextPath) => {
+    if (!Array.isArray(nextPath) || nextPath.length < 2) return;
+
+    setSimPath((prevPath) => {
+      if (isSimModeRef.current && Array.isArray(prevPath) && prevPath.length > 1) {
+        return prevPath;
+      }
+
+      const isSamePath =
+        Array.isArray(prevPath) &&
+        prevPath.length === nextPath.length &&
+        prevPath.every((point, index) =>
+          point?.lat === nextPath[index]?.lat && point?.lng === nextPath[index]?.lng,
+        );
+
+      return isSamePath ? prevPath : nextPath;
+    });
+  }, []);
+
+  const handlePolylineReceived = useCallback((poly) => {
+    const normalizedPolyline =
+      typeof poly === 'string' ? poly : (poly?.points || null);
+
+    if (!normalizedPolyline) return;
+
+    setActivePolyline((prevPolyline) =>
+      prevPolyline === normalizedPolyline ? prevPolyline : normalizedPolyline,
+    );
+  }, []);
 
   const isLoggingOut = useRef(false);
   const handleLogout = useCallback(() => {
@@ -175,35 +209,24 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
             const now = Date.now();
             if (now - lastSimUpdateSentAt.current >= 2000) { // Reduced to 2s to match backend throttle
               lastSimUpdateSentAt.current = now;
-              const payload = { 
-                lat, 
-                lng, 
-                heading, 
-                orderId: activeOrder?.orderId || activeOrder?._id,
-                status: 'on_the_way',
-                polyline: activePolyline // Include polyline in every stream update for resilience
-              };
-              // A. HTTP Backup
-              deliveryAPI.updateLocation(lat, lng, true, { heading }).catch(() => {});
-              
-              // B. SOCKET LIVE (SILKY SMOOTH)
-              if (payload.orderId) emitLocation(payload);
-
-              // C. FIREBASE REALTIME DB (Persistent Route for Customer Map)
-              if (payload.orderId) {
-                writeOrderTracking(payload.orderId, { 
+                const payload = { 
                   lat, 
                   lng, 
                   heading, 
-                  polyline: activePolyline,
-                  status: tripStatus,
-                  eta: eta // Publish live ETA to Firebase
-                }).catch(() => {});
+                  orderId: activeOrder?.orderId || activeOrder?._id,
+                  status: 'on_the_way',
+                 polyline: activePolyline, // Include polyline in every stream update for resilience
+                 eta,
+                };
+              // A. HTTP Backup
+              deliveryAPI.updateLocation(lat, lng, true, { heading }).catch(() => {});
+              
+                // B. SOCKET LIVE (SILKY SMOOTH)
+                if (payload.orderId) emitLocation(payload);
               }
             }
-          }
-          return nextProgress;
-        });
+            return nextProgress;
+          });
       }, 50); // 20 FPS movement
     }
     return () => clearInterval(interval);
@@ -235,14 +258,16 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
     { title: "Insurance", subtitle: "Policy & claim help", icon: <AlertTriangle className="text-green-600" />, phone: emergencyNumbers.insurance },
   ];
 
-  // Reset simulation when path, order or mode changes
-  useEffect(() => {
-    if (isSimMode) {
-      console.log('[SimAuto] Resetting simulation playhead...');
-      setSimIndex(0);
-      setSimProgress(0);
-    }
-  }, [simPath, tripStatus, isSimMode]);
+    // Reset simulation only when a new trip/mode starts.
+    // Do not reset on every path refresh, or the rider keeps restarting
+    // from the beginning of the simulated route.
+    useEffect(() => {
+      if (isSimMode) {
+        console.log('[SimAuto] Resetting simulation playhead...');
+        setSimIndex(0);
+        setSimProgress(0);
+      }
+    }, [tripStatus, isSimMode, activeOrder?._id]);
 
   // Auto-restore modal when status or content changes
 
@@ -392,47 +417,36 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
         lastLocationSentAt.current = now;
         lastCoordRef.current = { lat, lng };
         
-        const payload = { 
-          lat, 
-          lng, 
-          heading: heading || 0,
-          speed: speed || 0,
-          accuracy: pos.coords.accuracy,
-          orderId: activeOrder?.orderId || activeOrder?._id,
-          status: 'on_the_way',
-          polyline: activePolyline
-        };
+          const payload = { 
+            lat, 
+            lng, 
+            heading: heading || 0,
+            speed: speed || 0,
+            accuracy: pos.coords.accuracy,
+            orderId: activeOrder?.orderId || activeOrder?._id,
+            status: 'on_the_way',
+            polyline: activePolyline,
+            eta,
+          };
 
         // A. HTTP Backup
         deliveryAPI.updateLocation(lat, lng, true, { 
           heading: heading || 0,
           speed: speed || 0,
           accuracy: pos.coords.accuracy 
-        }).catch(() => {});
-
-        // B. SOCKET LIVE (SILKY SMOOTH)
-        if (payload.orderId) emitLocation(payload);
-
-        // C. FIREBASE REALTIME DB (Persistent)
-        if (payload.orderId) {
-          writeOrderTracking(payload.orderId, {
-            lat,
-            lng,
-            heading: heading || 0,
-            polyline: activePolyline,
-            status: tripStatus,
-            eta: eta // Publish live ETA to Firebase for customer
           }).catch(() => {});
+
+          // B. SOCKET LIVE (SILKY SMOOTH)
+          if (payload.orderId) emitLocation(payload);
         }
-      }
-    }, () => toast.error('GPS Needed!'), { 
-      enableHighAccuracy: true,
-      maximumAge: 0,
-      timeout: 5000
-    });
-    
-    return () => navigator.geolocation.clearWatch(watchId);
-  }, [isOnline, setRiderLocation, isSimMode]);
+      }, () => toast.error('GPS Needed!'), { 
+        enableHighAccuracy: true,
+        maximumAge: 0,
+        timeout: 5000
+      });
+      
+      return () => navigator.geolocation.clearWatch(watchId);
+    }, [isOnline, setRiderLocation, isSimMode, activeOrder, activePolyline, emitLocation, eta, tripStatus, distanceToTarget, reachPickup, reachDrop]);
 
   // 3.5. Background Ping / Heartbeat
   // If watchPosition stops firing (e.g. app in background or device stationary),
@@ -683,20 +697,15 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
       <div className={`flex-1 relative overflow-y-auto ${currentTab === 'history' ? 'pt-0' : 'pt-[120px]'} no-scrollbar`}>
          {currentTab === 'feed' ? (
            <div className="absolute inset-0 top-[-120px]">
-             <LiveMap 
-               onMapLoad={(m) => mapRef.current = m}
-               onMapClick={handleMapClick}
-               onPathReceived={setSimPath}
-               onPolylineReceived={(poly) => {
-                 setActivePolyline(poly);
-                 // If we have an order, push the INITIAL polyline to Firebase immediately for the customer
-                 const orderId = activeOrder?.orderId || activeOrder?._id;
-                 if (orderId && poly) {
-                   writeOrderTracking(orderId, { polyline: poly, status: tripStatus, eta: eta }).catch(() => {});
-                 }
-               }}
-               zoom={zoom}
-             />
+               <LiveMap 
+                 onMapLoad={(m) => mapRef.current = m}
+                 onMapClick={handleMapClick}
+                 onPathReceived={handleSimPathReceived}
+                 onPolylineReceived={handlePolylineReceived}
+                 zoom={zoom}
+                 simulationPath={simPath}
+                 simulationLocked={isSimMode && simPath.length > 1}
+               />
              
              {/* SIMULATION INDICATOR */}
              {isSimMode && (

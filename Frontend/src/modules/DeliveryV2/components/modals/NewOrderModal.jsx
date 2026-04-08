@@ -66,16 +66,17 @@ export const NewOrderModal = ({ order, onAccept, onReject, onMinimize }) => {
   if (!order) return null;
 
   const earnings = order.earnings || order.riderEarning || (order.orderAmount ? order.orderAmount * 0.1 : 0);
+  const isQuickOrder = String(order?.orderType || order?.serviceType || order?.type || '').trim().toLowerCase() === 'quick';
   const restaurantName =
-    order?.dispatchLeg?.pickupType === 'food'
-      ? order?.dispatchLeg?.sourceName ||
-        order.restaurantName ||
-        order.restaurant_name ||
-        order.restaurantId?.restaurantName ||
-        order.restaurantId?.name ||
-        'Restaurant'
-      : order.restaurantName || order.restaurant_name || order.restaurantId?.name || 'Restaurant';
-  const restaurantAddress = order.restaurantAddress || order.restaurant_address || (order.restaurantId?.location?.address) || 'Address not available';
+    order?.dispatchLeg?.sourceName ||
+    (isQuickOrder
+      ? order?.storeName || order?.sellerName || order?.seller?.shopName || order?.seller?.name || 'Seller store'
+      : order?.restaurantName || order?.restaurant_name || order?.restaurantId?.restaurantName || order?.restaurantId?.name || 'Restaurant');
+  const restaurantAddress =
+    (isQuickOrder
+      ? order?.storeAddress || order?.sellerAddress || order?.seller?.location?.address || order?.seller?.location?.formattedAddress
+      : order?.restaurantAddress || order?.restaurant_address || order?.restaurantId?.location?.address) ||
+    'Address not available';
   const deliveryAddress = order?.deliveryAddress || {};
 
   const geoCoords =
@@ -119,7 +120,7 @@ export const NewOrderModal = ({ order, onAccept, onReject, onMinimize }) => {
     : [
         {
           id: order?.dispatchLeg?.legId || 'food:primary',
-          pickupType: order?.dispatchLeg?.pickupType === 'quick' ? 'quick' : 'food',
+          pickupType: order?.dispatchLeg?.pickupType === 'quick' || isQuickOrder ? 'quick' : 'food',
           sourceName: order?.dispatchLeg?.sourceName || restaurantName,
           address: order?.dispatchLeg?.address || restaurantAddress,
         },

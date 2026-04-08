@@ -531,6 +531,11 @@ export default function OrdersPage({ statusKey = "all" }) {
         orderOtp: order.deliveryOtp,
         address: order.address || order.customerAddress || order.deliveryAddress,
         refundStatus: order.payment?.refund?.status || (order.payment?.status === 'refunded' ? 'processed' : null),
+        refundPreference: {
+          requestedMethod: order.payment?.refund?.requestedMethod || null,
+          processedMethod: order.payment?.refund?.processedMethod || null,
+          requestedByUser: Boolean(order.payment?.refund?.requestedByUser),
+        },
         refundPolicy: {
           isUserCancelledOnline:
             backendStatus === "cancelled_by_user" &&
@@ -784,28 +789,14 @@ export default function OrdersPage({ statusKey = "all" }) {
     }
   }
 
-  // Handle refund button click - show modal for wallet payments, confirm dialog for others
+  // Handle refund button click
   const handleRefund = (order) => {
-    const allowCustomAmount = order.refundPolicy?.allowPartialRefund
-
-    if (allowCustomAmount) {
-      setSelectedOrderForRefund(order)
-      setRefundModalOpen(true)
-    } else {
-      const confirmMessage = order.refundPolicy?.requiresFullRefund
-        ? `Order ${order.orderId} is eligible for full refund only.\n\nFull refund of \u20B9${Number(order.totalAmount || 0).toFixed(2)} will be processed. Continue?`
-        : `Are you sure you want to process refund for order ${order.orderId}?\n\nThis will initiate a full refund to the customer's original payment method.`;
-      
-      if (!confirm(confirmMessage)) {
-        return
-      }
-      
-      processRefund(order, null) // null amount means use default
-    }
+    setSelectedOrderForRefund(order)
+    setRefundModalOpen(true)
   }
 
   // Process refund with amount
-  const processRefund = async (order, refundAmount = null) => {
+  const processRefund = async (order, refundAmount = null, refundTo = null) => {
     // Try using MongoDB _id first (more reliable for route matching), then fallback to orderId string
     // Backend accepts either MongoDB ObjectId (24 chars) or orderId string
     // Using MongoDB _id is more reliable for route matching (no dashes/special chars)
@@ -838,20 +829,40 @@ export default function OrdersPage({ statusKey = "all" }) {
       })
       
       // Include refundAmount in request body if provided (ensure it's a number)
-      const requestData = refundAmount !== null ? { refundAmount: parseFloat(refundAmount) } : {}
+      const requestData = {
+        ...(refundAmount !== null ? { refundAmount: parseFloat(refundAmount) } : {}),
+        ...(refundTo ? { refundTo } : {}),
+      }
       debugLog('?? Request data being sent:', requestData)
       const response = await adminAPI.processRefund(orderIdToUse, requestData)
       
       if (response.data?.success) {
+        const effectiveRefundMethod =
+          refundTo ||
+          order?.refundPreference?.requestedMethod ||
+          (order.paymentType === "Wallet" || order.payment?.method === "wallet" ? "wallet" : "gateway")
         const isWalletPayment = order.paymentType === "Wallet" || order.payment?.method === "wallet";
         toast.success(response.data?.message || (isWalletPayment 
           ? `Wallet refund of \u20B9${refundAmount || order.totalAmount} processed successfully for order ${order.orderId}`
-          : `Refund initiated successfully for order ${order.orderId}`))
+          : `Refund to ${effectiveRefundMethod === "wallet" ? "wallet" : "original payment method"} processed successfully for order ${order.orderId}`))
         // Update the order in the local state immediately to show "Refunded" status
         setOrders(prevOrders => 
           prevOrders.map(o => 
             (o.id === order.id || o.orderId === order.orderId)
-              ? { ...o, refundStatus: 'processed' } // Wallet refunds are instant, so mark as processed
+              ? {
+                  ...o,
+                  refundStatus: 'processed',
+                  payment: {
+                    ...(o.payment || {}),
+                    refund: {
+                      ...(o.payment?.refund || {}),
+                      status: 'processed',
+                      processedMethod: effectiveRefundMethod,
+                      requestedMethod:
+                        o.payment?.refund?.requestedMethod || effectiveRefundMethod,
+                    },
+                  },
+                }
               : o
           )
         )
@@ -917,9 +928,9 @@ export default function OrdersPage({ statusKey = "all" }) {
   }
 
   // Handle refund confirmation from modal
-  const handleRefundConfirm = (amount) => {
+  const handleRefundConfirm = (amount, refundTo) => {
     if (selectedOrderForRefund) {
-      processRefund(selectedOrderForRefund, amount)
+      processRefund(selectedOrderForRefund, amount, refundTo)
     }
   }
 

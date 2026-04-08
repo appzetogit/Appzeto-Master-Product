@@ -10,6 +10,7 @@ import {
 } from '@react-google-maps/api';
 import { useDeliveryStore } from '@/modules/DeliveryV2/store/useDeliveryStore';
 import { zoneAPI } from '@food/api';
+import { buildVisibleRouteFromRiderPosition } from '@food/utils/liveTrackingPolyline';
 import { normalizeLocationPoint, normalizePickupPoints } from '@/modules/DeliveryV2/utils/orderRouting';
 
 const mapContainerStyle = {
@@ -41,8 +42,26 @@ const mapOptions = {
 };
 const LIBRARIES = ['places', 'geometry'];
 
-export const LiveMap = ({ onMapClick, onMapLoad, onPathReceived, onPolylineReceived, zoom = 12 }) => {
+export const LiveMap = ({
+  onMapClick,
+  onMapLoad,
+  onPathReceived,
+  onPolylineReceived,
+  zoom = 12,
+  simulationPath = [],
+  simulationLocked = false,
+}) => {
   const { riderLocation, activeOrder, tripStatus } = useDeliveryStore();
+  const onPathReceivedRef = useRef(onPathReceived);
+  const onPolylineReceivedRef = useRef(onPolylineReceived);
+
+  useEffect(() => {
+    onPathReceivedRef.current = onPathReceived;
+  }, [onPathReceived]);
+
+  useEffect(() => {
+    onPolylineReceivedRef.current = onPolylineReceived;
+  }, [onPolylineReceived]);
   
   const { isLoaded, loadError } = useJsApiLoader({
     googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_API_KEY,
@@ -134,26 +153,29 @@ export const LiveMap = ({ onMapClick, onMapLoad, onPathReceived, onPolylineRecei
   }, [lastDirectionsAt, directions, parsedRiderLocation, targetLocation]);
 
   useEffect(() => {
-    if (directions && onPathReceived) {
+    if (directions) {
       const path = directions.routes[0]?.overview_path;
-      if (path) {
+      if (path && onPathReceivedRef.current) {
         const simplePath = path.map(p => ({
           lat: typeof p.lat === 'function' ? p.lat() : (p.lat || p.latitude),
           lng: typeof p.lng === 'function' ? p.lng() : (p.lng || p.longitude)
         }));
-        onPathReceived(simplePath);
+        onPathReceivedRef.current(simplePath);
+      }
+
+      const encodedPolyline = directions.routes[0]?.overview_polyline;
+      if (encodedPolyline && onPolylineReceivedRef.current) {
+        onPolylineReceivedRef.current(encodedPolyline);
       }
     }
-  }, [directions, onPathReceived]);
+  }, [directions]);
 
   const directionsCallback = useCallback((result, status) => {
     if (status === 'OK' && result) {
       setDirections(result);
       setLastDirectionsAt(Date.now());
-      const encodedPolyline = result.routes[0]?.overview_polyline;
-      if (encodedPolyline && onPolylineReceived) onPolylineReceived(encodedPolyline);
     }
-  }, [onPolylineReceived]);
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -200,17 +222,21 @@ export const LiveMap = ({ onMapClick, onMapLoad, onPathReceived, onPolylineRecei
   }, [map, parsedRiderLocation]);
 
   const remainingPath = useMemo(() => {
-    if (!directions || !parsedRiderLocation) return [];
-    const fullPath = directions.routes[0].overview_path;
-    let closestIndex = 0;
-    let minDist = Infinity;
-    const rPos = new window.google.maps.LatLng(parsedRiderLocation.lat, parsedRiderLocation.lng);
-    for (let i = 0; i < fullPath.length; i++) {
-       const d = window.google.maps.geometry.spherical.computeDistanceBetween(rPos, fullPath[i]);
-       if (d < minDist) { minDist = d; closestIndex = i; }
-    }
-    return [{ lat: parsedRiderLocation.lat, lng: parsedRiderLocation.lng }, ...fullPath.slice(closestIndex + 1)];
-  }, [directions, parsedRiderLocation]);
+    if (!parsedRiderLocation) return [];
+
+    const fullPath = simulationLocked && Array.isArray(simulationPath) && simulationPath.length > 1
+      ? simulationPath
+      : (directions?.routes?.[0]?.overview_path || []).map((point) => ({
+          lat: typeof point.lat === 'function' ? point.lat() : point.lat,
+          lng: typeof point.lng === 'function' ? point.lng() : point.lng,
+        }));
+
+    if (fullPath.length < 2) return fullPath;
+
+    return buildVisibleRouteFromRiderPosition(fullPath, parsedRiderLocation, {
+      offRouteThresholdMeters: 35,
+    }).visiblePolyline;
+  }, [directions, parsedRiderLocation, simulationLocked, simulationPath]);
 
   if (loadError) return <div className="absolute inset-0 flex items-center justify-center bg-gray-50 text-red-500 font-bold">Map Load Error</div>;
   if (!isLoaded) return <div className="absolute inset-0 flex items-center justify-center bg-gray-50"><div className="w-10 h-10 border-4 border-green-500 border-t-transparent rounded-full animate-spin" /></div>;
@@ -232,7 +258,7 @@ export const LiveMap = ({ onMapClick, onMapLoad, onPathReceived, onPolylineRecei
         onClick={(e) => onMapClick?.(e.latLng.lat(), e.latLng.lng())}
         options={mapOptions}
       >
-        {directionsServiceOptions && shouldUpdateRoute && (
+        {directionsServiceOptions && shouldUpdateRoute && !simulationLocked && (
           <DirectionsService options={directionsServiceOptions} callback={directionsCallback} />
         )}
 

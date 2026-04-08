@@ -6,10 +6,10 @@ import { toast } from "sonner";
 import { Button } from "@food/components/ui/button";
 import { useCart } from "@food/context/CartContext";
 import { useProfile } from "@food/context/ProfileContext";
+import { sanitizeOrderImage, sanitizeOrderNotes } from "@food/utils/orderPayload";
 import { orderAPI } from "@food/api";
 import { initRazorpayPayment } from "@food/utils/razorpay";
 import { useCompanyName } from "@food/hooks/useCompanyName";
-import { sanitizeOrderImage, sanitizeOrderNotes } from "@food/utils/orderPayload";
 
 const RUPEE_SYMBOL = "\u20B9";
 
@@ -34,12 +34,54 @@ const formatFullAddress = (address) => {
 const getAddressId = (address) =>
   address?._id || address?.id || address?.addressId || address?.placeId || null;
 
+const normalizeAddressLabel = (label) => {
+  const value = String(label || "").trim().toLowerCase();
+  if (value === "home") return "Home";
+  if (value === "office" || value === "work") return "Office";
+  return "Other";
+};
+
+const isMongoIdLike = (value) => /^[a-fA-F0-9]{24}$/.test(String(value || "").trim());
+
+const getQuickSourceId = (item) =>
+  String(
+    item?.sourceId ||
+      item?.quickStoreId ||
+      item?.storeId ||
+      item?.sellerId ||
+      item?.restaurantId ||
+      "",
+  ).trim();
+
+const buildOrderAddress = (address, userProfile) => ({
+  label: normalizeAddressLabel(address?.label),
+  name: userProfile?.name || "Customer",
+  street:
+    address?.street ||
+    address?.address ||
+    address?.formattedAddress ||
+    "Address unavailable",
+  additionalDetails: address?.additionalDetails || "",
+  city: address?.city || address?.area || "NA",
+  state: address?.state || address?.city || "NA",
+  zipCode: address?.zipCode || address?.postalCode || "",
+  phone: address?.phone || userProfile?.phone || "",
+  ...(Array.isArray(address?.location?.coordinates)
+    ? {
+        location: {
+          type: "Point",
+          coordinates: address.location.coordinates,
+        },
+      }
+    : {}),
+});
+
 const mapCartItemsToPayload = (cart) =>
   cart.map((item) => ({
     itemId: String(item.id || item._id),
     name: item.name || "Item",
     type: "quick",
-    sourceId: item.sourceId || item.quickStoreId || item.storeId || item.sellerId || "quick-commerce",
+    sourceId: getQuickSourceId(item),
     sourceName: item.sourceName || item.quickStoreName || item.storeName || "Quick Commerce",
     quantity: Number(item.quantity || 1),
     price: Number(item.price || 0),
@@ -50,9 +92,9 @@ const mapCartItemsToPayload = (cart) =>
 
 export default function QuickSharedCart() {
   const navigate = useNavigate();
-  const companyName = useCompanyName();
   const { cart, updateQuantity, clearCart } = useCart();
   const { addresses = [], getDefaultAddress, userProfile } = useProfile();
+  const companyName = useCompanyName();
 
   const [selectedAddressId, setSelectedAddressId] = useState(null);
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState("cash");
@@ -85,37 +127,30 @@ export default function QuickSharedCart() {
   useEffect(() => {
     if (quickCart.length === 0) {
       setPricing(null);
+      setIsPricingLoading(false);
       return;
     }
 
-    let cancelled = false;
-    const run = async () => {
-      try {
-        setIsPricingLoading(true);
-        const response = await orderAPI.calculateOrder({
-          orderType: "quick",
-          items: mapCartItemsToPayload(quickCart),
-        });
+    const subtotalValue = quickCart.reduce(
+      (sum, item) => sum + Number(item.price || 0) * Number(item.quantity || 1),
+      0,
+    );
+    const deliveryFeeValue = 25;
+    const platformFeeValue = 0;
+    const taxValue = 0;
+    const totalValue = subtotalValue + deliveryFeeValue + platformFeeValue + taxValue;
 
-        if (!cancelled) {
-          setPricing(response?.data?.data?.pricing || null);
-        }
-      } catch (error) {
-        if (!cancelled) {
-          console.error("Quick shared pricing failed", error);
-          toast.error("Couldn't refresh quick cart pricing");
-        }
-      } finally {
-        if (!cancelled) {
-          setIsPricingLoading(false);
-        }
-      }
-    };
-
-    run();
-    return () => {
-      cancelled = true;
-    };
+    setPricing({
+      subtotal: subtotalValue,
+      deliveryFee: deliveryFeeValue,
+      platformFee: platformFeeValue,
+      tax: taxValue,
+      discount: 0,
+      packagingFee: 0,
+      total: totalValue,
+      currency: "INR",
+    });
+    setIsPricingLoading(false);
   }, [quickCart]);
 
   const subtotal = pricing?.subtotal || quickCart.reduce((sum, item) => sum + Number(item.price || 0) * Number(item.quantity || 1), 0);
@@ -136,26 +171,22 @@ export default function QuickSharedCart() {
       return;
     }
 
+    const invalidQuickItems = quickCart.filter((item) => !isMongoIdLike(getQuickSourceId(item)));
+    if (invalidQuickItems.length > 0) {
+      console.error("Quick cart contains items without a valid seller/store id", invalidQuickItems);
+      toast.error("Some quick-cart items are missing store info. Clear the cart and add them again.");
+      return;
+    }
+
     try {
       setIsPlacingOrder(true);
+      const deliveryAddress = buildOrderAddress(selectedAddress, userProfile);
       const orderPayload = {
         orderType: "quick",
         items: mapCartItemsToPayload(quickCart),
-        address: {
-          label: selectedAddress.label || "Home",
-          street: selectedAddress.street || selectedAddress.address || selectedAddress.formattedAddress || "",
-          additionalDetails: selectedAddress.additionalDetails || "",
-          city: selectedAddress.city || "",
-          state: selectedAddress.state || "",
-          zipCode: selectedAddress.zipCode || "",
-          phone: selectedAddress.phone || userProfile?.phone || "",
-          location: Array.isArray(selectedAddress?.location?.coordinates)
-            ? {
-                type: "Point",
-                coordinates: selectedAddress.location.coordinates,
-              }
-            : undefined,
-        },
+        address: deliveryAddress,
+        customerName: userProfile?.name || "Customer",
+        customerPhone: deliveryAddress.phone,
         pricing: {
           subtotal,
           deliveryFee,
@@ -175,7 +206,9 @@ export default function QuickSharedCart() {
       if (selectedPaymentMethod === "cash") {
         toast.success("Quick order placed successfully");
         clearCart();
-        navigate(`/user/orders/${order?.orderId || order?._id}?confirmed=true`);
+        navigate(`/food/user/orders/${order?._id || order?.orderId || order?.id}?confirmed=true`, {
+          state: order ? { prefetchedOrder: order } : undefined,
+        });
         return;
       }
 
@@ -193,10 +226,10 @@ export default function QuickSharedCart() {
         prefill: {
           name: userProfile?.name || "",
           email: userProfile?.email || "",
-          contact: (userProfile?.phone || selectedAddress?.phone || "").replace(/\D/g, "").slice(-10),
+          contact: String(deliveryAddress.phone || "").replace(/\D/g, "").slice(-10),
         },
         notes: {
-          orderId: order?.orderId || "",
+          orderId: order?._id || order?.orderId || "",
           orderType: "quick",
         },
         handler: async (response) => {
@@ -210,10 +243,13 @@ export default function QuickSharedCart() {
           if (verifyResponse?.data?.success) {
             toast.success("Quick order placed successfully");
             clearCart();
-            navigate(`/user/orders/${order?.orderId || order?._id}?confirmed=true`);
-          } else {
-            throw new Error("Payment verification failed");
+            navigate(`/food/user/orders/${order?._id || order?.orderId || order?.id}?confirmed=true`, {
+              state: order ? { prefetchedOrder: order } : undefined,
+            });
+            return;
           }
+
+          throw new Error("Payment verification failed");
         },
       });
     } catch (error) {
@@ -413,7 +449,15 @@ export default function QuickSharedCart() {
                 disabled={isPlacingOrder || isPricingLoading}
                 className="mt-5 h-12 w-full rounded-full bg-emerald-400 text-slate-950 hover:bg-emerald-300"
               >
-                {isPlacingOrder ? "Placing order..." : isPricingLoading ? "Refreshing total..." : "Place quick order"}
+                {isPlacingOrder
+                  ? selectedPaymentMethod === "razorpay"
+                    ? "Opening payment..."
+                    : "Placing order..."
+                  : isPricingLoading
+                    ? "Refreshing total..."
+                    : selectedPaymentMethod === "razorpay"
+                      ? "Pay & place quick order"
+                      : "Place quick order"}
               </Button>
             </div>
           </aside>

@@ -28,11 +28,6 @@ const SearchResults = lazy(() => import("@food/pages/user/search/ProfessionalSea
 const ProductDetail = lazy(() => import("@food/pages/user/ProductDetail"))
 
 // Cart
-const Cart = lazy(() => import("@food/pages/user/cart/Cart"))
-const Checkout = lazy(() => import("@food/pages/user/cart/Checkout"))
-const SelectAddress = lazy(() => import("@food/pages/user/cart/SelectAddress"))
-const AddressSelectorPage = lazy(() => import("@food/pages/user/cart/AddressSelectorPage"))
-
 // Orders
 const Orders = lazy(() => import("@food/pages/user/orders/Orders"))
 const OrderTracking = lazy(() => import("@food/pages/user/orders/OrderTracking"))
@@ -124,12 +119,12 @@ export default function UserRouter() {
           <Route path="search" element={<SearchResults />} />
           <Route path="product/:id" element={<ProductDetail />} />
 
-          {/* Cart - Now Public */}
-          <Route path="cart" element={<Cart />} />
-          <Route path="cart/checkout" element={<Checkout />} />
-          <Route path="cart/select-address" element={<SelectAddress />} />
-          <Route path="address-selector" element={<AddressSelectorPage />} />
-          <Route path="cart/address-selector" element={<AddressSelectorPage />} />
+          {/* Cart - canonicalized globally under /cart */}
+          <Route path="cart" element={<Navigate to="/cart" replace />} />
+          <Route path="cart/checkout" element={<Navigate to="/cart/checkout" replace />} />
+          <Route path="cart/select-address" element={<Navigate to="/cart/select-address" replace />} />
+          <Route path="address-selector" element={<Navigate to="/cart/address-selector" replace />} />
+          <Route path="cart/address-selector" element={<Navigate to="/cart/address-selector" replace />} />
 
           {/* Orders - Protected (require user auth) */}
           <Route

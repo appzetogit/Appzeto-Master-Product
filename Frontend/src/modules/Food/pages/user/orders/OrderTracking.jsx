@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
-import { useParams, Link, useSearchParams } from "react-router-dom"
+import { useParams, Link, useSearchParams, useLocation } from "react-router-dom"
 import { motion, AnimatePresence } from "framer-motion"
 import { toast } from "sonner"
 import {
@@ -29,13 +29,14 @@ import {
   DialogTitle,
 } from "@food/components/ui/dialog"
 import { Textarea } from "@food/components/ui/textarea"
-import { useOrders } from "@food/context/OrdersContext"
+import { useOptionalOrders } from "@food/context/OrdersContext"
 import { useProfile } from "@food/context/ProfileContext"
 import { useLocation as useUserLocation } from "@food/hooks/useLocation"
 import DeliveryTrackingMap from "@food/components/user/DeliveryTrackingMap"
 import { orderAPI, restaurantAPI } from "@food/api"
 import { useCompanyName } from "@food/hooks/useCompanyName"
 import { useUserNotifications } from "@food/hooks/useUserNotifications"
+import { customerApi } from "../../../../quickCommerce/user/services/customerApi"
 import circleIcon from "@food/assets/circleicon.png"
 import { RESTAURANT_PIN_SVG, CUSTOMER_PIN_SVG, RIDER_BIKE_SVG } from "@food/constants/mapIcons"
 
@@ -629,6 +630,9 @@ function normalizeLookupId(value) {
 }
 
 function extractOrderDetailsPayload(response) {
+  if (response?.data?.success && response?.data?.result && typeof response.data.result === "object") {
+    return response.data.result
+  }
   if (response?.data?.success && response?.data?.data?.order) {
     return response.data.data.order
   }
@@ -641,20 +645,153 @@ function extractOrderDetailsPayload(response) {
   return null
 }
 
+function normalizeQuickWorkflowStatus(rawStatus) {
+  const status = String(rawStatus || "").trim().toUpperCase()
+  if (!status) return null
+  if (status === "CREATED" || status === "PENDING") return "created"
+  if (status === "CONFIRMED" || status === "ACCEPTED") return "confirmed"
+  if (status === "PACKING" || status === "PREPARING" || status === "PROCESSING") return "preparing"
+  if (status === "READY" || status === "READY_FOR_PICKUP") return "ready_for_pickup"
+  if (status === "OUT_FOR_DELIVERY" || status === "PICKED_UP") return "out_for_delivery"
+  if (status === "DELIVERED" || status === "COMPLETED") return "delivered"
+  if (status.includes("CANCEL")) return "cancelled"
+  return status.toLowerCase()
+}
+
+function normalizeQuickOrderForTracking(rawOrder) {
+  if (!rawOrder || typeof rawOrder !== "object") return rawOrder
+
+  const seller =
+    rawOrder.seller ||
+    rawOrder.store ||
+    rawOrder.storeId ||
+    rawOrder.sellerId ||
+    {}
+
+  const sellerCoords = Array.isArray(seller?.location?.coordinates)
+    ? seller.location.coordinates
+    : Number.isFinite(Number(seller?.location?.lng)) && Number.isFinite(Number(seller?.location?.lat))
+      ? [Number(seller.location.lng), Number(seller.location.lat)]
+      : null
+
+  const sellerName = String(
+    rawOrder.storeName ||
+      rawOrder.sellerName ||
+      seller?.name ||
+      seller?.storeName ||
+      "Store",
+  ).trim()
+
+  const sellerAddress = String(
+    seller?.location?.formattedAddress ||
+      seller?.location?.address ||
+      seller?.address ||
+      rawOrder.restaurantAddress ||
+      "",
+  ).trim()
+
+  const address = rawOrder.address || rawOrder.deliveryAddress || {}
+  const addressCoords = Array.isArray(address?.location?.coordinates)
+    ? address.location.coordinates
+    : Number.isFinite(Number(address?.location?.lng)) && Number.isFinite(Number(address?.location?.lat))
+      ? [Number(address.location.lng), Number(address.location.lat)]
+      : null
+
+  const deliveryPartner =
+    rawOrder.deliveryPartnerId ||
+    rawOrder.deliveryPartner ||
+    rawOrder.deliveryBoy ||
+    rawOrder.rider ||
+    null
+
+  return {
+    ...rawOrder,
+    orderType: "quick",
+    restaurantName: rawOrder.restaurantName || sellerName,
+    restaurantPhone:
+      rawOrder.restaurantPhone ||
+      seller?.phone ||
+      seller?.phoneNumber ||
+      "",
+    restaurantId: rawOrder.restaurantId || seller || null,
+    restaurantAddress: rawOrder.restaurantAddress || sellerAddress,
+    status:
+      rawOrder.status ||
+      rawOrder.orderStatus ||
+      normalizeQuickWorkflowStatus(rawOrder.workflowStatus) ||
+      "created",
+    orderStatus:
+      rawOrder.orderStatus ||
+      normalizeQuickWorkflowStatus(rawOrder.workflowStatus) ||
+      rawOrder.status ||
+      "created",
+    address: {
+      ...address,
+      street: address?.street || address?.address || "",
+      formattedAddress:
+        address?.formattedAddress ||
+        address?.address ||
+        [address?.street, address?.city, address?.state, address?.zipCode]
+          .filter(Boolean)
+          .join(", "),
+      location:
+        addressCoords && !address?.location?.coordinates
+          ? { ...(address.location || {}), coordinates: addressCoords }
+          : address.location,
+    },
+    pickupPoints:
+      Array.isArray(rawOrder.pickupPoints) && rawOrder.pickupPoints.length > 0
+        ? rawOrder.pickupPoints
+        : [
+            {
+              pickupType: "quick",
+              sourceId: seller?._id || seller?.id || rawOrder.sellerId || rawOrder.storeId || "quick-store",
+              sourceName: sellerName,
+              phone: seller?.phone || seller?.phoneNumber || "",
+              address: sellerAddress,
+              location: sellerCoords
+                ? {
+                    coordinates: sellerCoords,
+                    formattedAddress: sellerAddress,
+                    address: sellerAddress,
+                  }
+                : undefined,
+            },
+          ],
+    deliveryPartnerId: rawOrder.deliveryPartnerId || deliveryPartner || null,
+  }
+}
+
 export default function OrderTracking() {
   const companyName = useCompanyName()
   const { orderId } = useParams()
   const [searchParams] = useSearchParams()
+  const location = useLocation()
   const confirmed = searchParams.get("confirmed") === "true"
-  const { getOrderById } = useOrders()
+  const prefetchedOrder =
+    location.state?.prefetchedOrder ||
+    location.state?.order ||
+    null
+  const isQuickOrder =
+    String(location.state?.orderType || "").toLowerCase() === "quick" ||
+    /^QC/i.test(String(orderId || ""))
+  const ordersPath = isQuickOrder ? "/quick/orders" : "/user/orders"
+  const ordersContext = useOptionalOrders()
+  const getOrderById = ordersContext?.getOrderById || (() => null)
   const { profile, getDefaultAddress } = useProfile()
   const { location: userLiveLocation } = useUserLocation()
 
   const { isConnected: isSocketConnected } = useUserNotifications()
   
   // State for order data
-  const [order, setOrder] = useState(null)
-  const [loading, setLoading] = useState(true)
+  const [order, setOrder] = useState(() =>
+    prefetchedOrder
+      ? transformOrderForTracking(
+          isQuickOrder ? normalizeQuickOrderForTracking(prefetchedOrder) : prefetchedOrder,
+        )
+      : null,
+  )
+  const [loading, setLoading] = useState(() => !prefetchedOrder)
   const [error, setError] = useState(null)
 
   const [showConfirmation, setShowConfirmation] = useState(confirmed)
@@ -664,6 +801,7 @@ export default function OrderTracking() {
   const [showCancelDialog, setShowCancelDialog] = useState(false)
   const [showOrderDetails, setShowOrderDetails] = useState(false)
   const [cancellationReason, setCancellationReason] = useState("")
+  const [refundDestination, setRefundDestination] = useState("gateway")
   const [isCancelling, setIsCancelling] = useState(false)
   const [isInstructionsModalOpen, setIsInstructionsModalOpen] = useState(false)
   const [deliveryInstructions, setDeliveryInstructions] = useState("")
@@ -683,6 +821,16 @@ export default function OrderTracking() {
   // Kept separately so UI still renders even if the event arrives
   // before the order API poll populates `order` state.
   const [socketDropOtpCode, setSocketDropOtpCode] = useState(null)
+
+  useEffect(() => {
+    if (!prefetchedOrder) return
+    const normalizedPrefetched = isQuickOrder
+      ? normalizeQuickOrderForTracking(prefetchedOrder)
+      : prefetchedOrder
+    setOrder((prev) => transformOrderForTracking(normalizedPrefetched, prev))
+    setError(null)
+    setLoading(false)
+  }, [isQuickOrder, prefetchedOrder])
 
 
   // OTP received via socket event (deliveryDropOtp)
@@ -771,6 +919,7 @@ export default function OrderTracking() {
     resolveOrderFromList: async (rawLookupId) => {
       const needle = normalizeLookupId(rawLookupId)
       if (!needle) return null
+      if (isQuickOrder) return null
       const maxPages = 3
       const limit = 50
 
@@ -803,7 +952,9 @@ export default function OrderTracking() {
       let lastError = null
       for (const id of lookupIds) {
         try {
-          // Double guard against hammer
+          if (isQuickOrder) {
+            return await customerApi.getOrderDetails(id, options)
+          }
           return await orderAPI.getOrderDetails(id, options)
         } catch (err) {
           lastError = err
@@ -894,6 +1045,19 @@ export default function OrderTracking() {
       "picked_up",
     ].includes(status)
   }, [order?.status])
+
+  const isOnlinePaidForRefundChoice = useMemo(() => {
+    if (isQuickOrder) return false
+
+    const paymentMethod = String(order?.payment?.method || order?.paymentMethod || "").trim().toLowerCase()
+    const paymentStatus = String(order?.payment?.status || "").trim().toLowerCase()
+    const isOnlineMethod = ["razorpay", "razorpay_qr"].includes(paymentMethod)
+    const isPaidStatus =
+      !paymentStatus ||
+      ["paid", "authorized", "captured", "settled", "refunded"].includes(paymentStatus)
+
+    return isOnlineMethod && isPaidStatus
+  }, [isQuickOrder, order?.payment?.method, order?.payment?.status, order?.paymentMethod])
 
   // Single source of truth: backend order.status (+ deliveryState phase for live ride)
   useEffect(() => {
@@ -1058,7 +1222,7 @@ export default function OrderTracking() {
 
       // Check context immediately to avoid loaders if data exists locally
       if (isInitial) {
-        const rawContext = getOrderById(orderId);
+        const rawContext = isQuickOrder ? null : getOrderById(orderId);
         if (rawContext) {
           setOrder(transformOrderForTracking(rawContext));
           setLoading(false);
@@ -1079,7 +1243,10 @@ export default function OrderTracking() {
 
         if (finalOrderData) {
           setOrder(prev => {
-            const transformedOrder = transformOrderForTracking(finalOrderData, prev);
+            const transformedOrder = transformOrderForTracking(
+              isQuickOrder ? normalizeQuickOrderForTracking(finalOrderData) : finalOrderData,
+              prev,
+            );
             const ui = mapOrderToTrackingUiStatus(transformedOrder);
             terminalPollStopRef.current = ui === 'delivered' || ui === 'cancelled';
             return transformedOrder;
@@ -1126,7 +1293,7 @@ export default function OrderTracking() {
     return () => {
       isSubscribed = false;
     };
-  }, [orderId, fetchOrderDetailsWithFallback, resolveOrderFromList]);
+  }, [getOrderById, isQuickOrder, orderId, fetchOrderDetailsWithFallback, resolveOrderFromList]);
 
   // Interval Manager (dynamically adapts based on socket connection state independently)
   useEffect(() => {
@@ -1162,8 +1329,8 @@ export default function OrderTracking() {
     if (!showConfirmation) return
 
     const elapsed = Date.now() - confirmationShownAtRef.current
-    const minVisibleMs = 900
-    const maxVisibleMs = 1800
+    const minVisibleMs = 250
+    const maxVisibleMs = 700
     const hasResolvedData = Boolean(order) || Boolean(error) || !loading
     const remaining = hasResolvedData
       ? Math.max(0, minVisibleMs - elapsed)
@@ -1259,6 +1426,9 @@ export default function OrderTracking() {
     // Allow cancellation for all payment methods (Razorpay, COD, Wallet)
     // Only restrict if order is already cancelled or delivered (checked above)
 
+    setRefundDestination(
+      order?.payment?.refund?.requestedMethod === "wallet" ? "wallet" : "gateway",
+    )
     setShowCancelDialog(true);
   };
 
@@ -1272,16 +1442,24 @@ export default function OrderTracking() {
     try {
       const cancelLookupId =
         lookupIdsRef.current[0] || normalizeLookupId(orderId)
-      const response = await orderAPI.cancelOrder(cancelLookupId, { reason: cancellationReason.trim() });
+      const response = isQuickOrder
+        ? await customerApi.cancelOrder(cancelLookupId)
+        : await orderAPI.cancelOrder(cancelLookupId, {
+            reason: cancellationReason.trim(),
+            ...(isOnlinePaidForRefundChoice ? { refundTo: refundDestination } : {}),
+          });
       if (response.data?.success) {
         const paymentMethod = order?.payment?.method || order?.paymentMethod;
         const successMessage = response.data?.message ||
           (paymentMethod === 'cash' || paymentMethod === 'cod'
             ? 'Order cancelled successfully. No refund required as payment was not made.'
-            : 'Order cancelled successfully. Refund will be processed after admin approval.');
+            : `Order cancelled successfully. Refund will be reviewed by admin and sent to ${
+                refundDestination === "wallet" ? "your wallet" : "your original payment method"
+              }.`);
         toast.success(successMessage);
         setShowCancelDialog(false);
         setCancellationReason("");
+        setRefundDestination("gateway");
         // Refresh order data
         const orderResponse = await fetchOrderDetailsWithFallback({ force: true });
         if (orderResponse.data?.success && orderResponse.data.data?.order) {
@@ -1301,6 +1479,10 @@ export default function OrderTracking() {
 
   const handleUpdateInstructions = async () => {
     try {
+      if (isQuickOrder || typeof orderAPI.updateOrderInstructions !== "function") {
+        toast.error("Delivery instructions update is not available for this order yet");
+        return;
+      }
       setIsUpdatingInstructions(true);
       const response = await orderAPI.updateOrderInstructions(resolvedLookupId || orderId, deliveryInstructions);
       if (response.data?.success) {
@@ -1348,30 +1530,33 @@ export default function OrderTracking() {
       const response = await fetchOrderDetailsWithFallback({ force: true })
       const apiOrder = extractOrderDetailsPayload(response)
       if (apiOrder) {
+        const normalizedOrder = isQuickOrder
+          ? normalizeQuickOrderForTracking(apiOrder)
+          : apiOrder
 
         // Extract restaurant location coordinates with multiple fallbacks
         let restaurantCoords = null;
         let restaurantAddress = null;
 
         // Priority 1: restaurantId.location.coordinates (GeoJSON format: [lng, lat])
-        if (apiOrder.restaurantId?.location?.coordinates &&
-          Array.isArray(apiOrder.restaurantId.location.coordinates) &&
-          apiOrder.restaurantId.location.coordinates.length >= 2) {
-          restaurantCoords = apiOrder.restaurantId.location.coordinates;
+        if (normalizedOrder.restaurantId?.location?.coordinates &&
+          Array.isArray(normalizedOrder.restaurantId.location.coordinates) &&
+          normalizedOrder.restaurantId.location.coordinates.length >= 2) {
+          restaurantCoords = normalizedOrder.restaurantId.location.coordinates;
         }
         // Priority 2: restaurantId.location with latitude/longitude properties
-        else if (apiOrder.restaurantId?.location?.latitude && apiOrder.restaurantId?.location?.longitude) {
-          restaurantCoords = [apiOrder.restaurantId.location.longitude, apiOrder.restaurantId.location.latitude];
+        else if (normalizedOrder.restaurantId?.location?.latitude && normalizedOrder.restaurantId?.location?.longitude) {
+          restaurantCoords = [normalizedOrder.restaurantId.location.longitude, normalizedOrder.restaurantId.location.latitude];
         }
         // Priority 3: Check nested restaurant data
-        else if (apiOrder.restaurant?.location?.coordinates) {
-          restaurantCoords = apiOrder.restaurant.location.coordinates;
+        else if (normalizedOrder.restaurant?.location?.coordinates) {
+          restaurantCoords = normalizedOrder.restaurant.location.coordinates;
         }
         // Priority 4: Check if restaurantId is a string ID and fetch restaurant details
-        else if (typeof apiOrder.restaurantId === 'string') {
-          debugLog('?? restaurantId is a string ID, fetching restaurant details...', apiOrder.restaurantId);
+        else if (!isQuickOrder && typeof normalizedOrder.restaurantId === 'string') {
+          debugLog('?? restaurantId is a string ID, fetching restaurant details...', normalizedOrder.restaurantId);
           try {
-            const restaurantResponse = await restaurantAPI.getRestaurantById(apiOrder.restaurantId);
+            const restaurantResponse = await restaurantAPI.getRestaurantById(normalizedOrder.restaurantId);
             if (restaurantResponse?.data?.success && restaurantResponse.data.data?.restaurant) {
               const restaurant = restaurantResponse.data.data.restaurant;
               if (restaurant.location?.coordinates && Array.isArray(restaurant.location.coordinates) && restaurant.location.coordinates.length >= 2) {
@@ -1389,7 +1574,7 @@ export default function OrderTracking() {
           }
         }
 
-        setOrder(transformOrderForTracking(apiOrder, order, restaurantCoords, restaurantAddress))
+        setOrder(transformOrderForTracking(normalizedOrder, order, restaurantCoords, restaurantAddress))
       }
     } catch (err) {
       debugError('Error refreshing order:', err)
@@ -1421,7 +1606,7 @@ export default function OrderTracking() {
         <div className="max-w-lg mx-auto text-center py-20">
           <h1 className="text-lg sm:text-xl md:text-2xl font-bold mb-4">Order Not Found</h1>
           <p className="text-gray-600 mb-6">{error || 'The order you\'re looking for doesn\'t exist.'}</p>
-          <Link to="/user/orders">
+          <Link to={ordersPath}>
             <Button>Back to Orders</Button>
           </Link>
         </div>
@@ -1501,6 +1686,34 @@ export default function OrderTracking() {
     ? order.deliveryPartners.filter(Boolean)
     : []
   const hasMultipleDeliveryPartners = visibleDeliveryPartners.length > 1
+  const hasActiveDeliveryTracking =
+    visibleDeliveryPartners.length > 0 ||
+    Boolean(order?.deliveryPartnerId) ||
+    Boolean(order?.deliveryState?.currentLocation) ||
+    ['assigned', 'at_pickup', 'ready', 'on_way', 'at_drop', 'delivered'].includes(orderStatus)
+  const previewPickupSource = pickupSources[0] || null
+  const previewPickupLabel =
+    previewPickupSource?.pickupType === 'quick'
+      ? 'Store'
+      : order?.orderType === 'mixed'
+        ? 'Pickup point'
+        : 'Restaurant'
+  const previewPickupAddress =
+    previewPickupSource?.address ||
+    order?.restaurantAddress ||
+    'Preparing pickup location'
+  const previewDropAddress =
+    order?.address?.formattedAddress ||
+    [
+      order?.address?.street,
+      order?.address?.additionalDetails,
+      order?.address?.city,
+      order?.address?.state,
+      order?.address?.zipCode,
+    ]
+      .filter(Boolean)
+      .join(', ') ||
+    'Preparing delivery address'
 
   return (
     <div className="min-h-screen bg-gray-100 dark:bg-[#0a0a0a]">
@@ -1558,7 +1771,7 @@ export default function OrderTracking() {
       >
         {/* Navigation bar */}
         <div className="flex items-center justify-between px-4 py-3">
-          <Link to="/user/orders">
+          <Link to={ordersPath}>
             <motion.button
               className="w-10 h-10 flex items-center justify-center"
               whileTap={{ scale: 0.9 }}
@@ -1617,15 +1830,79 @@ export default function OrderTracking() {
 
       {/* Map Section */}
       {!isDeliveredOrder && orderStatus !== 'cancelled' && (
-        <DeliveryMap
-          orderId={orderId}
-          order={order}
-          isVisible={order !== null}
-          fallbackCustomerCoords={fallbackCustomerCoords}
-          userLiveCoords={userLiveCoords}
-          userLocationAccuracy={userLiveLocation?.accuracy ?? null}
-          onEtaUpdate={handleEtaUpdate}
-        />
+        <>
+          <DeliveryMap
+            orderId={orderId}
+            order={order}
+            isVisible={order !== null}
+            fallbackCustomerCoords={fallbackCustomerCoords}
+            userLiveCoords={userLiveCoords}
+            userLocationAccuracy={userLiveLocation?.accuracy ?? null}
+            onEtaUpdate={handleEtaUpdate}
+          />
+          {!hasActiveDeliveryTracking && (
+            <motion.div
+              className="mx-4 mt-4 rounded-3xl border border-emerald-100 bg-gradient-to-br from-emerald-50 via-white to-lime-50 p-5 shadow-sm"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-[0.2em] text-emerald-600">
+                    Live tracking
+                  </p>
+                  <h3 className="mt-2 text-lg font-bold text-gray-900">
+                    Waiting for delivery partner assignment
+                  </h3>
+                  <p className="mt-1 text-sm text-gray-600">
+                    The route map is ready. Live rider movement will appear here as soon as a rider accepts the trip.
+                  </p>
+                </div>
+                <div className="rounded-2xl bg-emerald-100 px-3 py-2 text-xs font-semibold text-emerald-700">
+                  {currentStatus.title}
+                </div>
+              </div>
+
+              <div className="mt-5 rounded-2xl border border-white/70 bg-white/90 p-4">
+                <div className="flex items-start gap-3">
+                  <div className="flex flex-col items-center pt-1">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-orange-100 text-[#EB590E]">
+                      <MapPin className="h-5 w-5" />
+                    </div>
+                    <div className="my-2 h-10 w-px border-l-2 border-dashed border-emerald-200" />
+                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+                      <HomeIcon className="h-5 w-5" />
+                    </div>
+                  </div>
+                  <div className="min-w-0 flex-1 space-y-5">
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-[0.2em] text-gray-400">
+                        {previewPickupLabel}
+                      </p>
+                      <p className="mt-1 font-semibold text-gray-900">
+                        {previewPickupSource?.name || order?.restaurant || 'Pickup location'}
+                      </p>
+                      <p className="mt-1 text-sm text-gray-500">
+                        {previewPickupAddress}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-[0.2em] text-gray-400">
+                        Delivery address
+                      </p>
+                      <p className="mt-1 font-semibold text-gray-900">
+                        Customer location
+                      </p>
+                      <p className="mt-1 text-sm text-gray-500">
+                        {previewDropAddress}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </>
       )}
 
       {/* Scrollable Content */}
@@ -2036,12 +2313,51 @@ export default function OrderTracking() {
                 disabled={isCancelling}
               />
             </div>
+            {isOnlinePaidForRefundChoice ? (
+              <div className="space-y-3 rounded-2xl border border-gray-200 bg-gray-50 p-4">
+                <div>
+                  <p className="text-sm font-semibold text-gray-900">Refund destination</p>
+                  <p className="text-xs text-gray-500">
+                    Choose where your refund should go if admin approves the cancellation.
+                  </p>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <button
+                    type="button"
+                    onClick={() => setRefundDestination("gateway")}
+                    disabled={isCancelling}
+                    className={`rounded-xl border px-4 py-3 text-left transition ${
+                      refundDestination === "gateway"
+                        ? "border-orange-500 bg-orange-50 text-orange-900"
+                        : "border-gray-200 bg-white text-gray-700 hover:border-gray-300"
+                    } ${isCancelling ? "cursor-not-allowed opacity-60" : ""}`}
+                  >
+                    <p className="text-sm font-semibold">Original payment method</p>
+                    <p className="mt-1 text-xs text-gray-500">Refund back through Razorpay.</p>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRefundDestination("wallet")}
+                    disabled={isCancelling}
+                    className={`rounded-xl border px-4 py-3 text-left transition ${
+                      refundDestination === "wallet"
+                        ? "border-orange-500 bg-orange-50 text-orange-900"
+                        : "border-gray-200 bg-white text-gray-700 hover:border-gray-300"
+                    } ${isCancelling ? "cursor-not-allowed opacity-60" : ""}`}
+                  >
+                    <p className="text-sm font-semibold">Wallet</p>
+                    <p className="mt-1 text-xs text-gray-500">Refund as wallet balance for faster reuse.</p>
+                  </button>
+                </div>
+              </div>
+            ) : null}
             <div className="flex gap-3 pt-2">
               <Button
                 variant="outline"
                 onClick={() => {
                   setShowCancelDialog(false);
                   setCancellationReason("");
+                  setRefundDestination("gateway");
                 }}
                 disabled={isCancelling}
                 className="flex-1"
@@ -2242,4 +2558,3 @@ export default function OrderTracking() {
     </div>
   )
 }
-

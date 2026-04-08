@@ -8,8 +8,9 @@ const buildCacheKey = (url, params = {}, requestConfig = {}) => {
     const entries = Object.entries(params || {}).sort(([a], [b]) => a.localeCompare(b));
     const headers = requestConfig?.headers || {};
     const authHeader = headers.Authorization || headers.authorization || "";
+    const quickSessionHeader = headers["x-quick-session"] || headers["X-Quick-Session"] || "";
     const contextModule = requestConfig?.contextModule || "";
-    return `${url}?${JSON.stringify(entries)}|${String(contextModule)}|${String(authHeader)}`;
+    return `${url}?${JSON.stringify(entries)}|${String(contextModule)}|${String(authHeader)}|${String(quickSessionHeader)}`;
 };
 
 /**

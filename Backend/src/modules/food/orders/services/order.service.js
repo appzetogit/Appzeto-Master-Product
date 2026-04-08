@@ -2326,7 +2326,7 @@ export async function getOrderById(
   return sanitizeOrderForExternal(order);
 }
 
-export async function cancelOrder(orderId, userId, reason) {
+export async function cancelOrder(orderId, userId, reason, refundTo) {
   const identity = buildOrderIdentityFilter(orderId);
   if (!identity) throw new ValidationError("Order id required");
 
@@ -2349,6 +2349,28 @@ export async function cancelOrder(orderId, userId, reason) {
     to: "cancelled_by_user",
     note: reason || "",
   });
+
+  const paymentMethod = String(order.payment?.method || "").trim().toLowerCase();
+  const isOnlinePaid =
+    ["razorpay", "razorpay_qr"].includes(paymentMethod) &&
+    (order.payment.status === "paid" || order.payment.status === "refunded");
+  const requestedRefundMethod =
+    refundTo === "wallet" || refundTo === "gateway" ? refundTo : "gateway";
+
+  if (isOnlinePaid) {
+    order.payment.refund = {
+      ...(order.payment.refund || {}),
+      status: "pending",
+      amount: Number(order.pricing?.total || 0),
+      refundId: "",
+      requestedMethod: requestedRefundMethod,
+      processedMethod: undefined,
+      requestedAt: new Date(),
+      requestedByUser: true,
+      reason: reason || "",
+      processedAt: null,
+    };
+  }
 
   // User-cancelled online refunds are handled from admin so the 30-second policy can be enforced.
   if (
@@ -2392,13 +2414,11 @@ export async function cancelOrder(orderId, userId, reason) {
     orderId: order.orderId,
     userId,
     reason: reason || "",
+    refundTo: isOnlinePaid ? requestedRefundMethod : undefined,
   });
 
   // Sync transaction status
   try {
-    const isOnlinePaid =
-      ["razorpay", "razorpay_qr"].includes(String(order.payment.method || "")) &&
-      (order.payment.status === "paid" || order.payment.status === "refunded");
     await foodTransactionService.updateTransactionStatus(order._id, 'cancelled_by_user', {
         status:
           order.payment.status === "refunded"
@@ -2415,12 +2435,9 @@ export async function cancelOrder(orderId, userId, reason) {
   }
 
   // Notify User and Restaurant about the cancellation
-  const isOnlinePaid =
-    ["razorpay", "razorpay_qr"].includes(String(order.payment.method || "")) &&
-    (order.payment.status === "paid" || order.payment.status === "refunded");
   const refundPolicyDetail =
     isOnlinePaid
-      ? ` Refund review will follow the cancellation policy: full refund within ${USER_CANCEL_FULL_REFUND_WINDOW_MS / 1000} seconds, otherwise admin may process a partial refund.`
+      ? ` Refund review will follow the cancellation policy: full refund within ${USER_CANCEL_FULL_REFUND_WINDOW_MS / 1000} seconds, otherwise admin may process a partial refund. Requested destination: ${requestedRefundMethod === "wallet" ? "wallet" : "original payment method"}.`
       : "";
 
   await notifyOwnersSafely(

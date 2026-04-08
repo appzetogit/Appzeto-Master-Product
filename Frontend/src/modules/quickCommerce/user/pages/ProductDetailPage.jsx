@@ -28,6 +28,27 @@ const normalizePrice = (value, fallback = 0) => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
+const cleanDescription = (text) => {
+  if (!text) return "No description is available for this product yet.";
+
+  const value = String(text).trim();
+  if (!value) return "No description is available for this product yet.";
+
+  if (value.startsWith("{\\rtf") || value.includes("\\par")) {
+    const cleaned = value
+      .replace(/\{\\[^}]*\}/g, " ")
+      .replace(/\\[a-z]+\d*\s?/gi, " ")
+      .replace(/\\'/g, "'")
+      .replace(/[{}]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    return cleaned || "No description is available for this product yet.";
+  }
+
+  return value;
+};
+
 const normalizeProduct = (product = {}, fallback = {}) => {
   const source = { ...fallback, ...product };
   const imageCandidates = [
@@ -58,8 +79,7 @@ const normalizeProduct = (product = {}, fallback = {}) => {
       "Quick Commerce",
     price,
     originalPrice,
-    description:
-      source.description || "No description is available for this product yet.",
+    description: cleanDescription(source.description),
     images:
       images.length > 0
         ? images

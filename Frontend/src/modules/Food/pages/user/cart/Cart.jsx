@@ -89,7 +89,7 @@ const mapOrderItem = (item) => ({
   sourceId:
     item.sourceId ||
     (item.orderType === "quick"
-      ? item.quickStoreId || item.storeId || item.sellerId || item.restaurantId || "quick-commerce"
+      ? item.quickStoreId || item.storeId || item.sellerId || item.restaurantId || ""
       : item.restaurantId),
   sourceName:
     item.sourceName ||
@@ -199,6 +199,7 @@ export default function Cart() {
   const [orderProgress, setOrderProgress] = useState(0)
   const [showOrderSuccess, setShowOrderSuccess] = useState(false)
   const [placedOrderId, setPlacedOrderId] = useState(null)
+  const [placedOrderData, setPlacedOrderData] = useState(null)
   const [selectedAddressId, setSelectedAddressId] = useState(null)
   const [deliveryAddressMode, setDeliveryAddressMode] = useState(() => {
     try {
@@ -560,6 +561,12 @@ export default function Cart() {
   // Fetch restaurant data when cart has items
   useEffect(() => {
     const fetchRestaurantData = async () => {
+      if (isQuickCart) {
+        setRestaurantData(null)
+        setLoadingRestaurant(false)
+        return
+      }
+
       if (cart.length === 0) {
         setRestaurantData(null)
         return
@@ -702,7 +709,7 @@ export default function Cart() {
     }
 
     fetchRestaurantData()
-  }, [cart.length, cart[0]?.restaurantId, cart[0]?.restaurant])
+  }, [cart.length, cart[0]?.restaurantId, cart[0]?.restaurant, isQuickCart])
 
   // Fetch approved addons for the restaurant
   useEffect(() => {
@@ -777,6 +784,12 @@ export default function Cart() {
     }
 
     const fetchAddons = async () => {
+      if (isQuickCart) {
+        setAddons([])
+        setLoadingAddons(false)
+        return
+      }
+
       if (cart.length === 0) {
         setAddons([])
         return
@@ -808,11 +821,17 @@ export default function Cart() {
     }
 
     fetchAddons()
-  }, [restaurantData, cart.length, loadingRestaurant])
+  }, [restaurantData, cart.length, loadingRestaurant, isQuickCart])
 
   // Fetch coupons for items in cart
   useEffect(() => {
     const fetchCouponsForCartItems = async () => {
+      if (isQuickCart) {
+        setAvailableCoupons([])
+        setLoadingCoupons(false)
+        return
+      }
+
       if (cart.length === 0 || !restaurantId) {
         setAvailableCoupons([])
         return
@@ -877,7 +896,7 @@ export default function Cart() {
     }
 
     fetchCouponsForCartItems()
-  }, [cart, restaurantId])
+  }, [cart, restaurantId, isQuickCart])
 
   // Calculate pricing from backend whenever cart, address, or coupon changes
   useEffect(() => {
@@ -1649,6 +1668,7 @@ export default function Cart() {
       if (selectedPaymentMethod === "cash") {
         toast.success("Order placed with Cash on Delivery")
         setPlacedOrderId(order?._id || order?.orderId || order?.id || null)
+        setPlacedOrderData(order || null)
         setShowOrderSuccess(true)
         window.dispatchEvent(new CustomEvent('order-placed', { detail: { order } }))
         clearCart()
@@ -1667,6 +1687,7 @@ export default function Cart() {
       if (selectedPaymentMethod === "wallet") {
         toast.success("Order placed with Wallet payment")
         setPlacedOrderId(order?._id || order?.orderId || order?.id || null)
+        setPlacedOrderData(order || null)
         setShowOrderSuccess(true)
         window.dispatchEvent(new CustomEvent('order-placed', { detail: { order } }))
         clearCart()
@@ -1766,6 +1787,7 @@ export default function Cart() {
                 paymentId: verifyResponse.data.data?.payment?.paymentId
               })
               setPlacedOrderId(order._id || order.orderId)
+              setPlacedOrderData(order || null)
               setShowOrderSuccess(true)
               window.dispatchEvent(new CustomEvent('order-placed', { detail: { order } }))
               clearCart()
@@ -1852,7 +1874,9 @@ export default function Cart() {
 
   const handleGoToOrders = () => {
     setShowOrderSuccess(false)
-    navigate(`/user/orders/${placedOrderId}?confirmed=true`)
+    navigate(`/user/orders/${placedOrderId}?confirmed=true`, {
+      state: placedOrderData ? { prefetchedOrder: placedOrderData } : undefined,
+    })
   }
 
   if (hasQuickItems && hasFoodItems) {

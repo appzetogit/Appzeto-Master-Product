@@ -72,11 +72,20 @@ export const PickupActionModal = ({
   }
 
   const isAtPickup = status === 'REACHED_PICKUP';
-  const restaurantName = order.restaurantName || order.restaurant_name || 'Restaurant';
-  const restaurantAddress = order.restaurantAddress || order.restaurant_address || order.restaurantLocation?.address || 'Address not available';
-  const restaurantPhone = order.restaurantPhone || order.restaurant_phone || order.restaurantId?.phone || '';
+  const isQuickOrder = String(order?.orderType || order?.serviceType || order?.type || '').trim().toLowerCase() === 'quick';
+  const restaurantName = isQuickOrder
+    ? order?.storeName || order?.sellerName || order?.seller?.shopName || order?.seller?.name || 'Seller store'
+    : order?.restaurantName || order?.restaurant_name || order?.restaurantId?.restaurantName || order?.restaurantId?.name || 'Restaurant';
+  const restaurantAddress = isQuickOrder
+    ? order?.storeAddress || order?.sellerAddress || order?.seller?.location?.address || order?.seller?.location?.formattedAddress || 'Address not available'
+    : order?.restaurantAddress || order?.restaurant_address || order?.restaurantLocation?.address || 'Address not available';
+  const restaurantPhone = isQuickOrder
+    ? order?.storePhone || order?.sellerPhone || order?.seller?.phone || ''
+    : order?.restaurantPhone || order?.restaurant_phone || order?.restaurantId?.phone || '';
   const items = order.items || [];
-  const restaurantLogo = order.restaurantImage || order.restaurant?.logo || order.restaurant?.profileImage || 'https://cdn-icons-png.flaticon.com/512/3170/3170733.png';
+  const restaurantLogo = isQuickOrder
+    ? order?.storeImage || order?.seller?.logo || order?.seller?.image || order?.seller?.profileImage || 'https://cdn-icons-png.flaticon.com/512/3170/3170733.png'
+    : order?.restaurantImage || order?.restaurant?.logo || order?.restaurant?.profileImage || 'https://cdn-icons-png.flaticon.com/512/3170/3170733.png';
   const pickupPoints = normalizePickupPoints(order);
   const mixedOrder = isMixedOrder(order);
   const pickupStops = pickupPoints.length
@@ -84,7 +93,7 @@ export const PickupActionModal = ({
     : [
         {
           id: 'food:primary',
-          pickupType: 'food',
+          pickupType: isQuickOrder ? 'quick' : 'food',
           sourceName: restaurantName,
           address: restaurantAddress,
           phone: restaurantPhone,

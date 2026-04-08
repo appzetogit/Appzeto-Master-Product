@@ -1,7 +1,16 @@
 import mongoose from 'mongoose';
 import { ValidationError } from '../../../../core/auth/errors.js';
+import { FoodUser } from '../../../../core/users/user.model.js';
 import { FoodUserWallet } from '../models/userWallet.model.js';
 import { createRazorpayOrder, getRazorpayKeyId, isRazorpayConfigured, verifyPaymentSignature } from '../../orders/helpers/razorpay.helper.js';
+
+const syncUserWalletBalance = async (userId, balance) => {
+    const numericBalance = Math.max(0, Number(balance) || 0);
+    await FoodUser.updateOne(
+        { _id: userId },
+        { $set: { walletBalance: numericBalance } }
+    );
+};
 
 const ensureWallet = async (userId) => {
     const id = String(userId || '');
@@ -11,7 +20,9 @@ const ensureWallet = async (userId) => {
     const oid = new mongoose.Types.ObjectId(id);
     const existing = await FoodUserWallet.findOne({ userId: oid });
     if (existing) return existing;
-    return FoodUserWallet.create({ userId: oid, balance: 0, transactions: [] });
+    const created = await FoodUserWallet.create({ userId: oid, balance: 0, transactions: [] });
+    await syncUserWalletBalance(oid, created.balance);
+    return created;
 };
 
 export const creditReferralReward = async (userId, amountInr, metadata = {}) => {
@@ -30,6 +41,7 @@ export const creditReferralReward = async (userId, amountInr, metadata = {}) => 
     wallet.balance = Number(wallet.balance || 0) + amount;
     wallet.referralEarnings = Number(wallet.referralEarnings || 0) + amount;
     await wallet.save();
+    await syncUserWalletBalance(userId, wallet.balance);
     return { wallet: await getUserWallet(userId) };
 };
 
@@ -138,6 +150,7 @@ export const verifyWalletTopupPayment = async (userId, payload) => {
 
     wallet.balance = Number(wallet.balance || 0) + amount;
     await wallet.save();
+    await syncUserWalletBalance(userId, wallet.balance);
 
     return { wallet: await getUserWallet(userId) };
 };
@@ -163,6 +176,7 @@ export const deductWalletBalance = async (userId, amountInr, description = 'Orde
 
     wallet.balance = Number(wallet.balance) - amount;
     await wallet.save();
+    await syncUserWalletBalance(userId, wallet.balance);
 
     return { wallet: await getUserWallet(userId) };
 };
@@ -184,6 +198,7 @@ export const refundWalletBalance = async (userId, amountInr, description = 'Orde
 
     wallet.balance = Number(wallet.balance) + amount;
     await wallet.save();
+    await syncUserWalletBalance(userId, wallet.balance);
 
     return { wallet: await getUserWallet(userId) };
 };

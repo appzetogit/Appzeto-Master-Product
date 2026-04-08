@@ -148,6 +148,19 @@ const paymentSchema = new mongoose.Schema(
             },
             amount: { type: Number, default: 0 },
             refundId: { type: String, default: '' },
+            requestedMethod: {
+                type: String,
+                enum: ['wallet', 'gateway'],
+                default: undefined
+            },
+            processedMethod: {
+                type: String,
+                enum: ['wallet', 'gateway'],
+                default: undefined
+            },
+            requestedAt: { type: Date, default: null },
+            requestedByUser: { type: Boolean, default: false },
+            reason: { type: String, default: '' },
             processedAt: { type: Date }
         }
     },

@@ -411,6 +411,8 @@ export const getOrderById = async (req, res) => {
           lng: Number(deliveryAddress.location.coordinates[0]),
         }
       : null;
+    const dropOtp = order.deliveryVerification?.dropOtp || {};
+    const handoverOtp = String(order.deliveryOtp || '').trim();
 
     return res.json({
       success: true,
@@ -445,6 +447,16 @@ export const getOrderById = async (req, res) => {
               address: sellerOrder.address || null,
             }
           : null,
+        deliveryVerification: {
+          ...(order.deliveryVerification || {}),
+          dropOtp: {
+            required: Boolean(dropOtp.required),
+            verified: Boolean(dropOtp.verified),
+          },
+        },
+        ...(dropOtp.required && !dropOtp.verified && handoverOtp
+          ? { handoverOtp }
+          : {}),
       },
     });
   } catch (error) {

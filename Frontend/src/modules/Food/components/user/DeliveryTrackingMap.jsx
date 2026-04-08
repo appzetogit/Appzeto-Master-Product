@@ -12,6 +12,7 @@ import io from 'socket.io-client';
 import { API_BASE_URL } from '@food/api/config';
 import bikeLogo from '@food/assets/bikelogo.png';
 import { subscribeOrderTracking } from '@food/realtimeTracking';
+import { buildVisibleRouteFromRiderPosition } from '@food/utils/liveTrackingPolyline';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Play, Navigation, Info, Circle } from 'lucide-react';
 
@@ -140,6 +141,15 @@ const DeliveryTrackingMap = ({
         };
         
         setRiderLocation(nextPos);
+
+        if (data.polyline) {
+          setCloudPolyline(data.polyline);
+        }
+
+        if (data.eta) {
+          setCurrentEta(data.eta);
+          if (onEtaUpdate) onEtaUpdate(data.eta);
+        }
       }
     });
 
@@ -262,6 +272,37 @@ const DeliveryTrackingMap = ({
 
   const zoom = useMemo(() => 15, []);
 
+  const visibleCloudPolylinePath = useMemo(() => {
+    if (!cloudPolyline || !window.google?.maps?.geometry?.encoding) return null;
+
+    try {
+      const encodedPolyline = typeof cloudPolyline === 'string'
+        ? cloudPolyline
+        : (cloudPolyline.points || '');
+
+      if (!encodedPolyline) return null;
+
+      const decoded = window.google.maps.geometry.encoding.decodePath(encodedPolyline);
+      const decodedPoints = decoded.map((point) => ({
+        lat: typeof point.lat === 'function' ? point.lat() : point.lat,
+        lng: typeof point.lng === 'function' ? point.lng() : point.lng,
+      }));
+
+      const visiblePolyline = displayRiderLocation
+        ? buildVisibleRouteFromRiderPosition(decodedPoints, displayRiderLocation).visiblePolyline
+        : decodedPoints;
+
+      debugLog(
+        `Visible Cloud Polyline prepared (${visiblePolyline?.length || 0}/${decodedPoints.length} points)`,
+      );
+
+      return visiblePolyline;
+    } catch (err) {
+      console.error('[DeliveryTrackingMap] Error decoding/trimming cloud polyline:', err);
+      return null;
+    }
+  }, [cloudPolyline, displayRiderLocation]);
+
   const baselineDirectionsServiceOptions = useMemo(() => {
     if (!restaurantCoords || !customerCoords) return null;
     return {
@@ -338,15 +379,9 @@ const DeliveryTrackingMap = ({
         )}
 
         {/* 2. LIVE RIDER LEG (From Rider's App: Current Rider Pos -> Target) */}
-        {cloudPolyline && window.google?.maps?.geometry?.encoding && (
+        {visibleCloudPolylinePath?.length > 0 && (
           <Polyline
-            path={(() => {
-              const decoded = window.google.maps.geometry.encoding.decodePath(
-                typeof cloudPolyline === 'string' ? cloudPolyline : (cloudPolyline.points || '')
-              );
-              debugLog(`?? Decoded Cloud Polyline with ${decoded?.length || 0} points`);
-              return decoded;
-            })()}
+            path={visibleCloudPolylinePath}
             options={{
               strokeColor: isOrderPickedUp ? '#3b82f6' : '#22c55e',
               strokeWeight: 6,
@@ -357,14 +392,14 @@ const DeliveryTrackingMap = ({
         )}
 
         {/* 2. LIVE RIDER LEG (Rider -> Target) */}
-        {!cloudPolyline && directionsServiceOptions && (
+        {!visibleCloudPolylinePath?.length && directionsServiceOptions && (
           <DirectionsService
             options={directionsServiceOptions}
             callback={shouldUpdateRoute ? directionsCallback : undefined}
           />
         )}
 
-        {directions && !cloudPolyline && (
+        {directions && !visibleCloudPolylinePath?.length && (
           <DirectionsRenderer
             directions={directions}
             options={{

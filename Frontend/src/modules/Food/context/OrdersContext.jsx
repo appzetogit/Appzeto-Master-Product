@@ -111,3 +111,7 @@ export function useOrders() {
   }
   return context
 }
+
+export function useOptionalOrders() {
+  return useContext(OrdersContext)
+}

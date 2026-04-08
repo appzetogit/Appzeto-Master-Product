@@ -7,6 +7,25 @@ cloudinary.config({
     api_secret: config.cloudinaryApiSecret
 });
 
+export const getOptimizedCloudinaryImageUrl = (url, { format = 'webp', quality = 'auto' } = {}) => {
+    if (!url || typeof url !== 'string' || !url.includes('/image/upload/')) {
+        return url;
+    }
+
+    if (url.includes(`/upload/f_${format},q_${quality}/`)) {
+        return url;
+    }
+
+    return url.replace('/upload/', `/upload/f_${format},q_${quality}/`);
+};
+
+const getImageUploadOptions = (folder) => ({
+    folder,
+    resource_type: 'image',
+    format: 'webp',
+    quality: 'auto'
+});
+
 export const uploadImageBuffer = async (buffer, folder = 'uploads') => {
     if (!buffer) {
         throw new Error('File buffer is required');
@@ -14,12 +33,12 @@ export const uploadImageBuffer = async (buffer, folder = 'uploads') => {
 
     return new Promise((resolve, reject) => {
         const stream = cloudinary.uploader.upload_stream(
-            { folder, resource_type: 'image' },
+            getImageUploadOptions(folder),
             (error, result) => {
                 if (error) {
                     return reject(error);
                 }
-                return resolve(result.secure_url);
+                return resolve(getOptimizedCloudinaryImageUrl(result.secure_url));
             }
         );
 
@@ -34,12 +53,15 @@ export const uploadImageBufferDetailed = async (buffer, folder = 'uploads') => {
 
     return new Promise((resolve, reject) => {
         const stream = cloudinary.uploader.upload_stream(
-            { folder, resource_type: 'image' },
+            getImageUploadOptions(folder),
             (error, result) => {
                 if (error) {
                     return reject(error);
                 }
-                return resolve(result);
+                return resolve({
+                    ...result,
+                    secure_url: getOptimizedCloudinaryImageUrl(result.secure_url)
+                });
             }
         );
 
@@ -57,11 +79,20 @@ export const uploadBufferDetailed = async (
 
     return new Promise((resolve, reject) => {
         const stream = cloudinary.uploader.upload_stream(
-            { folder, resource_type: resourceType },
+            resourceType === 'image'
+                ? getImageUploadOptions(folder)
+                : { folder, resource_type: resourceType },
             (error, result) => {
                 if (error) {
                     return reject(error);
                 }
+                if (resourceType === 'image') {
+                    return resolve({
+                        ...result,
+                        secure_url: getOptimizedCloudinaryImageUrl(result.secure_url)
+                    });
+                }
+
                 return resolve(result);
             }
         );
@@ -69,4 +100,3 @@ export const uploadBufferDetailed = async (
         stream.end(buffer);
     });
 };
-

@@ -233,7 +233,9 @@ export default function MixedSharedCart() {
       if (selectedPaymentMethod === "cash") {
         toast.success("Mixed order placed successfully");
         clearCart();
-        navigate(`/user/orders/${order?.orderId || order?._id}?confirmed=true`);
+        navigate(`/user/orders/${order?.orderId || order?._id}?confirmed=true`, {
+          state: order ? { prefetchedOrder: order } : undefined,
+        });
         return;
       }
 
@@ -269,7 +271,9 @@ export default function MixedSharedCart() {
           if (verifyResponse?.data?.success) {
             toast.success("Mixed order placed successfully");
             clearCart();
-            navigate(`/user/orders/${order?.orderId || order?._id}?confirmed=true`);
+            navigate(`/user/orders/${order?.orderId || order?._id}?confirmed=true`, {
+              state: order ? { prefetchedOrder: order } : undefined,
+            });
           } else {
             throw new Error("Payment verification failed");
           }

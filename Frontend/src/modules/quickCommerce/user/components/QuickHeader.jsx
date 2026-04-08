@@ -2,13 +2,13 @@ import { useState, useEffect, useRef, useLayoutEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, useScroll, useTransform, AnimatePresence } from 'framer-motion';
 import { cn } from '@/lib/utils';
-import { LayoutGrid } from 'lucide-react';
+import { LayoutGrid, Wallet } from 'lucide-react';
 import { 
   buildHeaderGradient, 
   buildMiniCartColor, 
   buildSearchBarBackgroundColor 
 } from '../utils/headerTheme';
-import { getQuickCartPath, getQuickHomePath, getQuickSearchPath } from '../utils/routes';
+import { getQuickCartPath, getQuickHomePath, getQuickSearchPath, getQuickWalletPath } from '../utils/routes';
 import { resolveQuickImageUrl } from '../utils/image';
 import logo from '../assets/Logo.png';
 import { useCart } from '../context/CartContext';
@@ -21,7 +21,6 @@ import MicIcon from "@mui/icons-material/Mic";
 import ChevronDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import FavoriteBorderOutlinedIcon from "@mui/icons-material/FavoriteBorderOutlined";
 import ShoppingCartOutlinedIcon from "@mui/icons-material/ShoppingCartOutlined";
-import AccountCircleOutlinedIcon from "@mui/icons-material/AccountCircleOutlined";
 
 /** Full-width bottom stroke + tab curve; l/r are 0–100% of column where the inner bump sits. */
 function buildActiveTabPath(l, r) {
@@ -329,9 +328,10 @@ export default function QuickHeader({ showSearch = true, activeCategory = null, 
             <motion.button
               whileHover={{ scale: 1.15 }}
               whileTap={{ scale: 0.9 }}
-              onClick={() => navigate("/quick/profile")}
-              className="text-white lg:bg-white/10 p-1.5 lg:rounded-full hover:bg-white/20 transition-all transform backdrop-blur-sm">
-              <AccountCircleOutlinedIcon sx={{ fontSize: 28 }} />
+              onClick={() => navigate(getQuickWalletPath())}
+              className="text-white lg:bg-white/10 p-1.5 lg:rounded-full hover:bg-white/20 transition-all transform backdrop-blur-sm"
+              aria-label="Open wallet">
+              <Wallet className="h-7 w-7" />
             </motion.button>
           </div>
         </div>
@@ -352,7 +352,7 @@ export default function QuickHeader({ showSearch = true, activeCategory = null, 
                 Blinkit
               </span>
             </div>
-            <div className="flex justify-between items-start">
+            <div className="flex justify-between items-start gap-3">
               <div className="flex flex-col">
                 <div className="flex items-center gap-1.5 mb-0.5">
                   <AccessTimeIcon sx={{ fontSize: 16, color: "#ffffff" }} />
@@ -372,6 +372,15 @@ export default function QuickHeader({ showSearch = true, activeCategory = null, 
                   />
                 </button>
               </div>
+              <motion.button
+                whileHover={{ scale: 1.1 }}
+                whileTap={{ scale: 0.92 }}
+                onClick={() => navigate(getQuickWalletPath())}
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/25 bg-white/10 text-white shadow-lg backdrop-blur-sm transition-all"
+                aria-label="Open wallet"
+              >
+                <Wallet className="h-5 w-5" />
+              </motion.button>
             </div>
           </motion.div>
         </div>

@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { ShoppingCart, Heart, User, MapPin } from 'lucide-react';
+import { ShoppingCart, Heart, Wallet, MapPin } from 'lucide-react';
 import { useWishlist } from '../../context/WishlistContext';
 import { useCart } from '../../context/CartContext';
 import { useLocation as useAppLocation } from "../../context/LocationContext";
 import { useSettings } from '@core/context/SettingsContext';
 import LocationDrawer from '../shared/LocationDrawer';
+import { getQuickWalletPath } from '../../utils/routes';
 
 const Header = () => {
     const { settings } = useSettings();
@@ -21,7 +22,7 @@ const Header = () => {
         <header className="fixed top-0 left-0 right-0 z-[220] px-4 pt-4 md:pt-8">
             <div className="container mx-auto max-w-6xl">
                 {/* Mobile Top Row: Location & Profile */}
-                <div className="md:hidden flex items-center justify-between mb-4 px-2 animate-in slide-in-from-top duration-500">
+                <div className="md:hidden flex items-center justify-between gap-3 mb-4 px-2 animate-in slide-in-from-top duration-500">
                     <button
                         type="button"
                         data-lenis-prevent
@@ -45,6 +46,13 @@ const Header = () => {
                             </div>
                         </div>
                     </button>
+                    <Link
+                        to={getQuickWalletPath()}
+                        className="h-10 w-10 shrink-0 rounded-2xl bg-white/20 backdrop-blur-md border border-white/30 shadow-sm flex items-center justify-center text-white"
+                        aria-label="Open wallet"
+                    >
+                        <Wallet size={20} />
+                    </Link>
                 </div>
 
                 {/* Main Header Capsule */}
@@ -108,8 +116,8 @@ const Header = () => {
                             )}
                         </Link>
 
-                        <Link to="/quick/profile" className="flex items-center justify-center">
-                            <User className="h-6 w-6 text-slate-600 hover:text-[var(--primary)] transition-colors" />
+                        <Link to={getQuickWalletPath()} className="flex items-center justify-center">
+                            <Wallet className="h-6 w-6 text-slate-600 hover:text-[var(--primary)] transition-colors" />
                         </Link>
                     </div>
                 </div>

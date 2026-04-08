@@ -45,7 +45,7 @@ const getItemSourceId = (item, orderType) =>
   String(
     item?.sourceId ||
       (orderType === "quick"
-        ? item?.quickStoreId || item?.storeId || item?.sellerId || item?.restaurantId || "quick-commerce"
+        ? item?.quickStoreId || item?.storeId || item?.sellerId || item?.restaurantId || ""
         : item?.restaurantId || item?.sourceRestaurantId || ""),
   )
 

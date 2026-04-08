@@ -7,6 +7,7 @@ import {
   Search,
   Mic,
   Bookmark,
+  Wallet,
   Bell,
   BellOff,
   X,
@@ -125,6 +126,7 @@ export default function HomeHeader({
 
   const theme = activeTab === "quick" ? quickTheme(quickThemeColor) : foodTheme;
   const isFood = activeTab === "food";
+  const walletPath = isFood ? "/food/user/wallet" : "/quick/wallet";
   const locationTitle =
     savedAddressText || location?.area || location?.city || "Select Location";
   const locationSubtitle =
@@ -263,14 +265,13 @@ export default function HomeHeader({
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
-          {isFood && (
-            <div className="bg-white rounded-full flex items-center py-1.5 pl-1.5 pr-3 shadow-lg border border-gray-100">
-              <div className="h-6 w-6 rounded-full bg-gradient-to-br from-orange-400 to-red-500 flex items-center justify-center mr-1.5">
-                <span className="text-white text-[8px] font-black leading-none">BUY</span>
-              </div>
-              <span className="text-[12px] font-black text-[#F6881F]">one</span>
-            </div>
-          )}
+          <Link
+            to={walletPath}
+            className="h-[38px] w-[38px] rounded-full bg-white border border-gray-200 flex items-center justify-center shadow-[0_4px_12px_rgba(0,0,0,0.08)]"
+            aria-label="Open wallet"
+          >
+            <Wallet className="h-[19px] w-[19px] text-[#282c3f]" strokeWidth={2} />
+          </Link>
 
           <Popover>
             <PopoverTrigger asChild>

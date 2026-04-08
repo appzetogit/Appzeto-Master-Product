@@ -4829,7 +4829,7 @@ function getUserCancellationElapsedMs(order) {
     return cancelledAt.getTime() - createdAt.getTime();
 }
 
-export async function processRefund(orderId, refundAmount) {
+export async function processRefund(orderId, refundAmount, refundTo) {
     if (!orderId || !mongoose.Types.ObjectId.isValid(String(orderId))) {
         throw new ValidationError('Invalid order id');
     }
@@ -4888,8 +4888,19 @@ export async function processRefund(orderId, refundAmount) {
         );
     }
 
+    const existingRefund = order.payment?.refund || {};
+    const requestedRefundMethod =
+        existingRefund?.requestedMethod === 'wallet' || existingRefund?.requestedMethod === 'gateway'
+            ? existingRefund.requestedMethod
+            : null;
+    const normalizedRefundMethod = isWalletPayment
+        ? 'wallet'
+        : refundTo === 'wallet' || refundTo === 'gateway'
+            ? refundTo
+            : requestedRefundMethod || 'gateway';
     const processedAt = new Date();
-    if (isWalletPayment) {
+
+    if (normalizedRefundMethod === 'wallet') {
         await refundWalletBalance(
             order.userId,
             normalizedAmount,
@@ -4906,6 +4917,11 @@ export async function processRefund(orderId, refundAmount) {
             status: 'processed',
             amount: normalizedAmount,
             refundId: `wallet_refund_${Date.now()}`,
+            requestedMethod: requestedRefundMethod || normalizedRefundMethod,
+            processedMethod: 'wallet',
+            requestedAt: existingRefund?.requestedAt || processedAt,
+            requestedByUser: Boolean(existingRefund?.requestedByUser),
+            reason: existingRefund?.reason || '',
             processedAt
         };
     } else {
@@ -4918,7 +4934,12 @@ export async function processRefund(orderId, refundAmount) {
         if (!refundResult?.success) {
             order.payment.refund = {
                 status: 'failed',
-                amount: normalizedAmount
+                amount: normalizedAmount,
+                requestedMethod: requestedRefundMethod || normalizedRefundMethod,
+                processedMethod: 'gateway',
+                requestedAt: existingRefund?.requestedAt || processedAt,
+                requestedByUser: Boolean(existingRefund?.requestedByUser),
+                reason: existingRefund?.reason || ''
             };
             await order.save();
             throw new ValidationError(refundResult?.error || 'Failed to process Razorpay refund');
@@ -4929,6 +4950,11 @@ export async function processRefund(orderId, refundAmount) {
             status: 'processed',
             amount: normalizedAmount,
             refundId: refundResult.refundId || '',
+            requestedMethod: requestedRefundMethod || normalizedRefundMethod,
+            processedMethod: 'gateway',
+            requestedAt: existingRefund?.requestedAt || processedAt,
+            requestedByUser: Boolean(existingRefund?.requestedByUser),
+            reason: existingRefund?.reason || '',
             processedAt
         };
     }

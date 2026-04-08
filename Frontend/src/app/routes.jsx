@@ -15,6 +15,10 @@ const QuickCommerceApp = lazy(() => import('../modules/quickCommerce/routes'))
 const SellerApp = lazy(() => import('../modules/seller/routes'))
 const FoodUserLayout = lazy(() => import('../modules/Food/components/user/UserLayout'))
 const FoodHomePage = lazy(() => import('../modules/Food/pages/user/Home'))
+const GlobalCartPage = lazy(() => import('../modules/Food/pages/user/cart/Cart'))
+const GlobalCheckoutPage = lazy(() => import('../modules/Food/pages/user/cart/Checkout'))
+const GlobalSelectAddressPage = lazy(() => import('../modules/Food/pages/user/cart/SelectAddress'))
+const GlobalAddressSelectorPage = lazy(() => import('../modules/Food/pages/user/cart/AddressSelectorPage'))
 
 const PageLoader = () => <AppShellSkeleton />
 
@@ -122,6 +126,20 @@ const AppRoutes = () => {
       {/* Quick storefront landing keeps the shared food layout */}
       <Route path="/quick" element={<QuickHomeWithCurrentLayout />} />
 
+      {/* Global shared cart */}
+      <Route
+        element={
+          <Suspense fallback={<PageLoader />}>
+            <FoodUserLayout />
+          </Suspense>
+        }
+      >
+        <Route path="/cart" element={<GlobalCartPage />} />
+        <Route path="/cart/checkout" element={<GlobalCheckoutPage />} />
+        <Route path="/cart/select-address" element={<GlobalSelectAddressPage />} />
+        <Route path="/cart/address-selector" element={<GlobalAddressSelectorPage />} />
+      </Route>
+
       {/* Quick storefront */}
       <Route
         path="/quick/*"
@@ -155,7 +173,6 @@ const AppRoutes = () => {
       <Route path="/delivery/*" element={<RedirectToFood />} />
       <Route path="/usermain/*" element={<RedirectToFood />} />
       <Route path="/profile/*" element={<RedirectToFood />} />
-      <Route path="/cart/*" element={<Navigate to="/food/user/cart" replace />} />
       <Route path="/orders/*" element={<RedirectToFood />} />
 
       {/* Fallback 404 */}

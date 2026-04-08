@@ -13,6 +13,9 @@ const toFoodPath = (value) => {
 }
 
 const getNormalizedUserPath = (pathname) => {
+  if (pathname.startsWith("/cart")) {
+    return pathname
+  }
   if (pathname.startsWith("/food")) {
     return pathname.slice(5) || "/"
   }
@@ -88,11 +91,14 @@ const resolveBackPath = ({ pathname, search, state }) => {
   }
 
   if (
+    normalizedPath === "/cart/checkout" ||
+    normalizedPath === "/cart/select-address" ||
+    normalizedPath === "/cart/address-selector" ||
     normalizedPath === "/user/cart/checkout" ||
     normalizedPath === "/user/cart/select-address" ||
     normalizedPath === "/user/cart/address-selector"
   ) {
-    return "/food/user/cart"
+    return "/cart"
   }
 
   if (normalizedPath === "/user/address-selector") {

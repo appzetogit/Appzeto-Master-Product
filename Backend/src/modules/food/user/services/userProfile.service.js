@@ -1,5 +1,6 @@
 import { FoodUser } from '../../../../core/users/user.model.js';
 import { AuthError, ValidationError } from '../../../../core/auth/errors.js';
+import { FoodUserWallet } from '../models/userWallet.model.js';
 import { uploadImageBuffer } from '../../../../services/cloudinary.service.js';
 
 const parseIsoDateOrNull = (value) => {
@@ -13,7 +14,13 @@ const parseIsoDateOrNull = (value) => {
 export const getCurrentUserProfile = async (userId) => {
     const user = await FoodUser.findById(userId).lean();
     if (!user) throw new AuthError('Profile not found');
-    return { user };
+    const wallet = await FoodUserWallet.findOne({ userId }).select('balance').lean();
+    return {
+        user: {
+            ...user,
+            walletBalance: wallet ? Math.max(0, Number(wallet.balance) || 0) : Math.max(0, Number(user.walletBalance) || 0)
+        }
+    };
 };
 
 export const updateCurrentUserProfile = async (userId, body) => {

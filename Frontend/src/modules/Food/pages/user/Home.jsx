@@ -97,6 +97,7 @@ import { CartAnimationProvider as QuickCartAnimationProvider } from "../../../qu
 import { CartProvider as QuickCartProvider } from "../../../quickCommerce/user/context/CartContext";
 import { prefetchQuickHomeBootstrap } from "../../../quickCommerce/user/services/customerApi";
 import PromoRow from "@food/components/user/home/PromoRow";
+import { optimizeCloudinaryUrl } from "../../../../shared/utils/cloudinaryUtils";
 
 const StickyCartCard = lazy(() => import("@food/components/user/StickyCartCard"));
 const OrderTrackingCard = lazy(() => import("@food/components/user/OrderTrackingCard"));
@@ -550,11 +551,7 @@ export default function Home() {
           parsed.protocol = "https:";
         }
         const finalUrl = parsed.toString();
-        const hasSignedParams =
-          /[?&](X-Amz-|Signature=|Expires=|AWSAccessKeyId=|GoogleAccessId=|token=|sig=|se=|sp=|sv=)/i.test(
-            finalUrl,
-          );
-        return hasSignedParams ? finalUrl : encodeURI(finalUrl);
+        return optimizeCloudinaryUrl(finalUrl);
       } catch {
         return absolutePath;
       }
@@ -598,7 +595,6 @@ export default function Home() {
       const normalized = extractImageFromValue(value);
       if (!normalized) return [];
 
-      // Mobile WebView safety: try deterministic JPEG first, then auto, then original.
       if (
         /res\.cloudinary\.com/i.test(normalized) &&
         /\/image\/upload\//i.test(normalized)
@@ -608,13 +604,15 @@ export default function Home() {
         if (!hasTransform) {
           return Array.from(
             new Set([
-              normalized.replace(
-                "/image/upload/",
-                "/image/upload/f_jpg,q_auto,w_1080/",
-              ),
+              // 1. Modern WebP/AVIF format first (Cloudinary f_auto)
               normalized.replace(
                 "/image/upload/",
                 "/image/upload/f_auto,q_auto,w_1080/",
+              ),
+              // 2. Deterministic JPEG fallback
+              normalized.replace(
+                "/image/upload/",
+                "/image/upload/f_jpg,q_auto,w_1080/",
               ),
               normalized,
             ]),

@@ -8,6 +8,7 @@ import { FoodDeliveryPartner } from "../../modules/food/delivery/models/delivery
 import { Seller } from "../../modules/quick-commerce/seller/models/seller.model.js";
 import { FoodReferralSettings } from "../../modules/food/admin/models/referralSettings.model.js";
 import { FoodReferralLog } from "../../modules/food/admin/models/referralLog.model.js";
+import { FoodUserWallet } from "../../modules/food/user/models/userWallet.model.js";
 import { createOrUpdateOtp, verifyOtp } from "../otp/otp.service.js";
 import { signAccessToken, signRefreshToken } from "./token.util.js";
 import { FoodRefreshToken } from "../refreshTokens/refreshToken.model.js";
@@ -24,6 +25,18 @@ const ROLES = {
   DELIVERY_PARTNER: "DELIVERY_PARTNER",
   ADMIN: "ADMIN",
   SELLER: "SELLER",
+};
+
+const getResolvedUserWalletBalance = async (userId, fallbackBalance = 0) => {
+  const wallet = await FoodUserWallet.findOne({ userId })
+    .select("balance")
+    .lean();
+
+  if (wallet) {
+    return Math.max(0, Number(wallet.balance) || 0);
+  }
+
+  return Math.max(0, Number(fallbackBalance) || 0);
 };
 
 export const requestUserOtp = async (phone) => {
@@ -189,7 +202,13 @@ export const verifyUserOtpAndLogin = async (
     }
   }
 
-  const user = userDoc.toObject();
+  const user = {
+    ...userDoc.toObject(),
+    walletBalance: await getResolvedUserWalletBalance(
+      userDoc._id,
+      userDoc.walletBalance,
+    ),
+  };
   const payload = { userId: user._id.toString(), role: user.role || "USER" };
 
   const accessToken = signAccessToken(payload);
@@ -472,8 +491,17 @@ export const getProfile = async (userId, role) => {
   const id = userId;
 
   switch (role) {
-    case ROLES.USER:
-      profile = await FoodUser.findById(id).lean();
+    case ROLES.USER: {
+      const userProfile = await FoodUser.findById(id).lean();
+      if (!userProfile) break;
+      profile = {
+        ...userProfile,
+        walletBalance: await getResolvedUserWalletBalance(
+          userProfile._id,
+          userProfile.walletBalance,
+        ),
+      };
+    }
       break;
     case ROLES.ADMIN:
       profile = await FoodAdmin.findById(id).select("-password").lean();

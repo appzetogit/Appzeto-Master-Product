@@ -134,6 +134,11 @@ const userSchema = new mongoose.Schema(
             type: String,
             default: 'USER'
         },
+        walletBalance: {
+            type: Number,
+            default: 0,
+            min: 0
+        },
         addresses: {
             type: [userAddressSchema],
             default: []

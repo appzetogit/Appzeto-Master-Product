@@ -1,5 +1,5 @@
 const STANDALONE_BASE = "/quick";
-const SHARED_FOOD_CART = "/food/user/cart";
+const SHARED_FOOD_CART = "/cart";
 
 export const isEmbeddedQuickPath = () => false;
 

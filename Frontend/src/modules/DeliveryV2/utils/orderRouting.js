@@ -28,6 +28,11 @@ export const normalizeLocationPoint = (value) => {
 
 export const normalizePickupPoints = (order) => {
   const raw = Array.isArray(order?.pickupPoints) ? order.pickupPoints : [];
+  const explicitOrderType = String(
+    order?.orderType || order?.serviceType || order?.type || "",
+  )
+    .trim()
+    .toLowerCase();
   const normalized = raw
     .map((point, index) => {
       const location = normalizeLocationPoint(point?.location);
@@ -102,19 +107,47 @@ export const normalizePickupPoints = (order) => {
     ];
   }
 
-  const restaurantLocation = normalizeLocationPoint(order?.restaurantLocation || order?.restaurantId);
+  const restaurantLocation = normalizeLocationPoint(
+    order?.restaurantLocation || order?.restaurantId || order?.storeLocation || order?.sellerLocation,
+  );
   if (!restaurantLocation) return [];
+  const fallbackPickupType = explicitOrderType === "quick" ? "quick" : "food";
+  const fallbackSourceName = String(
+    fallbackPickupType === "quick"
+      ? order?.storeName ||
+          order?.sellerName ||
+          order?.seller?.shopName ||
+          order?.seller?.name ||
+          "Seller store"
+      : order?.restaurantName || order?.restaurantId?.restaurantName || order?.restaurantId?.name || "Restaurant",
+  ).trim();
+  const fallbackAddress = String(
+    fallbackPickupType === "quick"
+      ? order?.storeAddress ||
+          order?.sellerAddress ||
+          order?.seller?.location?.address ||
+          order?.seller?.location?.formattedAddress ||
+          ""
+      : order?.restaurantAddress || order?.restaurantLocation?.address || ""
+  ).trim();
+  const fallbackPhone = String(
+    fallbackPickupType === "quick"
+      ? order?.storePhone || order?.sellerPhone || order?.seller?.phone || ""
+      : order?.restaurantPhone || order?.restaurantId?.phone || ""
+  ).trim();
 
   return [
     {
-      id: "food:primary",
-      pickupType: "food",
-      sourceId: String(order?.restaurantId?._id || order?.restaurantId || ""),
-      sourceName: String(order?.restaurantName || order?.restaurantId?.restaurantName || "Restaurant").trim(),
-      address:
-        String(order?.restaurantAddress || order?.restaurantLocation?.address || "").trim() ||
-        formatCoordinateAddress(restaurantLocation),
-      phone: String(order?.restaurantPhone || order?.restaurantId?.phone || "").trim(),
+      id: `${fallbackPickupType}:primary`,
+      pickupType: fallbackPickupType,
+      sourceId: String(
+        fallbackPickupType === "quick"
+          ? order?.storeId || order?.sellerId || order?.seller?._id || ""
+          : order?.restaurantId?._id || order?.restaurantId || "",
+      ),
+      sourceName: fallbackSourceName,
+      address: fallbackAddress || formatCoordinateAddress(restaurantLocation),
+      phone: fallbackPhone,
       location: restaurantLocation,
     },
   ];

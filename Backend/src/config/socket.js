@@ -207,6 +207,7 @@ export const initSocket = async (server) => {
         // Delivery partner emits live GPS location for an active order.
         // Broadcasts to the tracking room so users see the bike move in real time.
         const _lastLocationBroadcast = {};
+        const _lastFirebaseTrackingSync = {};
         socket.on('update-location', async (data) => {
             if (socket.user?.role !== 'DELIVERY_PARTNER') return;
             if (!data || !data.orderId) return;
@@ -237,7 +238,10 @@ export const initSocket = async (server) => {
                 heading,
                 speed,
                 accuracy,
-                timestamp: now
+                timestamp: now,
+                polyline: data.polyline || null,
+                eta: data.eta ?? null,
+                status: data.status || 'on_the_way',
             };
 
             logDeliverySocket('Location update received', {
@@ -294,7 +298,11 @@ export const initSocket = async (server) => {
             // ─── Firebase Realtime Database Sync (Cost Optimization) ───
             try {
                 const db = getFirebaseDB();
-                if (db) {
+                const lastFirebaseSyncAt = _lastFirebaseTrackingSync[data.orderId] || 0;
+                const shouldSyncFirebase = now - lastFirebaseSyncAt >= 10000;
+
+                if (db && shouldSyncFirebase) {
+                    _lastFirebaseTrackingSync[data.orderId] = now;
                     // 1. Update order-specific tracking node
                     const orderRef = db.ref(`active_orders/${data.orderId}`);
                     orderRef.update({
@@ -305,6 +313,8 @@ export const initSocket = async (server) => {
                         heading,
                         speed,
                         accuracy,
+                        polyline: data.polyline || null,
+                        eta: data.eta ?? null,
                         last_updated: now,
                         status: data.status || 'on_the_way'
                     }).catch(e => logger.error(`Firebase orderRef update error: ${e.message}`));
