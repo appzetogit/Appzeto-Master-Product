@@ -38,7 +38,7 @@ const FoodAppWrapper = () => {
   )
 }
 
-const QuickHomeWithCurrentLayout = () => {
+const SharedFoodHomeRoute = () => {
   return (
     <Suspense fallback={<PageLoader />}>
       <Routes>
@@ -120,11 +120,14 @@ const AppRoutes = () => {
       {/* Auth Module */}
       <Route path="/user/auth/*" element={<AuthApp />} />
 
+      {/* Shared home entry so /food/user <-> /quick doesn't remount through different app trees */}
+      <Route path="/food/user" element={<SharedFoodHomeRoute />} />
+
       {/* Food Module */}
       <Route path="/food/*" element={<FoodAppWrapper />} />
 
       {/* Quick storefront landing keeps the shared food layout */}
-      <Route path="/quick" element={<QuickHomeWithCurrentLayout />} />
+      <Route path="/quick" element={<SharedFoodHomeRoute />} />
 
       {/* Global shared cart */}
       <Route
