@@ -1560,7 +1560,7 @@ const Home = ({ embedded = false, onThemeChange, embeddedHeaderColor = null }) =
       {embedded && (
         <>
           <MiniCart
-            position="bottom-right"
+            position="center"
             linkTo={getQuickCartPath(routePathname)}
           />
           <ProductDetailSheet />

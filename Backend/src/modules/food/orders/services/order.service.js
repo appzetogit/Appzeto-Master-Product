@@ -1309,6 +1309,30 @@ async function notifySplitDispatchOffers(order, { restaurantDoc = null } = {}) {
   }
 }
 
+export async function notifySplitDispatchOffersForOrder(orderId) {
+  const identity = buildOrderIdentityFilter(orderId);
+  if (!identity) {
+    throw new ValidationError("Order id required");
+  }
+
+  const order = await FoodOrder.findOne(identity);
+  if (!order) {
+    throw new NotFoundError("Order not found");
+  }
+
+  if (!isSplitDispatchOrder(order)) {
+    throw new ValidationError("Order is not configured for split dispatch");
+  }
+
+  const activeStatuses = ["confirmed", "preparing", "ready_for_pickup", "ready"];
+  if (!activeStatuses.includes(String(order.orderStatus || "").toLowerCase())) {
+    throw new ValidationError(`Cannot notify riders for order in status: ${order.orderStatus}`);
+  }
+
+  await notifySplitDispatchOffers(order);
+  return { success: true };
+}
+
 // ----- Settings -----
 export async function getDispatchSettings() {
   let doc = await FoodSettings.findOne({ key: "dispatch" }).lean();
@@ -2246,6 +2270,7 @@ export async function listOrdersUser(userId, query) {
         "restaurantName profileImage area city location rating totalRatings",
       )
       .populate("dispatch.deliveryPartnerId", "name phone rating totalRatings")
+      .populate("dispatchPlan.legs.deliveryPartnerId", "name phone rating totalRatings")
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
@@ -2272,6 +2297,7 @@ export async function getOrderById(
       "restaurantName profileImage area city location rating totalRatings",
     )
     .populate("dispatch.deliveryPartnerId", "name phone rating totalRatings")
+    .populate("dispatchPlan.legs.deliveryPartnerId", "name phone rating totalRatings")
     .populate("userId", "name phone email")
     .select("+deliveryOtp")
     .lean();

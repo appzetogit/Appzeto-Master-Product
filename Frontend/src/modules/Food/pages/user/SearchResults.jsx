@@ -5,7 +5,7 @@ import { Card, CardContent } from "@food/components/ui/card"
 import { Button } from "@food/components/ui/button"
 import { Input } from "@food/components/ui/input"
 import { RestaurantGridSkeleton } from "@food/components/ui/loading-skeletons"
-import StickyCartCard from "@food/components/user/StickyCartCard"
+import MiniCart from "@food/components/user/MiniCart"
 import { useProfile } from "@food/context/ProfileContext"
 import { useLocation } from "@food/hooks/useLocation"
 import { useZone } from "@food/hooks/useZone"
@@ -1112,7 +1112,7 @@ export default function SearchResults() {
           </div>
         </section>
       </div>
-      <StickyCartCard />
+      <MiniCart />
     </div>
   )
 }

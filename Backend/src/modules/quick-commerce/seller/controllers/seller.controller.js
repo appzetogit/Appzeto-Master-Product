@@ -1385,19 +1385,29 @@ export const updateSellerOrderStatusController = async (req, res) => {
     }
 
     if (parentOrder?.orderType === "mixed") {
-      await QuickOrder.updateOne(
-        { _id: parentOrder._id },
-        {
-          $push: {
-            statusHistory: {
-              byRole: "SELLER",
-              byId: sellerId,
-              from: previousSellerStatus,
-              to: nextStatus,
-              note: `Seller updated mixed-order leg to ${nextStatus}`,
-            },
+      const mixedParentUpdate = {
+        $push: {
+          statusHistory: {
+            byRole: "SELLER",
+            byId: sellerId,
+            from: previousSellerStatus,
+            to: nextStatus,
+            note: `Seller updated mixed-order leg to ${nextStatus}`,
           },
         },
+      };
+
+      if (nextStatus === "confirmed" && String(parentOrder?.orderStatus || "").toLowerCase() === "created") {
+        mixedParentUpdate.$set = {
+          orderStatus: "confirmed",
+          workflowStatus: order.workflowStatus,
+        };
+        parentOrder.orderStatus = "confirmed";
+      }
+
+      await QuickOrder.updateOne(
+        { _id: parentOrder._id },
+        mixedParentUpdate,
       );
     } else {
       await QuickOrder.updateOne(
@@ -1453,13 +1463,23 @@ export const updateSellerOrderStatusController = async (req, res) => {
       )
     ) {
       try {
-        const { resendDeliveryNotificationRestaurant } = await import(
+        const {
+          notifySplitDispatchOffersForOrder,
+          resendDeliveryNotificationRestaurant,
+        } = await import(
           "../../../food/orders/services/order.service.js"
         );
-        await resendDeliveryNotificationRestaurant(
-          parentOrder._id.toString(),
-          parentOrder.restaurantId?.toString?.() || parentOrder.restaurantId,
-        );
+        try {
+          await notifySplitDispatchOffersForOrder(parentOrder._id.toString());
+        } catch (splitDispatchError) {
+          await resendDeliveryNotificationRestaurant(
+            parentOrder._id.toString(),
+            parentOrder.restaurantId?.toString?.() || parentOrder.restaurantId,
+          );
+          logger.info(
+            `Seller mixed-order split dispatch fallback used for ${order.orderId}: ${splitDispatchError?.message || splitDispatchError}`,
+          );
+        }
       } catch (dispatchError) {
         logger.warn(
           `Seller mixed-order dispatch trigger failed for ${order.orderId}: ${dispatchError?.message || dispatchError}`,

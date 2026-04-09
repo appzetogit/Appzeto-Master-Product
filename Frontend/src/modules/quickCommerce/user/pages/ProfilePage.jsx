@@ -42,7 +42,7 @@ const ProfilePage = () => {
                             </p>
                         </div>
                     </div>
-                    <Link to="/profile/edit" className="p-2.5 rounded-lg bg-slate-100 text-slate-500 hover:bg-slate-200 transition-colors">
+                    <Link to="/quick/profile/edit" className="p-2.5 rounded-lg bg-slate-100 text-slate-500 hover:bg-slate-200 transition-colors">
                         <Edit2 size={16} />
                     </Link>
                 </div>
@@ -59,7 +59,7 @@ const ProfilePage = () => {
                                 icon={Package}
                                 label="Your Orders"
                                 sub="Track, return or buy things again"
-                                path="/orders"
+                                path="/quick/orders"
                                 color="#0c831f"
                                 bg="rgba(16,185,129,0.10)"
                             />
@@ -67,7 +67,7 @@ const ProfilePage = () => {
                                 icon={CreditCard}
                                 label="Order Transactions"
                                 sub="View all payments & refunds"
-                                path="/transactions"
+                                path="/quick/transactions"
                                 color="#f97316"
                                 bg="rgba(249,115,22,0.10)"
                             />
@@ -75,7 +75,7 @@ const ProfilePage = () => {
                                 icon={Wallet}
                                 label="Wallet"
                                 sub="Balance & return refunds"
-                                path="/wallet"
+                                path="/quick/wallet"
                                 color="#10b981"
                                 bg="rgba(16,185,129,0.10)"
                             />
@@ -83,7 +83,7 @@ const ProfilePage = () => {
                                 icon={Heart}
                                 label="Your Wishlist"
                                 sub="Your saved items"
-                                path="/wishlist"
+                                path="/quick/wishlist"
                                 color="#fb7185"
                                 bg="rgba(248,113,113,0.08)"
                             />
@@ -91,7 +91,7 @@ const ProfilePage = () => {
                                 icon={MapPin}
                                 label="Saved Addresses"
                                 sub="Manage your delivery locations"
-                                path="/addresses"
+                                path="/quick/addresses"
                                 color="#0ea5e9"
                                 bg="rgba(56,189,248,0.10)"
                             />
@@ -107,21 +107,21 @@ const ProfilePage = () => {
                             <MenuItem
                                 icon={HelpCircle}
                                 label="Help & Support"
-                                path="/support"
+                                path="/quick/support"
                                 color="#3b82f6"
                                 bg="rgba(59,130,246,0.08)"
                             />
                             <MenuItem
                                 icon={ShieldCheck}
                                 label="Privacy Policy"
-                                path="/privacy"
+                                path="/quick/privacy"
                                 color="#a855f7"
                                 bg="rgba(168,85,247,0.08)"
                             />
                             <MenuItem
                                 icon={Info}
                                 label="About Us"
-                                path="/about"
+                                path="/quick/about"
                                 color="#14b8a6"
                                 bg="rgba(45,212,191,0.08)"
                             />

@@ -99,7 +99,7 @@ import { prefetchQuickHomeBootstrap } from "../../../quickCommerce/user/services
 import PromoRow from "@food/components/user/home/PromoRow";
 import { optimizeCloudinaryUrl } from "../../../../shared/utils/cloudinaryUtils";
 
-const StickyCartCard = lazy(() => import("@food/components/user/StickyCartCard"));
+const MiniCart = lazy(() => import("@food/components/user/MiniCart"));
 const OrderTrackingCard = lazy(() => import("@food/components/user/OrderTrackingCard"));
 const QuickCommerceHomePage = lazy(() => import("../../../quickCommerce/user/pages/Home"));
 // import FestBanner from "@food/components/user/home/FestBanner";
@@ -4215,9 +4215,11 @@ export default function Home() {
           </AnimatePresence>,
           document.body,
         )}
-      <Suspense fallback={null}>
-        <StickyCartCard />
-      </Suspense>
+      {activeTab === "food" && (
+        <Suspense fallback={null}>
+          <MiniCart />
+        </Suspense>
+      )}
       {/* Live order strip: only on homepage (not in UserLayout) */}
       <Suspense
         fallback={<InlineLazyFallback className="fixed bottom-3 left-3 right-3 z-40 h-16 rounded-2xl" />}

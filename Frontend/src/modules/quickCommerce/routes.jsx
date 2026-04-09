@@ -14,10 +14,16 @@ const CategoryProducts = lazy(() => import("./user/pages/CategoryProductsPage"))
 const ProductDetail = lazy(() => import("./user/pages/ProductDetailPage"))
 const Checkout = lazy(() => import("./user/pages/CheckoutPage"))
 const Profile = lazy(() => import("./user/pages/ProfilePage"))
+const EditProfile = lazy(() => import("./user/pages/EditProfilePage"))
 const Wallet = lazy(() => import("./user/pages/WalletPage"))
 const Addresses = lazy(() => import("./user/pages/AddressesPage"))
 const Support = lazy(() => import("./user/pages/SupportPage"))
 const Search = lazy(() => import("./user/pages/SearchPage"))
+const Wishlist = lazy(() => import("./user/pages/WishlistPage"))
+const Transactions = lazy(() => import("./user/pages/OrderTransactionsPage"))
+const Privacy = lazy(() => import("./user/pages/PrivacyPage"))
+const About = lazy(() => import("./user/pages/AboutPage"))
+const Terms = lazy(() => import("./user/pages/TermsPage"))
 
 import { CartProvider } from "./user/context/CartContext"
 import { LocationProvider } from "./user/context/LocationContext"
@@ -44,10 +50,16 @@ export default function QuickCommerceRoutes() {
                     <Route path="categories/:categoryId" element={<CategoryProducts />} />
                     <Route path="product/:productId" element={<ProductDetail />} />
                     <Route path="checkout" element={<Navigate to="/cart" replace />} />
-                    <Route path="profile" element={<Navigate to="/food/user/profile" replace />} />
+                    <Route path="profile" element={<Profile />} />
+                    <Route path="profile/edit" element={<EditProfile />} />
                     <Route path="wallet" element={<Wallet />} />
                     <Route path="addresses" element={<Addresses />} />
                     <Route path="support" element={<Support />} />
+                    <Route path="wishlist" element={<Wishlist />} />
+                    <Route path="transactions" element={<Transactions />} />
+                    <Route path="privacy" element={<Privacy />} />
+                    <Route path="about" element={<About />} />
+                    <Route path="terms" element={<Terms />} />
                     <Route path="search" element={<Search />} />
                     <Route path="user" element={<Navigate to="/quick" replace />} />
                     <Route path="user/*" element={<Navigate to="/quick" replace />} />
