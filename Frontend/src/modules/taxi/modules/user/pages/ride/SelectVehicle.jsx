@@ -515,7 +515,7 @@ const SelectVehicle = () => {
   const routePrefix = location.pathname.startsWith('/taxi/user') ? '/taxi/user' : '';
   const pickupPosition = useMemo(() => toLatLng(pickupCoords), [pickupCoords]);
   const dropPosition = useMemo(() => toLatLng(dropCoords, null), [dropCoords]);
-  const { isLoaded: isMapLoaded, loadError: mapLoadError } = useAppGoogleMapsLoader();
+  const { isLoaded: isMapLoaded, loadError: mapLoadError } = useAppGoogleMapsLoader({ libraries: [] });
 
   const handleScroll = () => {
     if (!scrollRef.current) return;
@@ -686,43 +686,67 @@ const SelectVehicle = () => {
   useEffect(() => {
     let active = true;
 
+    const fetchAvailability = async (vehicle) => {
+      const response = await api.get('/rides/available-drivers', {
+        params: {
+          vehicleTypeId: vehicle.vehicleTypeId,
+          vehicleIconType: vehicle.iconType,
+          lng: pickupCoords[0],
+          lat: pickupCoords[1],
+        },
+      });
+
+      return [vehicle.id, { ...DEFAULT_AVAILABILITY, ...unwrap(response) }];
+    };
+
     const loadOnlineDrivers = async () => {
-      if (!vehicles.length) {
+      const candidates = vehicles.filter((vehicle) => vehicle.vehicleTypeId);
+
+      if (!candidates.length) {
         setAvailabilityByVehicleId({});
+        setIsLoadingDrivers(false);
         return;
       }
 
       setIsLoadingDrivers(true);
       setDriverLoadError('');
 
-      try {
-        const responses = await Promise.all(
-          vehicles
-            .filter((vehicle) => vehicle.vehicleTypeId)
-            .map(async (vehicle) => {
-              const response = await api.get('/rides/available-drivers', {
-                params: {
-                  vehicleTypeId: vehicle.vehicleTypeId,
-                  vehicleIconType: vehicle.iconType,
-                  lng: pickupCoords[0],
-                  lat: pickupCoords[1],
-                },
-              });
+      const preferredVehicle =
+        candidates.find((vehicle) => vehicle.id === selected) ||
+        candidates[0];
+      const remainingVehicles = candidates.filter((vehicle) => vehicle.id !== preferredVehicle.id);
 
-              return [vehicle.id, { ...DEFAULT_AVAILABILITY, ...unwrap(response) }];
-            }),
+      try {
+        const [firstId, firstAvailability] = await fetchAvailability(preferredVehicle);
+
+        if (!active) {
+          return;
+        }
+
+        setAvailabilityByVehicleId((current) => ({
+          ...current,
+          [firstId]: firstAvailability,
+        }));
+        setIsLoadingDrivers(false);
+
+        if (!remainingVehicles.length) {
+          return;
+        }
+
+        const remainingResponses = await Promise.all(
+          remainingVehicles.map(fetchAvailability),
         );
 
         if (active) {
-          setAvailabilityByVehicleId(Object.fromEntries(responses));
+          setAvailabilityByVehicleId((current) => ({
+            ...current,
+            ...Object.fromEntries(remainingResponses),
+          }));
         }
       } catch (error) {
         if (active) {
           setAvailabilityByVehicleId({});
           setDriverLoadError(error.message || 'Could not load online drivers.');
-        }
-      } finally {
-        if (active) {
           setIsLoadingDrivers(false);
         }
       }
@@ -733,7 +757,7 @@ const SelectVehicle = () => {
     return () => {
       active = false;
     };
-  }, [pickupCoords, vehicles]);
+  }, [pickupCoords, selected, vehicles]);
 
   const handleBook = () => {
     if (!selectedVehicle) {

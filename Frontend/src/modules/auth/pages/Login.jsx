@@ -4,7 +4,7 @@ import { Routes, Route, Navigate, Link, useLocation, useNavigate } from "react-r
 import { Phone, Lock, ArrowRight, ShieldCheck, Loader2, UserRound } from "lucide-react"
 import { toast } from "sonner"
 import { authAPI, userAPI } from "@food/api"
-import { setAuthData } from "@food/utils/auth"
+import { isModuleAuthenticated, setAuthData } from "@food/utils/auth"
 
 export default function UnifiedOTPFastLogin() {
   const RESEND_COOLDOWN_SECONDS = 60
@@ -22,7 +22,12 @@ export default function UnifiedOTPFastLogin() {
   const submitting = useRef(false)
   const redirectTo = typeof location.state?.redirectTo === "string" && location.state.redirectTo.trim()
     ? location.state.redirectTo.trim()
-    : "/food/user"
+    : "/user/auth/portal"
+
+  useEffect(() => {
+    if (!isModuleAuthenticated("user")) return
+    navigate("/user/auth/portal", { replace: true })
+  }, [navigate])
 
   const clearNameFlow = () => {
     setShowNameInput(false)
