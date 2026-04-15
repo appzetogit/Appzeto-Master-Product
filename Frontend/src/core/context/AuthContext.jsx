@@ -142,7 +142,7 @@ export const AuthProvider = ({ children }) => {
         if (path.startsWith('/admin')) window.location.href = '/admin/auth';
         else if (path.startsWith('/seller')) window.location.href = '/seller/auth';
         else if (path.startsWith('/delivery')) window.location.href = '/delivery/auth';
-        else window.location.href = '/login';
+        else window.location.href = '/user/auth/portal';
     };
 
     const refreshUser = async () => {
