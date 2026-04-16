@@ -14,6 +14,7 @@ const AuthApp = lazy(() => import('../modules/auth/routes'))
 const QuickCommerceApp = lazy(() => import('../modules/quickCommerce/routes'))
 const SellerApp = lazy(() => import('../modules/seller/routes'))
 const TaxiApp = lazy(() => import('../modules/taxi/TaxiModuleApp'))
+const HotelModuleApp = lazy(() => import('../modules/hotel/HotelModuleApp.jsx'))
 const FoodUserLayout = lazy(() => import('../modules/Food/components/user/UserLayout'))
 const FoodHomePage = lazy(() => import('../modules/Food/pages/user/Home'))
 const GlobalCartPage = lazy(() => import('../modules/Food/pages/user/cart/Cart'))
@@ -121,7 +122,7 @@ const AppRoutes = () => {
     if (!isNativeLikeShell) return
 
     const route = `${location.pathname || ''}${location.search || ''}`
-    if (route.startsWith('/food/') || route.startsWith('/admin') || route.startsWith('/taxi/')) {
+    if (route.startsWith('/food/') || route.startsWith('/hotel') || route.startsWith('/admin') || route.startsWith('/taxi/')) {
       localStorage.setItem(NATIVE_LAST_ROUTE_KEY, route)
     }
   }, [location.pathname, location.search])
@@ -141,6 +142,15 @@ const AppRoutes = () => {
 
       {/* Food Module */}
       <Route path="/food/*" element={<FoodAppWrapper />} />
+
+      <Route
+        path="/hotel/*"
+        element={
+          <Suspense fallback={<PageLoader />}>
+            <HotelModuleApp />
+          </Suspense>
+        }
+      />
 
       {/* Quick storefront landing keeps the shared food layout */}
       <Route path="/quick" element={<SharedFoodHomeRoute />} />

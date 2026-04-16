@@ -43,7 +43,7 @@ const SERVICES = [
     name: "Hotel",
     description: "Luxury book stays",
     image: "/super-app/hotel.png",
-    path: "/food/user",
+    path: "/hotel",
     icon: Bed,
     color: "from-[#64B5F6] to-[#4A90E2]",
     badge: "Premium",
