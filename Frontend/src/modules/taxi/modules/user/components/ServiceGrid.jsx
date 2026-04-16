@@ -4,17 +4,8 @@ import { motion } from 'framer-motion';
 import { userService } from '../services/userService';
 import toast from 'react-hot-toast';
 
-const ServiceTile = ({ icon, label, description, path, accentClass, loading }) => {
+const ServiceTile = ({ icon, label, description, path, accentClass }) => {
   const navigate = useNavigate();
-
-  if (loading) {
-    return (
-      <div className="flex w-full animate-pulse flex-col items-center justify-center gap-1.5 rounded-[18px] border border-gray-50 bg-gray-50 px-1.5 py-2.5">
-        <div className="h-12 w-12 rounded-[18px] bg-gray-200" />
-        <div className="h-3 w-12 rounded-full bg-gray-200" />
-      </div>
-    );
-  }
 
   return (
     <motion.button
@@ -40,7 +31,6 @@ const ServiceTile = ({ icon, label, description, path, accentClass, loading }) =
 
 const ServiceGrid = () => {
   const [services, setServices] = useState([]);
-  const [loading, setLoading] = useState(true);
 
   const getPath = (module) => {
     if (module.transport_type === 'delivery') return '/taxi/user/parcel/type';
@@ -64,12 +54,11 @@ const ServiceGrid = () => {
       'bg-[linear-gradient(135deg,#FFF1F2_0%,#FECDD3_100%)]', // Rose
     ];
     return accnets[index % accnets.length];
-  };
+    };
 
   useEffect(() => {
     const fetchServices = async () => {
       try {
-        setLoading(true);
         const res = await userService.getAppModules();
         
         // Extract results: res could be { results: [] } or { data: { results: [] } } depending on service
@@ -90,15 +79,13 @@ const ServiceGrid = () => {
       } catch (err) {
         console.error('Failed to load services:', err);
         toast.error('Could not load services');
-      } finally {
-        setLoading(false);
       }
     };
 
     fetchServices();
   }, []);
 
-  const optionCount = loading ? '...' : services.length;
+  const optionCount = services.length;
   const optionLabel = services.length === 1 ? 'option' : 'options';
 
   return (
@@ -122,13 +109,9 @@ const ServiceGrid = () => {
         </div>
 
         <div className="mt-4 grid grid-cols-4 gap-3">
-          {loading ? (
-             [...Array(4)].map((_, i) => <ServiceTile key={i} loading />)
-          ) : (
-            services.map((service) => (
-              <ServiceTile key={service.label} {...service} />
-            ))
-          )}
+          {services.map((service) => (
+            <ServiceTile key={service.label} {...service} />
+          ))}
         </div>
       </motion.section>
     </div>
