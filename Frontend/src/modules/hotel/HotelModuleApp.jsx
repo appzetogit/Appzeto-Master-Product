@@ -305,9 +305,11 @@ const Layout = ({ children }) => {
 
   const { normalizedPath, isUserHotelRoute } = getHotelPathContext(location.pathname);
   const isPartnerApp = location.pathname.startsWith('/hotel') && !isUserHotelRoute;
+  const isPartnerLandingRoute =
+    normalizedPath === '/hotel/partner' || normalizedPath === '/hotel/partner-landing';
 
   // 3. NAVBAR VISIBILITY
-  const showUserNavs = !isPartnerApp;
+  const showUserNavs = !isPartnerApp && !isPartnerLandingRoute;
 
   // Hide the user bottom nav only on the routes that should genuinely be full-screen or distraction-free.
   const hideUserBottomNav = normalizedPath === '/hotel/booking-confirmation'
@@ -317,6 +319,7 @@ const Layout = ({ children }) => {
     || normalizedPath === '/hotel/legal'
     || normalizedPath === '/hotel/terms'
     || normalizedPath === '/hotel/privacy'
+    || isPartnerLandingRoute
     || /^\/hotel\/[0-9a-fA-F]{24}(\/(amenities|reviews|offers))?$/.test(normalizedPath);
   const showUserBottomNav = showUserNavs && !hideUserBottomNav && !hideNavsDueToSlider;
 
