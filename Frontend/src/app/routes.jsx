@@ -6,6 +6,7 @@ import {
   ContentPageSkeleton,
   HotelShellSkeleton,
 } from '@food/components/ui/loading-skeletons'
+import TaxiPageLoader from '../modules/taxi/shared/components/TaxiPageLoader'
 import ProtectedRoute from '@core/guards/ProtectedRoute'
 import RoleGuard from '@core/guards/RoleGuard'
 import { UserRole } from '@core/constants/roles'
@@ -45,20 +46,6 @@ const RouteAwarePageLoader = () => {
 
   return <AppShellSkeleton />
 }
-const TaxiPageLoader = () => (
-  <div className="min-h-screen bg-[linear-gradient(180deg,#F8FAFC_0%,#F3F4F6_38%,#EEF2F7_100%)]">
-    <div className="mx-auto flex min-h-screen max-w-lg flex-col items-center justify-center px-6 text-center">
-      <div className="h-14 w-14 animate-pulse rounded-[18px] bg-[linear-gradient(135deg,#F97316_0%,#FB923C_55%,#FDBA74_100%)] shadow-[0_18px_40px_rgba(249,115,22,0.22)]" />
-      <p className="mt-5 text-[11px] font-black uppercase tracking-[0.24em] text-slate-500">
-        Loading taxi app
-      </p>
-      <div className="mt-4 h-2 w-40 overflow-hidden rounded-full bg-white/80 shadow-inner">
-        <div className="h-full w-1/2 animate-pulse rounded-full bg-[linear-gradient(90deg,#F97316_0%,#FDBA74_100%)]" />
-      </div>
-    </div>
-  </div>
-)
-
 /**
  * FoodAppWrapper — Quick-spicy App. को /food prefix के साथ render करता है.
  * 

@@ -1080,6 +1080,10 @@ export default function Home() {
     () => cart.reduce((total, item) => total + (item.quantity || 0), 0),
     [cart],
   );
+  const hasFoodCartItems = useMemo(
+    () => cart.some((item) => (item?.orderType || "food") !== "quick"),
+    [cart],
+  );
 
   const cityName = location?.city || "Select";
   const stateName = location?.state || "Location";
@@ -4245,7 +4249,7 @@ export default function Home() {
           </AnimatePresence>,
           document.body,
         )}
-      {activeTab === "food" && (
+      {hasFoodCartItems && (
         <Suspense fallback={null}>
           <MiniCart />
         </Suspense>

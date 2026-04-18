@@ -111,6 +111,18 @@ const normalizeQuickProductForSharedCart = (product) => {
   };
 };
 
+const persistQuickCartSnapshot = (items) => {
+  try {
+    if (Array.isArray(items) && items.length > 0) {
+      localStorage.setItem(QUICK_CART_STORAGE_KEY, JSON.stringify(items));
+    } else {
+      localStorage.removeItem(QUICK_CART_STORAGE_KEY);
+    }
+  } catch (error) {
+    console.error("Failed to persist quick cart snapshot", error);
+  }
+};
+
 const useStandaloneQuickCart = () => {
   const { isAuthenticated } = useAuth();
   const [cart, setCart] = useState(() => readStoredQuickCart());
@@ -179,15 +191,7 @@ const useStandaloneQuickCart = () => {
   }, [isAuthenticated]);
 
   useEffect(() => {
-    try {
-      if (cart.length > 0) {
-        localStorage.setItem(QUICK_CART_STORAGE_KEY, JSON.stringify(cart));
-      } else {
-        localStorage.removeItem(QUICK_CART_STORAGE_KEY);
-      }
-    } catch (error) {
-      console.error("Failed to persist quick cart to localStorage", error);
-    }
+    persistQuickCartSnapshot(cart);
   }, [cart]);
 
   const addToCart = async (product) => {
@@ -328,18 +332,7 @@ export const CartProvider = ({ children }) => {
   useEffect(() => {
     if (!isUsingFoodCart) return;
 
-    try {
-      if (quickItemsFromFoodCart.length > 0) {
-        localStorage.setItem(
-          QUICK_CART_STORAGE_KEY,
-          JSON.stringify(quickItemsFromFoodCart),
-        );
-      } else {
-        localStorage.removeItem(QUICK_CART_STORAGE_KEY);
-      }
-    } catch (error) {
-      console.error("Failed to mirror quick cart into localStorage", error);
-    }
+    persistQuickCartSnapshot(quickItemsFromFoodCart);
   }, [isUsingFoodCart, quickItemsFromFoodCart]);
 
   const bridgedValue = useMemo(() => {
@@ -348,12 +341,29 @@ export const CartProvider = ({ children }) => {
     }
 
     const addToCart = async (product) => {
-      foodCart.addToCart(normalizeQuickProductForSharedCart(product));
+      const normalizedProduct = normalizeQuickProductForSharedCart(product);
+      const existingItem = quickItemsFromFoodCart.find(
+        (item) => getProductId(item) === normalizedProduct.id,
+      );
+      const nextQuickItems = existingItem
+        ? quickItemsFromFoodCart.map((item) =>
+            getProductId(item) === normalizedProduct.id
+              ? { ...item, quantity: Number(item.quantity || 0) + 1 }
+              : item,
+          )
+        : [...quickItemsFromFoodCart, { ...normalizedProduct, quantity: 1 }];
+
+      persistQuickCartSnapshot(nextQuickItems);
+      foodCart.addToCart(normalizedProduct);
     };
 
     const removeFromCart = async (productId) => {
       const resolvedProductId = normalizeProductId(productId);
       if (!resolvedProductId) return;
+      const nextQuickItems = quickItemsFromFoodCart.filter(
+        (item) => getProductId(item) !== resolvedProductId,
+      );
+      persistQuickCartSnapshot(nextQuickItems);
       foodCart.removeFromCart(resolvedProductId);
     };
 
@@ -363,10 +373,22 @@ export const CartProvider = ({ children }) => {
       const currentItem = foodCart.getCartItem(resolvedProductId);
       if (!currentItem) return;
       const nextQuantity = Math.max(0, (currentItem.quantity || 0) + delta);
+      const nextQuickItems =
+        nextQuantity === 0
+          ? quickItemsFromFoodCart.filter(
+              (item) => getProductId(item) !== resolvedProductId,
+            )
+          : quickItemsFromFoodCart.map((item) =>
+              getProductId(item) === resolvedProductId
+                ? { ...item, quantity: nextQuantity }
+                : item,
+            );
+      persistQuickCartSnapshot(nextQuickItems);
       foodCart.updateQuantity(resolvedProductId, nextQuantity);
     };
 
     const clearCart = async () => {
+      persistQuickCartSnapshot([]);
       foodCart.clearCart();
     };
 
