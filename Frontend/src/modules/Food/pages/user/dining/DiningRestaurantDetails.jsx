@@ -3,6 +3,7 @@ import { useLocation, useNavigate, useParams } from "react-router-dom"
 import { restaurantAPI } from "@food/api"
 import { useProfile } from "@food/context/ProfileContext"
 import { getMenuFromResponse } from "@food/utils/menuItems"
+import { buildDiningGuestOptions, normalizeSelectedDiningGuests } from "@food/utils/diningGuests"
 import useAppBackNavigation from "@food/hooks/useAppBackNavigation"
 import {
     ArrowLeft,
@@ -152,6 +153,10 @@ export default function DiningRestaurantDetails() {
     fetchRestaurantData()
   }, [location.state?.restaurant, slug])
 
+  useEffect(() => {
+    setSelectedGuests((currentGuests) => normalizeSelectedDiningGuests(currentGuests, restaurant))
+  }, [restaurant])
+
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#f6f7fb]">
@@ -183,6 +188,7 @@ export default function DiningRestaurantDetails() {
       : "Asian, Italian, Continental, Chinese, North Indian, Desserts, Beverages, Coffee"
   const costForTwo = restaurant?.costForTwo ? `${"\u20B9"}${restaurant.costForTwo} for two` : `${"\u20B9"}1900 for two`
   const facilities = buildFacilities(restaurant)
+  const guestOptions = buildDiningGuestOptions(restaurant)
   const rating = Number(restaurant?.rating || restaurant?.avgRating || 0).toFixed(1)
   const reviewCount = restaurant?.totalRatings || restaurant?.reviewCount || restaurant?.reviewsCount || 0
   const openingTime = formatTimeLabel(restaurant?.openingTime || restaurant?.diningSettings?.openingTime || "12:00")
@@ -560,7 +566,7 @@ export default function DiningRestaurantDetails() {
             </div>
 
             <div className="grid grid-cols-4 gap-3">
-              {Array.from({ length: Math.min(restaurant?.diningSettings?.maxGuests || 6, 8) }, (_, index) => index + 1).map((count) => (
+              {guestOptions.map((count) => (
                 <button
                   key={`sheet-${count}`}
                   onClick={() => setSelectedGuests(count)}
