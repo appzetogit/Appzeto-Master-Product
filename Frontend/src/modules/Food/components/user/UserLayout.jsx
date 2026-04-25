@@ -105,7 +105,7 @@ function LocationSelectorProvider({ children }) {
   )
 }
 
-export default function UserLayout() {
+export default function UserLayout({ children }) {
   const location = useLocation()
 
   useEffect(() => {
@@ -163,7 +163,7 @@ export default function UserLayout() {
                   </div>
                   <LocationPrompt />
                   <main className={showFoodBottomNav ? "md:pt-40" : ""}>
-                    <Outlet />
+                    {children || <Outlet />}
                   </main>
                   {showFoodBottomNav && <BottomNavigation />}
                   {isSharedQuickProfile && <QuickBottomNav />}
