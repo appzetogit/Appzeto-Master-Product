@@ -12,7 +12,7 @@ import {
 import { useLocation } from "@food/hooks/useLocation"
 import { useCart } from "@food/context/CartContext"
 import { useLocationSelector } from "./UserLayout"
-import { getCachedSettings, loadBusinessSettings } from "@food/utils/businessSettings"
+import { getCachedSettings, loadBusinessSettings } from "@common/utils/businessSettings"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}

@@ -4,7 +4,7 @@ import { ArrowRight, Utensils, Truck, Store, Globe, Heart, Shield, Clock } from 
 import { motion } from "framer-motion"
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@food/components/ui/card"
 import { Button } from "@food/components/ui/button"
-import { getCachedSettings, loadBusinessSettings } from "@food/utils/businessSettings"
+import { getCachedSettings, loadBusinessSettings } from "@common/utils/businessSettings"
 import quickSpicyLogo from "@food/assets/quicky-spicy-logo.png"
 
 export default function Home() {

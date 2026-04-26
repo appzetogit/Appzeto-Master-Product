@@ -43,7 +43,7 @@ import {
 import quickSpicyLogo from "@food/assets/quicky-spicy-logo.png";
 import { adminAPI } from "@food/api";
 import { clearModuleAuth } from "@food/utils/auth";
-import { getCachedSettings, loadBusinessSettings } from "@food/utils/businessSettings";
+import { getCachedSettings, loadBusinessSettings } from "@common/utils/businessSettings";
 import useAdminNotifications from "@food/hooks/useAdminNotifications";
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}

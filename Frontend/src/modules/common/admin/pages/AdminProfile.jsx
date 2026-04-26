@@ -1,17 +1,18 @@
 import { useState, useEffect, useRef } from "react";
-import { adminAPI, uploadAPI } from "@food/api";
-import { Button } from "@food/components/ui/button";
-import { Input } from "@food/components/ui/input";
-import { Label } from "@food/components/ui/label";
+import { adminAPI, uploadAPI } from "@/services/api";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@food/components/ui/card";
+} from "@/components/ui/card";
 import { toast } from "sonner";
 import { User, Mail, Phone, Save, Loader2, Upload, X, Pencil, Eye, EyeOff } from "lucide-react";
+
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -672,4 +673,3 @@ export default function AdminProfile() {
     </div>
   );
 }
-

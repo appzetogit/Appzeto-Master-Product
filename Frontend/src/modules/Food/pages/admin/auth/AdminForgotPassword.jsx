@@ -15,7 +15,7 @@ import { Mail, ArrowLeft, Shield } from "lucide-react"
 import quickSpicyLogo from "@food/assets/quicky-spicy-logo.png"
 import { adminAPI } from "@food/api"
 import { useCompanyName } from "@food/hooks/useCompanyName"
-import { loadBusinessSettings } from "@food/utils/businessSettings"
+import { loadBusinessSettings } from "@common/utils/businessSettings"
 
 export default function AdminForgotPassword() {
   const companyName = useCompanyName()

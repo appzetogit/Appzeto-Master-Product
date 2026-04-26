@@ -9,8 +9,8 @@ import {
   ArrowLeft
 } from 'lucide-react';
 import { toast } from "sonner";
-import { adminAPI } from "@food/api";
-import { setCachedSettings } from "@food/utils/businessSettings";
+import { adminAPI } from "@/services/api";
+import { setCachedSettings } from "@/modules/common/utils/businessSettings";
 import { cn } from "@/lib/utils";
 
 const SectionCard = ({ title, children, id }) => (

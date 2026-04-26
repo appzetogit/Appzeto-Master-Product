@@ -9,7 +9,7 @@ import quickSpicyLogo from "@food/assets/quicky-spicy-logo.png"
 import api from "@food/api"
 import { API_ENDPOINTS } from "@food/api/config"
 import { useCompanyName } from "@food/hooks/useCompanyName"
-import { getCachedSettings, loadBusinessSettings } from "@food/utils/businessSettings"
+import { getCachedSettings, loadBusinessSettings } from "@common/utils/businessSettings"
 
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}

@@ -6,7 +6,7 @@ import { IndianRupee, Loader2, X } from "lucide-react"
 import { userAPI } from "@food/api"
 import { initRazorpayPayment } from "@food/utils/razorpay"
 import { toast } from "sonner"
-import { getCompanyNameAsync } from "@food/utils/businessSettings"
+import { getCompanyNameAsync } from "@common/utils/businessSettings"
 
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}

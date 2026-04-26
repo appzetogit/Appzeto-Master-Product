@@ -1,24 +1,24 @@
-import { FoodBusinessSettings } from '../models/businessSettings.model.js';
+import { GlobalSettings } from '../models/settings.model.js';
 import { sendResponse } from '../../../../utils/response.js';
 import { uploadImageBufferDetailed } from '../../../../services/cloudinary.service.js';
 
-export async function getBusinessSettings(req, res, next) {
+export async function getGlobalSettings(req, res, next) {
     try {
-        let settings = await FoodBusinessSettings.findOne().lean();
+        let settings = await GlobalSettings.findOne().lean();
         if (!settings) {
             // Create default settings if none exist
-            settings = await FoodBusinessSettings.create({
+            settings = await GlobalSettings.create({
                 companyName: 'Appzeto',
                 email: 'admin@appzeto.com'
             });
         }
-        return sendResponse(res, 200, 'Business settings fetched successfully', settings);
+        return sendResponse(res, 200, 'Global settings fetched successfully', settings);
     } catch (error) {
         next(error);
     }
 }
 
-export async function updateBusinessSettings(req, res, next) {
+export async function updateGlobalSettings(req, res, next) {
     try {
         const data = req.body.data ? JSON.parse(req.body.data) : {};
         const { companyName, email, phoneCountryCode, phoneNumber, address, state, pincode, region, logoUrl, faviconUrl, themeColor } = data;
@@ -43,9 +43,9 @@ export async function updateBusinessSettings(req, res, next) {
             return res.status(400).json({ success: false, message: 'Invalid pincode (4-10 digits required)' });
         }
 
-        let settings = await FoodBusinessSettings.findOne();
+        let settings = await GlobalSettings.findOne();
         if (!settings) {
-            settings = new FoodBusinessSettings();
+            settings = new GlobalSettings();
         }
 
         if (companyName) settings.companyName = companyName;
@@ -95,7 +95,7 @@ export async function updateBusinessSettings(req, res, next) {
         }
 
         await settings.save();
-        return sendResponse(res, 200, 'Business settings updated successfully', settings);
+        return sendResponse(res, 200, 'Global settings updated successfully', settings);
     } catch (error) {
         next(error);
     }

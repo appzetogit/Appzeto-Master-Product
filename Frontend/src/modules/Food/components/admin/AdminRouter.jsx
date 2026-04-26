@@ -6,7 +6,7 @@ import Loader from "@food/components/Loader";
 
 const AdminHome = lazy(() => import("@food/pages/admin/AdminHome"));
 const PointOfSale = lazy(() => import("@food/pages/admin/PointOfSale"));
-const AdminProfile = lazy(() => import("@food/pages/admin/AdminProfile"));
+const AdminProfile = lazy(() => import("@/modules/common/admin/pages/AdminProfile"));
 const AdminSettings = lazy(() => import("@food/pages/admin/AdminSettings"));
 const NewRefundRequests = lazy(() => import("@food/pages/admin/refunds/NewRefundRequests"));
 const FoodApproval = lazy(() => import("@food/pages/admin/restaurant/FoodApproval"));
@@ -132,7 +132,7 @@ const AdminForgotPassword = lazy(() => import("@food/pages/admin/auth/AdminForgo
 const QuickCommerceAdminRoutes = lazy(() => import("@/modules/quickCommerce/admin/routes"));
 const TaxiAdminRoutes = lazy(() => import("@/modules/taxi/modules/admin/routes"));
 const HotelAdminRoutes = lazy(() => import("@/modules/hotel/app/admin/routes"));
-const GlobalApplicationSettings = lazy(() => import("@food/pages/admin/settings/GlobalApplicationSettings"));
+const GlobalApplicationSettings = lazy(() => import("@/modules/common/admin/pages/GlobalApplicationSettings"));
 
 const HotelAdminRedirect = () => {
   const location = useLocation();

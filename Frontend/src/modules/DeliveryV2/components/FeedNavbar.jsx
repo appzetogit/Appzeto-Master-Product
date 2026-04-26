@@ -6,7 +6,7 @@ import { HelpCircle, ArrowRight, Phone, Ambulance, AlertTriangle, Shield, Shield
 import { toast } from "sonner";
 import { deliveryAPI } from "@food/api";
 import { useCompanyName } from "@food/hooks/useCompanyName";
-import { getCachedSettings, loadBusinessSettings } from "@food/utils/businessSettings";
+import { getCachedSettings, loadBusinessSettings } from "@common/utils/businessSettings";
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}

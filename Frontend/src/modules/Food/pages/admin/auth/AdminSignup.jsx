@@ -15,7 +15,7 @@ import { Mail, User, Lock, Eye, EyeOff, ArrowLeft, Shield } from "lucide-react"
 import quickSpicyLogo from "@food/assets/quicky-spicy-logo.png"
 import { authAPI, adminAPI } from "@food/api"
 import { setAuthData } from "@food/utils/auth"
-import { loadBusinessSettings } from "@food/utils/businessSettings"
+import { loadBusinessSettings } from "@common/utils/businessSettings"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}

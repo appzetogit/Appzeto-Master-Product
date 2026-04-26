@@ -11,7 +11,7 @@ import { deliveryAPI } from '@food/api';
 import { toast } from 'sonner';
 import { formatCurrency } from '@food/utils/currency';
 import { initRazorpayPayment } from "@food/utils/razorpay";
-import { getCompanyNameAsync } from "@food/utils/businessSettings";
+import { getCompanyNameAsync } from "@common/utils/businessSettings";
 
 /**
  * PocketV2 - 1:1 Match with Old PocketPage UI.
