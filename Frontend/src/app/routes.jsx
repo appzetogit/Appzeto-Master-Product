@@ -75,11 +75,9 @@ const FoodAppWrapper = () => {
 const SharedFoodHomeRoute = () => {
   return (
     <Suspense fallback={<PageLoader />}>
-      <Routes>
-        <Route element={<FoodUserLayout />}>
-          <Route index element={<FoodHomePage />} />
-        </Route>
-      </Routes>
+      <FoodUserLayout>
+        <FoodHomePage />
+      </FoodUserLayout>
     </Suspense>
   )
 }

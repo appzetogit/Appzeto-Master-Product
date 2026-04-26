@@ -3,13 +3,13 @@ import { QuickProduct } from '../models/product.model.js';
 import { Seller } from '../seller/models/seller.model.js';
 import { ensureQuickCommerceSeedData } from '../services/seed.service.js';
 import {
+  getQuickCategories,
   getQuickCoupons,
   getQuickExperienceSections,
   getQuickHeroConfig,
   getQuickOfferSections,
   getQuickOffers,
   getQuickSettings,
-  getQuickCategories,
 } from '../services/content.service.js';
 
 const setNoCache = (res) => {
@@ -19,9 +19,13 @@ const setNoCache = (res) => {
 };
 
 const approvedOrLegacyFilter = {
-  $or: [
-    { approvalStatus: { $exists: false } },
-    { approvalStatus: 'approved' },
+  $and: [
+    {
+      $or: [
+        { approvalStatus: 'approved' },
+        { approvalStatus: { $exists: false } },
+      ],
+    },
   ],
 };
 
@@ -29,14 +33,10 @@ const publicCategoryFilter = {
   $and: [
     {
       $or: [
-        { isActive: true },
-        { isActive: { $exists: false } },
-      ],
-    },
-    {
-      $or: [
         { status: 'active' },
         { status: { $exists: false } },
+        { isActive: true },
+        { isActive: { $exists: false } },
       ],
     },
     {
@@ -53,14 +53,10 @@ const publicProductFilter = {
     approvedOrLegacyFilter,
     {
       $or: [
-        { isActive: true },
-        { isActive: { $exists: false } },
-      ],
-    },
-    {
-      $or: [
         { status: 'active' },
         { status: { $exists: false } },
+        { isActive: true },
+        { isActive: { $exists: false } },
       ],
     },
   ],
@@ -275,7 +271,13 @@ export const getProducts = async (req, res) => {
   const { categoryId, search, limit } = req.query;
   const query = { ...publicProductFilter };
 
-  if (categoryId) query.categoryId = categoryId;
+  if (categoryId) {
+    query.$or = [
+      { categoryId: categoryId },
+      { subcategoryId: categoryId },
+      { headerId: categoryId }
+    ];
+  }
   if (search) query.name = { $regex: String(search).trim(), $options: 'i' };
 
   const parsedLimit = Number(limit) > 0 ? Math.min(Number(limit), 100) : 50;
@@ -320,3 +322,4 @@ export const getProductReviews = async (req, res) => {
     results: [],
   });
 };
+
