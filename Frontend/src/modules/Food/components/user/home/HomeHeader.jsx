@@ -29,28 +29,28 @@ import foodPattern from "@food/assets/food_pattern_background.png";
 import useNotificationInbox from "@food/hooks/useNotificationInbox";
 
 const tabs = [
-  // {
-  //   id: "food",
-  //   name: "Food",
-  //   icon: "https://cdn-icons-png.flaticon.com/512/3075/3075977.png",
-  // },
-  // {
-  //   id: "quick",
-  //   name: "Instamart",
-  //   icon: "https://cdn-icons-png.flaticon.com/512/3724/3724720.png",
-  //   badge: "15 mins",
-  // },
-  // {
-  //   id: "taxi",
-  //   name: "Dineout",
-  //   icon: "https://cdn-icons-png.flaticon.com/512/2515/2515183.png",
-  // },
-  // {
-  //   id: "hotel",
-  //   name: "Explore",
-  //   icon: "https://cdn-icons-png.flaticon.com/512/854/854878.png",
-  //   route: "/user/auth/portal",
-  // },
+  {
+    id: "food",
+    name: "Food",
+    icon: "https://cdn-icons-png.flaticon.com/512/3075/3075977.png",
+  },
+  {
+    id: "quick",
+    name: "Instamart",
+    icon: "https://cdn-icons-png.flaticon.com/512/3724/3724720.png",
+    badge: "15 mins",
+  },
+  {
+    id: "taxi",
+    name: "Dineout",
+    icon: "https://cdn-icons-png.flaticon.com/512/2515/2515183.png",
+  },
+  {
+    id: "hotel",
+    name: "Explore",
+    icon: "https://cdn-icons-png.flaticon.com/512/854/854878.png",
+    route: "/user/auth/portal",
+  },
 ];
 
 const normalizeHex = (hex, fallback = "#8e24aa") => {
@@ -358,8 +358,8 @@ export default function HomeHeader({
                 </div>
                 <div className="max-h-96 overflow-y-auto">
                   {mergedNotifications.length > 0 ? (
-                    mergedNotifications.slice(0, 5).map((item) => (
-                      <div key={item.id} className="p-4 flex items-start gap-3 border-b border-gray-50 last:border-0">
+                    mergedNotifications.slice(0, 5).map((item, index) => (
+                      <div key={item.id || `notif-${index}`} className="p-4 flex items-start gap-3 border-b border-gray-50 last:border-0">
                         <div className="mt-1 p-2 rounded-full bg-orange-100/50 text-orange-600">
                           <Bell className="h-4 w-4" />
                         </div>

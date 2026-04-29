@@ -27,6 +27,7 @@ export default defineConfig({
       '@quickCommerce': path.resolve(__dirname, './src/modules/quickCommerce'),
       '@delivery': path.resolve(__dirname, './src/modules/DeliveryV2'),
       '@hotel': hotelSrc,
+      '@common': path.resolve(__dirname, './src/modules/common'),
       '@': path.resolve(__dirname, './src'),
     },
     dedupe: ['react', 'react-dom', 'react-router-dom'],

@@ -33,6 +33,18 @@ import {
   updateAdminZone,
   deleteAdminZone,
   listPublicZones,
+  getAdminExperienceSections,
+  createAdminExperienceSection,
+  updateAdminExperienceSection,
+  deleteAdminExperienceSection,
+  reorderAdminExperienceSections,
+  getAdminHeroConfig,
+  setAdminHeroConfig,
+  getAdminOfferSections,
+  createAdminOfferSection,
+  updateAdminOfferSection,
+  deleteAdminOfferSection,
+  reorderAdminOfferSections,
 } from '../controllers/admin.controller.js';
 
 import { authMiddleware } from '../../../core/auth/auth.middleware.js';
@@ -112,5 +124,22 @@ router.get('/admin/zones/:zoneId', ...adminOnly, getAdminZoneById);
 router.post('/admin/zones', ...adminOnly, createAdminZone);
 router.patch('/admin/zones/:zoneId', ...adminOnly, updateAdminZone);
 router.delete('/admin/zones/:zoneId', ...adminOnly, deleteAdminZone);
+
+// Experience Sections Management
+router.get('/admin/experience/sections', ...adminOnly, getAdminExperienceSections);
+router.post('/admin/experience/sections', ...adminOnly, createAdminExperienceSection);
+router.put('/admin/experience/sections/:id', ...adminOnly, updateAdminExperienceSection);
+router.delete('/admin/experience/sections/:id', ...adminOnly, deleteAdminExperienceSection);
+router.post('/admin/experience/sections/reorder', ...adminOnly, reorderAdminExperienceSections);
+
+router.get('/admin/experience/hero', ...adminOnly, getAdminHeroConfig);
+router.post('/admin/experience/hero', ...adminOnly, setAdminHeroConfig);
+
+// Offer Sections Management
+router.get('/admin/offer-sections', ...adminOnly, getAdminOfferSections);
+router.post('/admin/offer-sections', ...adminOnly, createAdminOfferSection);
+router.put('/admin/offer-sections/:id', ...adminOnly, updateAdminOfferSection);
+router.delete('/admin/offer-sections/:id', ...adminOnly, deleteAdminOfferSection);
+router.post('/admin/offer-sections/reorder', ...adminOnly, reorderAdminOfferSections);
 
 export default router;

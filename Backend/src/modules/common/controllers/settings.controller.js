@@ -1,51 +1,57 @@
-import { FoodBusinessSettings } from '../models/businessSettings.model.js';
-import { sendResponse } from '../../../../utils/response.js';
-import { uploadImageBufferDetailed } from '../../../../services/cloudinary.service.js';
+import { GlobalSettings } from '../models/settings.model.js';
+import { sendResponse } from '../../../utils/response.js';
+import { uploadImageBufferDetailed } from '../../../services/cloudinary.service.js';
 
-export async function getBusinessSettings(req, res, next) {
+export async function getGlobalSettings(req, res, next) {
     try {
-        let settings = await FoodBusinessSettings.findOne().lean();
+        let settings = await GlobalSettings.findOne().lean();
         if (!settings) {
             // Create default settings if none exist
-            settings = await FoodBusinessSettings.create({
+            settings = await GlobalSettings.create({
                 companyName: 'Appzeto',
                 email: 'admin@appzeto.com'
             });
         }
-        return sendResponse(res, 200, 'Business settings fetched successfully', settings);
+        return sendResponse(res, 200, 'Global settings fetched successfully', settings);
     } catch (error) {
         next(error);
     }
 }
 
-export async function updateBusinessSettings(req, res, next) {
+export async function updateGlobalSettings(req, res, next) {
     try {
-        const data = req.body.data ? JSON.parse(req.body.data) : {};
-        const { companyName, email, phoneCountryCode, phoneNumber, address, state, pincode, region, logoUrl, faviconUrl } = data;
+        let data = {};
+        if (req.body.data) {
+            try {
+                data = typeof req.body.data === 'string' ? JSON.parse(req.body.data) : req.body.data;
+            } catch (e) {
+                console.error("Error parsing settings data:", e);
+                data = req.body;
+            }
+        } else {
+            data = req.body;
+        }
+        
+        const { companyName, email, phoneCountryCode, phoneNumber, address, state, pincode, region, logoUrl, faviconUrl, themeColor, modules } = data;
+        
+        console.log("Updating global settings with data:", data);
 
         // Validation
-        if (!companyName || companyName.trim().length < 2 || companyName.trim().length > 50) {
+        if (companyName !== undefined && (!companyName || companyName.trim().length < 2 || companyName.trim().length > 50)) {
             return res.status(400).json({ success: false, message: 'Company name must be between 2 and 50 characters' });
         }
-        if (!email || email.length > 100 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
-            return res.status(400).json({ success: false, message: 'Invalid email address (max 100 characters)' });
+        
+        if (email && (email.length > 100 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()))) {
+            return res.status(400).json({ success: false, message: 'Invalid email address' });
         }
-        if (!phoneNumber || !/^\d{7,15}$/.test(phoneNumber.trim())) {
+        
+        if (phoneNumber && !/^\d{7,15}$/.test(phoneNumber.trim())) {
             return res.status(400).json({ success: false, message: 'Invalid phone number (7-15 digits required)' });
         }
-        if (address && address.length > 250) {
-            return res.status(400).json({ success: false, message: 'Address is too long (max 250 characters)' });
-        }
-        if (state && state.length > 50) {
-            return res.status(400).json({ success: false, message: 'State name is too long (max 50 characters)' });
-        }
-        if (pincode && !/^\d{4,10}$/.test(pincode.trim())) {
-            return res.status(400).json({ success: false, message: 'Invalid pincode (4-10 digits required)' });
-        }
 
-        let settings = await FoodBusinessSettings.findOne();
+        let settings = await GlobalSettings.findOne();
         if (!settings) {
-            settings = new FoodBusinessSettings();
+            settings = new GlobalSettings();
         }
 
         if (companyName) settings.companyName = companyName;
@@ -72,6 +78,17 @@ export async function updateBusinessSettings(req, res, next) {
                 publicId: settings.favicon?.publicId || ''
             };
         }
+        if (themeColor !== undefined) {
+            settings.themeColor = themeColor;
+        }
+        if (modules !== undefined) {
+            settings.modules = {
+                food: modules.food !== undefined ? modules.food : settings.modules?.food,
+                taxi: modules.taxi !== undefined ? modules.taxi : settings.modules?.taxi,
+                quickCommerce: modules.quickCommerce !== undefined ? modules.quickCommerce : settings.modules?.quickCommerce,
+                hotel: modules.hotel !== undefined ? modules.hotel : settings.modules?.hotel
+            };
+        }
 
         // Handle file uploads
         if (req.files) {
@@ -92,7 +109,7 @@ export async function updateBusinessSettings(req, res, next) {
         }
 
         await settings.save();
-        return sendResponse(res, 200, 'Business settings updated successfully', settings);
+        return sendResponse(res, 200, 'Global settings updated successfully', settings);
     } catch (error) {
         next(error);
     }

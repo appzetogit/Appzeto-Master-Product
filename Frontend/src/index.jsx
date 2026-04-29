@@ -9,8 +9,8 @@ const NATIVE_LAST_ROUTE_KEY = 'native_last_route'
 
 // ─── Quick-spicy Food Module Initialization ───────────────────────────────────
 
-// Load food module business settings (favicon, title) — non-critical
-import('./modules/Food/utils/businessSettings.js')
+// Load global business settings (favicon, title) — non-critical
+import('@common/utils/businessSettings')
   .then(({ loadBusinessSettings }) => loadBusinessSettings())
   .catch(() => { /* Silently fail — settings load when admin authenticates */ })
 

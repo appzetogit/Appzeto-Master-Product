@@ -1,6 +1,6 @@
 import mongoose from 'mongoose';
 
-const businessSettingsSchema = new mongoose.Schema(
+const globalSettingsSchema = new mongoose.Schema(
     {
         companyName: { type: String, required: true, default: 'Appzeto' },
         email: { type: String, required: true, default: 'admin@appzeto.com' },
@@ -19,9 +19,19 @@ const businessSettingsSchema = new mongoose.Schema(
         favicon: {
             url: { type: String, default: '' },
             publicId: { type: String, default: '' }
+        },
+        themeColor: { type: String, default: '#0a0a0a' },
+        modules: {
+            food: { type: Boolean, default: true },
+            taxi: { type: Boolean, default: true },
+            quickCommerce: { type: Boolean, default: true },
+            hotel: { type: Boolean, default: true }
         }
     },
     { timestamps: true }
 );
 
-export const FoodBusinessSettings = mongoose.model('FoodBusinessSettings', businessSettingsSchema);
+// We keep the collection name the same if we want to preserve data, 
+// or rename it if we want a fresh start. 
+// Given the user wants to "move" them, keeping data is likely preferred.
+export const GlobalSettings = mongoose.model('GlobalSettings', globalSettingsSchema, 'common_global_settings');

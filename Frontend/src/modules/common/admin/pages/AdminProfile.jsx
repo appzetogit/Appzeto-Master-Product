@@ -1,17 +1,18 @@
 import { useState, useEffect, useRef } from "react";
-import { adminAPI, uploadAPI } from "@food/api";
-import { Button } from "@food/components/ui/button";
-import { Input } from "@food/components/ui/input";
-import { Label } from "@food/components/ui/label";
+import { adminAPI, uploadAPI } from "@/services/api";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@food/components/ui/card";
+} from "@/components/ui/card";
 import { toast } from "sonner";
 import { User, Mail, Phone, Save, Loader2, Upload, X, Pencil, Eye, EyeOff } from "lucide-react";
+
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -400,29 +401,6 @@ export default function AdminProfile() {
         </CardHeader>
         <CardContent>
           <form id="admin-profile-form" onSubmit={handleSubmit} className="space-y-6">
-            {/* Profile Picture Section */}
-            <div className="flex items-center gap-6 pb-6 border-b border-neutral-200">
-              <div className="w-20 h-20 rounded-full bg-neutral-100 flex items-center justify-center overflow-hidden border-2 border-neutral-300">
-                {profile.profileImage ? (
-                  <img
-                    src={profile.profileImage}
-                    alt={profile.name}
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <span className="text-2xl font-semibold text-neutral-600">
-                    {getInitials(profile.name)}
-                  </span>
-                )}
-              </div>
-              <div className="flex-1">
-                <p className="text-sm font-medium text-neutral-900">{profile.name}</p>
-                <p className="text-xs text-neutral-500 mt-1">{maskEmail(profile.email)}</p>
-                <p className="text-xs text-neutral-500 mt-1">
-                  Role: <span className="font-medium capitalize">{profile.role || "admin"}</span>
-                </p>
-              </div>
-            </div>
 
             {/* Form Fields */}
             <div className="grid gap-6 md:grid-cols-2">
@@ -695,4 +673,3 @@ export default function AdminProfile() {
     </div>
   );
 }
-

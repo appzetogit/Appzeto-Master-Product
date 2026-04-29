@@ -6,7 +6,7 @@ import Loader from "@food/components/Loader";
 
 const AdminHome = lazy(() => import("@food/pages/admin/AdminHome"));
 const PointOfSale = lazy(() => import("@food/pages/admin/PointOfSale"));
-const AdminProfile = lazy(() => import("@food/pages/admin/AdminProfile"));
+const AdminProfile = lazy(() => import("@/modules/common/admin/pages/AdminProfile"));
 const AdminSettings = lazy(() => import("@food/pages/admin/AdminSettings"));
 const NewRefundRequests = lazy(() => import("@food/pages/admin/refunds/NewRefundRequests"));
 const FoodApproval = lazy(() => import("@food/pages/admin/restaurant/FoodApproval"));
@@ -90,7 +90,6 @@ const EmployeeRole = lazy(() => import("@food/pages/admin/employees/EmployeeRole
 const AddEmployee = lazy(() => import("@food/pages/admin/employees/AddEmployee"));
 const EmployeeList = lazy(() => import("@food/pages/admin/employees/EmployeeList"));
 // Business Settings
-const BusinessSetup = lazy(() => import("@food/pages/admin/settings/BusinessSetup"));
 const EmailTemplate = lazy(() => import("@food/pages/admin/settings/EmailTemplate"));
 const ThemeSettings = lazy(() => import("@food/pages/admin/settings/ThemeSettings"));
 const Gallery = lazy(() => import("@food/pages/admin/settings/Gallery"));
@@ -131,6 +130,10 @@ const AdminLogin = lazy(() => import("@food/pages/admin/auth/AdminLogin"));
 const AdminSignup = lazy(() => import("@food/pages/admin/auth/AdminSignup"));
 const AdminForgotPassword = lazy(() => import("@food/pages/admin/auth/AdminForgotPassword"));
 const QuickCommerceAdminRoutes = lazy(() => import("@/modules/quickCommerce/admin/routes"));
+const TaxiAdminRoutes = lazy(() => import("@/modules/taxi/modules/admin/routes"));
+const HotelAdminRoutes = lazy(() => import("@/modules/hotel/app/admin/routes"));
+const GlobalApplicationSettings = lazy(() => import("@/modules/common/admin/pages/GlobalApplicationSettings"));
+const ModuleManagement = lazy(() => import("@/modules/common/admin/pages/ModuleManagement"));
 
 const HotelAdminRedirect = () => {
   const location = useLocation();
@@ -151,16 +154,6 @@ export default function AdminRouter() {
 
         {/* Protected Routes - With Layout */}
         <Route
-          path="quick-commerce/*"
-          element={
-            <ProtectedRoute>
-              <QuickCommerceAdminRoutes />
-            </ProtectedRoute>
-          }
-        />
-        <Route path="hotel/*" element={<HotelAdminRedirect />} />
-
-        <Route
           element={
             <ProtectedRoute>
               <AdminLayout />
@@ -169,6 +162,23 @@ export default function AdminRouter() {
         >
           {/* Default Admin Redirect */}
           <Route path="/" element={<Navigate to="food" replace />} />
+
+          {/* Quick Commerce Admin Routes */}
+          <Route path="quick-commerce/*" element={<QuickCommerceAdminRoutes />} />
+
+          {/* Hotel Admin Routes */}
+          <Route path="hotel/*" element={<HotelAdminRoutes />} />
+
+          {/* Taxi Admin Routes */}
+          <Route path="taxi/*" element={<TaxiAdminRoutes />} />
+
+          {/* Global Application Settings (Common Module) */}
+          <Route path="global-settings">
+            <Route index element={<Navigate to="app" replace />} />
+            <Route path="app" element={<GlobalApplicationSettings />} />
+            <Route path="admin" element={<AdminProfile />} />
+            <Route path="modules" element={<ModuleManagement />} />
+          </Route>
 
           {/* FOOD ADMIN - All food related routes nested here */}
           <Route path="food/*">
@@ -279,7 +289,6 @@ export default function AdminRouter() {
             <Route path="employees/add" element={<AddEmployee />} />
 
             {/* SYSTEM & BUSINESS SETTINGS */}
-            <Route path="business-setup" element={<BusinessSetup />} />
             <Route path="email-template" element={<EmailTemplate />} />
             <Route path="theme-settings" element={<ThemeSettings />} />
             <Route path="gallery" element={<Gallery />} />

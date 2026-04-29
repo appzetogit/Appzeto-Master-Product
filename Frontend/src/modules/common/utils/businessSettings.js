@@ -3,11 +3,11 @@
  * Handles loading and updating business settings (favicon, title, logo)
  */
 
-import apiClient from "@food/api/axios";
-import { API_ENDPOINTS } from "@food/api/config";
-import { publicGetOnce } from "@food/api";
+import apiClient from "@/services/api/axios";
+import { API_ENDPOINTS } from "@/services/api/config";
+import { searchAPI } from "@/services/api";
 
-const SETTINGS_KEY = 'food_business_settings';
+const SETTINGS_KEY = 'global_business_settings';
 
 // Initialize from localStorage immediately so it's available for components on mount
 let cachedSettings = (() => {
@@ -19,11 +19,21 @@ let cachedSettings = (() => {
   }
 })();
 
+/**
+ * Update theme color in document root
+ */
+export const updateThemeColor = (color) => {
+  if (!color || typeof document === 'undefined') return;
+  document.documentElement.style.setProperty('--primary-theme', color);
+  document.documentElement.style.setProperty('--sidebar-theme', color);
+};
+
 // Apply cached settings immediately on module load if they exist
 if (cachedSettings) {
   setTimeout(() => {
     updateFavicon(cachedSettings.favicon?.url);
     updateTitle(cachedSettings.companyName);
+    updateThemeColor(cachedSettings.themeColor);
   }, 0);
 }
 
@@ -34,8 +44,6 @@ let inFlightSettingsPromise = null;
  */
 export const loadBusinessSettings = async () => {
   try {
-    // If we have no cached settings, we MUST fetch
-    // If we have cached settings, we still try to fetch in background to ensure they are fresh
     const endpoint = API_ENDPOINTS.ADMIN.BUSINESS_SETTINGS_PUBLIC;
     if (!endpoint || (typeof endpoint === "string" && !endpoint.trim())) {
       return cachedSettings;
@@ -46,9 +54,8 @@ export const loadBusinessSettings = async () => {
     }
 
     inFlightSettingsPromise = (async () => {
-      // Use public endpoint that doesn't require authentication
-      // Use noCache to ensure we get fresh data from server this time
-      const response = await publicGetOnce(endpoint, { noCache: true });
+      // Use the generic searchAPI or a dedicated public getter if available
+      const response = await apiClient.get(endpoint, { noCache: true });
       const settings = response?.data?.data || response?.data;
 
       if (settings) {
@@ -59,6 +66,7 @@ export const loadBusinessSettings = async () => {
         
         updateFavicon(settings.favicon?.url);
         updateTitle(settings.companyName);
+        updateThemeColor(settings.themeColor);
         return settings;
       }
       return cachedSettings;
@@ -66,7 +74,6 @@ export const loadBusinessSettings = async () => {
 
     return await inFlightSettingsPromise;
   } catch (error) {
-    // Return cached if failed
     return cachedSettings;
   } finally {
     inFlightSettingsPromise = null;
@@ -78,17 +85,12 @@ export const loadBusinessSettings = async () => {
  */
 export const updateFavicon = (url) => {
   if (!url || typeof document === 'undefined') return;
-
-  // Remove existing favicons
   const existingFavicons = document.querySelectorAll("link[rel*='icon']");
   existingFavicons.forEach(el => el.remove());
-
-  // Add new favicon
   const link = document.createElement("link");
   link.rel = "icon";
   link.type = "image/png";
   link.href = url;
-  // Prevent third-party cookie warning (Cloudinary)
   link.crossOrigin = "anonymous";
   document.head.appendChild(link);
 };
@@ -114,6 +116,10 @@ export const setCachedSettings = (settings) => {
     
     updateFavicon(settings.favicon?.url);
     updateTitle(settings.companyName);
+    updateThemeColor(settings.themeColor);
+    
+    // Dispatch event so all components listening can update immediately
+    window.dispatchEvent(new CustomEvent('businessSettingsUpdated', { detail: settings }));
   }
 };
 
@@ -136,7 +142,6 @@ export const getCachedSettings = () => {
 
 /**
  * Get company name from business settings with fallback
- * @returns {string} Company name or default "Appzeto Food"
  */
 export const getCompanyName = () => {
   const settings = getCachedSettings();
@@ -145,7 +150,6 @@ export const getCompanyName = () => {
 
 /**
  * Get company name asynchronously (loads if not cached)
- * @returns {Promise<string>} Company name or default "Appzeto Food"
  */
 export const getCompanyNameAsync = async () => {
   try {

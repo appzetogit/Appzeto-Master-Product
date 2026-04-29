@@ -52,9 +52,9 @@ export default function PromoRow({ handleVegModeChange, navigate, isVegMode, tog
 
   return (
     <div className="grid grid-cols-4 gap-2.5 px-3.5 pt-4 pb-8 bg-white">
-      {promoCardsData.map((promo, idx) => (
+      {promoCardsData.map((promo) => (
         <div
-          key={idx}
+          key={promo.id}
           ref={promo.id === 'pure-veg' ? toggleRef : null}
           className="rounded-[22px] flex flex-col items-center overflow-hidden cursor-pointer active:scale-95 group transition-all duration-300"
           style={{

@@ -55,6 +55,11 @@ const CategoryProductsPage = () => {
         }
     }, []);
 
+    const [experienceSections, setExperienceSections] = useState([]);
+    const [heroConfig, setHeroConfig] = useState(null);
+    const [categoryMap, setCategoryMap] = useState({});
+    const [subcategoryMap, setSubcategoryMap] = useState({});
+
     const fetchData = async () => {
         setIsLoading(true);
         try {
@@ -62,63 +67,104 @@ const CategoryProductsPage = () => {
                 Number.isFinite(currentLocation?.latitude) &&
                 Number.isFinite(currentLocation?.longitude);
 
-            if (hasValidLocation) {
-                // Fetch products for this category
-                const prodRes = await customerApi.getProducts({
-                    categoryId: catId,
-                    lat: currentLocation.latitude,
-                    lng: currentLocation.longitude,
-                });
-                if (prodRes.data.success) {
-                    const rawResult = prodRes.data.result;
-                    const dbProds = Array.isArray(prodRes.data.results)
-                        ? prodRes.data.results
-                        : Array.isArray(rawResult?.items)
+            const [prodRes, catRes, expRes, heroRes] = await Promise.all([
+                hasValidLocation
+                    ? customerApi.getProducts({
+                        categoryId: catId,
+                        lat: currentLocation.latitude,
+                        lng: currentLocation.longitude,
+                    })
+                    : Promise.resolve({ data: { success: true, result: { items: [] } } }),
+                customerApi.getCategories({ tree: true }),
+                customerApi.getExperienceSections({ pageType: 'header', headerId: catId }).catch(() => null),
+                customerApi.getHeroConfig({ pageType: 'header', headerId: catId }).catch(() => null)
+            ]);
+
+            if (prodRes.data.success) {
+                const rawResult = prodRes.data.result;
+                const dbProds = Array.isArray(prodRes.data.results)
+                    ? prodRes.data.results
+                    : Array.isArray(rawResult?.items)
                         ? rawResult.items
                         : Array.isArray(rawResult)
-                        ? rawResult
-                        : [];
+                            ? rawResult
+                            : [];
 
-                    const formattedProds = dbProds.map(p => ({
-                        ...p,
-                        id: p._id,
-                        image: p.mainImage || p.image || "https://images.unsplash.com/photo-1550989460-0adf9ea622e2",
-                        price: p.salePrice || p.price,
-                        originalPrice: p.price,
-                        weight: p.weight || "1 unit",
-                        deliveryTime: "8-15 mins"
-                    }));
-                    setProducts(Array.isArray(formattedProds) ? formattedProds : []);
-                }
-            } else {
-                setProducts([]);
+                const formattedProds = dbProds.map(p => ({
+                    ...p,
+                    id: p._id,
+                    image: p.mainImage || p.image || "https://images.unsplash.com/photo-1550989460-0adf9ea622e2",
+                    price: p.salePrice || p.price,
+                    originalPrice: p.price,
+                    weight: p.weight || "1 unit",
+                    deliveryTime: "8-15 mins"
+                }));
+                setProducts(Array.isArray(formattedProds) ? formattedProds : []);
             }
 
-            // Fetch subcategories & header mapping
-            const catRes = await customerApi.getCategories({ tree: true });
             if (catRes.data.success) {
-                const tree = catRes.data.results || catRes.data.result || [];
-                // Find current category in tree
-                let currentCat = null;
-                let headerForCat = null;
-                for (const header of tree) {
-                    const found = (header.children || []).find(c => c._id === catId);
-                    if (found) {
-                        currentCat = found;
-                        headerForCat = header;
-                        break;
-                    }
-                }
+                const results = catRes.data.results || catRes.data.result || [];
+                const allCats = Array.isArray(results) ? results : [];
 
+                // Build maps for SectionRenderer
+                const cMap = {};
+                const sMap = {};
+                const fullMap = {};
+                
+                const flatten = (items) => {
+                    items.forEach(item => {
+                        fullMap[item._id] = item;
+                        if (item.type === 'category') cMap[item._id] = item;
+                        else if (item.type === 'subcategory') sMap[item._id] = item;
+                        if (item.children && item.children.length > 0) flatten(item.children);
+                    });
+                };
+                flatten(allCats);
+                setCategoryMap(cMap);
+                setSubcategoryMap(sMap);
+
+                // Find the current category in the flattened map
+                let currentCat = fullMap[catId];
+                
                 if (currentCat) {
                     setCategory(currentCat);
-                    const subs = (currentCat.children || []).map(s => ({
+                    
+                    // Populate subcategories
+                    let subs = [];
+                    let isDirectSub = false;
+
+                    if (currentCat.children && currentCat.children.length > 0) {
+                        // It's a parent category, show its children
+                        subs = currentCat.children;
+                    } else if (currentCat.parentId) {
+                        // It's a subcategory, find its parent and show all siblings
+                        const parent = fullMap[currentCat.parentId?._id || currentCat.parentId];
+                        if (parent && parent.children) {
+                            subs = parent.children;
+                        }
+                        isDirectSub = true;
+                    }
+
+                    const formattedSubs = subs.map(s => ({
                         id: s._id,
                         name: s.name,
                         icon: s.image || 'https://cdn-icons-png.flaticon.com/128/2321/2321801.png'
                     }));
-                    setSubCategories([{ id: 'all', name: 'All', icon: 'https://cdn-icons-png.flaticon.com/128/2321/2321831.png' }, ...subs]);
+                    
+                    setSubCategories([{ id: 'all', name: 'All', icon: 'https://cdn-icons-png.flaticon.com/128/2321/2321831.png' }, ...formattedSubs]);
+                    
+                    // If we arrived here directly with a subcategory ID, select it
+                    if (isDirectSub && selectedSubCategory === 'all' && !location.state?.activeSubcategoryId) {
+                        setSelectedSubCategory(currentCat._id);
+                    }
                 }
+            }
+
+            if (expRes?.data?.success) {
+                setExperienceSections(expRes.data.result || expRes.data.results || []);
+            }
+            if (heroRes?.data?.success) {
+                setHeroConfig(heroRes.data.result);
             }
         } catch (error) {
             console.error("Error fetching category data:", error);
@@ -147,82 +193,95 @@ const CategoryProductsPage = () => {
     }, [safeProducts]);
 
     return (
-        <div className="flex min-h-screen flex-col bg-white font-sans pt-[112px] md:pt-[136px]">
-            <div className="mx-auto flex w-full max-w-md flex-1 flex-col">
-            {/* Category Subheader */}
-            <header className={cn(
-                "sticky top-0 z-30 px-4 py-4 flex items-center justify-between border-b border-white/20 shadow-[0_10px_30px_rgba(15,23,42,0.12)] backdrop-blur-md",
-                isProductDetailOpen && "hidden md:flex"
-            )}
-            style={{
-                backgroundImage: `linear-gradient(180deg, ${headerTheme} 0%, ${headerTheme}F2 100%)`,
-            }}>
-                <div className="flex items-center gap-3">
-                    <button
-                        onClick={() => navigate(-1)}
-                        className="p-1 hover:bg-white/15 rounded-full transition-colors"
-                    >
-                        <ChevronLeft size={24} className="text-white" />
-                    </button>
-                    <div className="flex flex-col">
-                        <span className="text-[10px] font-black uppercase tracking-[0.24em] text-white/75">
-                            Quick Category
-                        </span>
-                        <h1 className="text-[18px] font-bold text-white tracking-tight">
-                        {category?.name || catId}
-                        </h1>
-                    </div>
-                </div>
-
-            </header>
-
-            <div className="flex flex-1 relative items-start">
-                {/* Sidebar */}
-                <aside className="w-[80px] border-r border-gray-50 flex flex-col bg-white overflow-y-auto hide-scrollbar sticky top-[112px] md:top-[136px] h-[calc(100vh-112px)] md:h-[calc(100vh-136px)] pb-32">
-                    {subCategories.map((cat) => (
+        <div className="flex min-h-screen flex-col bg-white font-sans pt-0">
+            <div className="mx-auto flex w-full max-w-[1920px] flex-1 flex-col">
+                {/* Category Subheader */}
+                <header className={cn(
+                    "sticky top-0 z-30 px-4 py-4 flex items-center justify-between border-b border-white/20 shadow-[0_10px_30px_rgba(15,23,42,0.12)] backdrop-blur-md",
+                    isProductDetailOpen && "hidden md:flex"
+                )}
+                    style={{
+                        backgroundImage: `linear-gradient(180deg, ${headerTheme} 0%, ${headerTheme}F2 100%)`,
+                    }}>
+                    <div className="flex items-center gap-3">
                         <button
-                            key={cat.id}
-                            onClick={() => setSelectedSubCategory(cat.id)}
-                            className={cn(
-                                "flex flex-col items-center py-4 px-1 gap-2 transition-all relative border-l-4",
-                                selectedSubCategory === cat.id
-                                    ? "bg-[#F7FCF5] border-[#0c831f]"
-                                    : "border-transparent hover:bg-gray-50"
-                            )}
+                            onClick={() => navigate(-1)}
+                            className="p-1 hover:bg-white/15 rounded-full transition-colors"
                         >
-                            <div className={cn(
-                                "w-12 h-12 rounded-2xl flex items-center justify-center p-2 transition-all duration-300",
-                                selectedSubCategory === cat.id ? "scale-110" : "grayscale opacity-70"
-                            )}>
-                                <img src={cat.icon} alt={cat.name} className="w-full h-full object-contain" />
-                            </div>
-                            <span className={cn(
-                                "text-[10px] text-center font-bold font-sans leading-tight px-1",
-                                selectedSubCategory === cat.id ? "text-[#0c831f]" : "text-gray-500"
-                            )}>
-                                {cat.name}
-                            </span>
+                            <ChevronLeft size={24} className="text-white" />
                         </button>
-                    ))}
-                </aside>
+                        <div className="flex flex-col">
+                            <span className="text-[10px] font-black uppercase tracking-[0.24em] text-white/75">
+                                Quick Category
+                            </span>
+                            <h1 className="text-[18px] font-bold text-white tracking-tight">
+                                {category?.name || catId}
+                            </h1>
+                        </div>
+                    </div>
 
-                {/* Content */}
-                <main className="flex-1 p-3 pb-24 bg-white space-y-4">
-                    <div className="grid grid-cols-2 gap-x-2 gap-y-4">
-                        {filteredProducts.map((product) => (
-                            <ProductCard key={product.id} product={product} compact={true} />
+                </header>
+
+                <div className="flex flex-1 relative items-start">
+                    {/* Sidebar */}
+                    <aside className="w-20 md:w-28 border-r border-gray-50 flex flex-col bg-white overflow-y-auto hide-scrollbar sticky top-0 h-screen pb-32">
+                        {subCategories.map((cat) => (
+                            <button
+                                key={cat.id}
+                                onClick={() => setSelectedSubCategory(cat.id)}
+                                className={cn(
+                                    "flex flex-col items-center py-4 px-1 gap-2 transition-all relative border-l-4",
+                                    selectedSubCategory === cat.id
+                                        ? "bg-[#F7FCF5] border-[#0c831f]"
+                                        : "border-transparent hover:bg-gray-50"
+                                )}
+                            >
+                                <div className={cn(
+                                    "w-12 h-12 rounded-2xl flex items-center justify-center p-2 transition-all duration-300",
+                                    selectedSubCategory === cat.id ? "scale-110" : "grayscale opacity-70"
+                                )}>
+                                    <img src={cat.icon} alt={cat.name} className="w-full h-full object-contain" />
+                                </div>
+                                <span className={cn(
+                                    "text-[10px] text-center font-bold font-sans leading-tight px-1",
+                                    selectedSubCategory === cat.id ? "text-[#0c831f]" : "text-gray-500"
+                                )}>
+                                    {cat.name}
+                                </span>
+                            </button>
                         ))}
-                        {filteredProducts.length === 0 && !isLoading && (
-                            <div className="col-span-2 py-20 text-center">
-                                <p className="text-gray-400 font-bold italic">No products found in this category</p>
+                    </aside>
+
+                    {/* Content */}
+                    <main className="flex-1 px-3 pt-1 pb-24 bg-white">
+                        {selectedSubCategory === 'all' && experienceSections.filter(s => (s.title || '').trim().toLowerCase() !== 'best sellers').length > 0 && (
+                            <div className="mb-4">
+                                <SectionRenderer
+                                    sections={experienceSections.filter(s => 
+                                        (s.title || '').trim().toLowerCase() !== 'best sellers'
+                                    )}
+                                    productsById={productsById}
+                                    categoriesById={categoryMap}
+                                    subcategoriesById={subcategoryMap}
+                                />
                             </div>
                         )}
-                    </div>
-                </main>
-            </div>
 
-            <MiniCart />
-            <ProductDetailSheet />
+                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-x-2 gap-y-4 md:gap-4 lg:gap-6">
+                            {filteredProducts.map((product) => (
+                                <ProductCard key={product.id} product={product} compact={true} />
+                            ))}
+                            {filteredProducts.length === 0 && !isLoading && (
+                                <div className="col-span-2 py-20 text-center">
+                                    <p className="text-gray-400 font-bold italic">No products found in this category</p>
+                                </div>
+                            )}
+                        </div>
+                    </main>
+                </div>
+
+                <MiniCart />
+                <ProductDetailSheet />
             </div>
 
             <style dangerouslySetInnerHTML={{

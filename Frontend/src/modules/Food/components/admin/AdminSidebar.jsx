@@ -1,6 +1,21 @@
 import { useState, useEffect, useMemo } from "react"
 import { Link, useLocation, useNavigate } from "react-router-dom"
 import {
+  adminSidebarMenu,
+} from "@food/utils/adminSidebarMenu"
+import {
+  quickAdminSidebarMenu,
+} from "@food/utils/quickAdminSidebarMenu"
+import {
+  hotelAdminSidebarMenu,
+} from "@food/utils/hotelAdminSidebarMenu"
+import {
+  taxiAdminSidebarMenu,
+} from "@food/utils/taxiAdminSidebarMenu"
+import {
+  commonAdminSidebarMenu,
+} from "@food/utils/commonAdminSidebarMenu"
+import {
   Search,
   FileText,
   Calendar,
@@ -47,14 +62,22 @@ import {
   PiggyBank,
   Lock,
   Hotel,
+  ClipboardCheck,
+  CircleHelp,
+  MessageCircle,
+  Share2,
+  Smartphone,
+  Monitor,
+  Briefcase,
+  Car,
+  ChevronDown as ChevronDownIcon,
+  LayoutGrid,
 } from "lucide-react"
 import { cn } from "@food/utils/utils"
 import { Input } from "@food/components/ui/input"
-import { adminSidebarMenu } from "@food/utils/adminSidebarMenu"
-import { quickAdminSidebarMenu } from "@food/utils/quickAdminSidebarMenu"
-import { getCachedSettings, loadBusinessSettings } from "@food/utils/businessSettings"
+import { getCachedSettings, loadBusinessSettings } from "@common/utils/businessSettings"
 import { adminAPI } from "@food/api"
-import quickSpicyLogo from "@food/assets/quicky-spicy-logo.png"
+
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -103,7 +126,16 @@ const iconMap = {
   PiggyBank,
   Lock,
   Hotel,
+  ClipboardCheck,
+  CircleHelp,
+  MessageCircle,
+  Share2,
+  Smartphone,
+  Monitor,
+  Briefcase,
+  Car,
   X,
+  LayoutGrid,
 }
 
 export default function AdminSidebar({ isOpen = false, onClose, onCollapseChange }) {
@@ -111,6 +143,12 @@ export default function AdminSidebar({ isOpen = false, onClose, onCollapseChange
   const navigate = useNavigate()
   const [searchQuery, setSearchQuery] = useState("")
   const [badges, setBadges] = useState({})
+  const [enabledModules, setEnabledModules] = useState(() => getCachedSettings()?.modules || {
+    food: true,
+    taxi: true,
+    quickCommerce: true,
+    hotel: true
+  })
 
   useEffect(() => {
     const fetchBadges = async () => {
@@ -198,6 +236,9 @@ export default function AdminSidebar({ isOpen = false, onClose, onCollapseChange
         if (cached.companyName) {
           setCompanyName(cached.companyName)
         }
+        if (cached.modules) {
+          setEnabledModules(cached.modules)
+        }
       }
     }
     window.addEventListener('businessSettingsUpdated', handleSettingsUpdate)
@@ -282,9 +323,26 @@ export default function AdminSidebar({ isOpen = false, onClose, onCollapseChange
   }
 
   const isQuickAdmin = location.pathname.startsWith("/admin/quick-commerce")
-  const isTaxiAdmin = location.pathname.startsWith("/taxi/admin") || location.pathname.startsWith("/admin/taxi")
   const isHotelAdmin = location.pathname.startsWith("/hotel/admin") || location.pathname.startsWith("/admin/hotel")
-  const activeMenuData = isQuickAdmin ? quickAdminSidebarMenu : adminSidebarMenu
+  const isTaxiAdmin = location.pathname.startsWith("/taxi/admin") || location.pathname.startsWith("/admin/taxi")
+  const isCommonAdmin = location.pathname.startsWith("/admin/global-settings")
+
+  const activeMenuData = useMemo(() => {
+    let menu = adminSidebarMenu
+    if (isQuickAdmin) menu = quickAdminSidebarMenu
+    else if (isHotelAdmin) menu = hotelAdminSidebarMenu
+    else if (isTaxiAdmin) menu = taxiAdminSidebarMenu
+    else if (isCommonAdmin) menu = commonAdminSidebarMenu
+
+    // Special case for the "Module Switcher" or shared links if they exist
+    // But since we are filtering the WHOLE menu based on the active admin context:
+    if (isQuickAdmin && !enabledModules.quickCommerce) return []
+    if (isHotelAdmin && !enabledModules.hotel) return []
+    if (isTaxiAdmin && !enabledModules.taxi) return []
+    if (!isQuickAdmin && !isHotelAdmin && !isTaxiAdmin && !isCommonAdmin && !enabledModules.food) return []
+
+    return menu
+  }, [isQuickAdmin, isHotelAdmin, isTaxiAdmin, isCommonAdmin, enabledModules])
 
   // Ensure expandable keys exist for whichever admin module is active (food/quick)
   useEffect(() => {
@@ -304,9 +362,11 @@ export default function AdminSidebar({ isOpen = false, onClose, onCollapseChange
     if (target === "quick") {
       navigate("/admin/quick-commerce")
     } else if (target === "taxi") {
-      navigate("/taxi/admin/dashboard")
+      navigate("/admin/taxi")
     } else if (target === "hotel") {
-      navigate("/hotel/admin")
+      navigate("/admin/hotel")
+    } else if (target === "common") {
+      navigate("/admin/global-settings")
     } else {
       navigate("/admin/food")
     }
@@ -670,31 +730,31 @@ export default function AdminSidebar({ isOpen = false, onClose, onCollapseChange
           isOpen ? "translate-x-0" : "-translate-x-full",
           isCollapsed ? "w-20" : "w-80"
         )}
+        style={{ backgroundColor: 'var(--sidebar-theme, #0a0a0a)' }}
       >
         {/* Header with Logo and Brand */}
-        <div className="shrink-0 px-3 py-3 border-b border-neutral-800/60 bg-neutral-900 animate-[fadeIn_0.4s_ease-out]">
+        <div 
+          className="shrink-0 px-3 py-3 border-b border-neutral-800/60 bg-neutral-900 animate-[fadeIn_0.4s_ease-out]"
+          style={{ backgroundColor: 'rgba(0,0,0,0.1)' }}
+        >
           <div className="flex items-center justify-between mb-3">
             {!isCollapsed && (
               <div className="flex items-center gap-2 animate-[slideIn_0.3s_ease-out]">
                 <div className="w-24 h-12 rounded-lg flex items-center justify-center shadow-black/20">
                   {logoUrl ? (
                     <img
-                      src={logoUrl || quickSpicyLogo}
+                      src={logoUrl}
                       alt={companyName || "Company"}
                       className="w-24 h-10 object-contain"
                       loading="lazy"
                       onError={(e) => {
-                        if (e.target.src !== quickSpicyLogo) {
-                          e.target.src = quickSpicyLogo
-                        }
+                        e.target.style.display = 'none'
                       }}
                     />
-                  ) : companyName ? (
-                    <span className="text-xs font-semibold text-white px-2 truncate">
-                      {companyName}
-                    </span>
                   ) : (
-                    <img src={quickSpicyLogo} alt="Company" className="w-24 h-10 object-contain" loading="lazy" />
+                    <span className="text-xs font-semibold text-white px-2 truncate">
+                      {companyName || "Appzeto"}
+                    </span>
                   )}
                 </div>
               </div>
@@ -702,20 +762,20 @@ export default function AdminSidebar({ isOpen = false, onClose, onCollapseChange
             {isCollapsed && (
               <div className="w-full flex items-center justify-center">
                 <div className="w-10 h-10 rounded-lg bg-white/5 flex items-center justify-center shadow-lg shadow-black/20 ring-1 ring-white/10">
-                  {logoUrl || companyName ? (
+                  {logoUrl ? (
                     <img
-                      src={logoUrl || quickSpicyLogo}
+                      src={logoUrl}
                       alt={companyName || "Company"}
                       className="w-10 h-10 object-contain"
                       loading="lazy"
                       onError={(e) => {
-                        if (e.target.src !== quickSpicyLogo) {
-                          e.target.src = quickSpicyLogo
-                        }
+                        e.target.style.display = 'none'
                       }}
                     />
                   ) : (
-                    <img src={quickSpicyLogo} alt="Company" className="w-10 h-10 object-contain" loading="lazy" />
+                    <span className="text-[10px] font-bold text-white uppercase">
+                      {(companyName || "A")[0]}
+                    </span>
                   )}
                 </div>
               </div>
@@ -749,29 +809,78 @@ export default function AdminSidebar({ isOpen = false, onClose, onCollapseChange
               </h2>
               <div className="mt-2 rounded-xl border border-neutral-800 bg-neutral-900/80 p-1">
                 <div className="grid grid-cols-2 gap-1">
+                  {enabledModules.food && (
+                    <button
+                      key="food-module-btn"
+                      type="button"
+                      onClick={() => switchAdminModule("food")}
+                      className={cn(
+                        "rounded-lg px-2 py-1.5 text-[11px] font-bold uppercase tracking-wide transition-all",
+                        !isQuickAdmin && !isTaxiAdmin && !isHotelAdmin && !isCommonAdmin
+                          ? "bg-white text-neutral-900 shadow"
+                          : "text-neutral-400 hover:text-white"
+                      )}
+                    >
+                      Food
+                    </button>
+                  )}
+                  {enabledModules.quickCommerce && (
+                    <button
+                      key="quick-module-btn"
+                      type="button"
+                      onClick={() => switchAdminModule("quick")}
+                      className={cn(
+                        "rounded-lg px-2 py-1.5 text-[11px] font-bold uppercase tracking-wide transition-all",
+                        isQuickAdmin
+                          ? "bg-emerald-500 text-white shadow-[0_6px_20px_rgba(16,185,129,0.35)]"
+                          : "text-neutral-400 hover:text-white"
+                      )}
+                    >
+                      Quick
+                    </button>
+                  )}
+                  {enabledModules.taxi && (
+                    <button
+                      key="taxi-module-btn"
+                      type="button"
+                      onClick={() => switchAdminModule("taxi")}
+                      className={cn(
+                        "rounded-lg px-2 py-1.5 text-[11px] font-bold uppercase tracking-wide transition-all",
+                        isTaxiAdmin
+                          ? "bg-orange-500 text-white shadow-[0_6px_20px_rgba(249,115,22,0.35)]"
+                          : "text-neutral-400 hover:text-white"
+                      )}
+                    >
+                      Taxi
+                    </button>
+                  )}
+                  {enabledModules.hotel && (
+                    <button
+                      key="hotel-module-btn"
+                      type="button"
+                      onClick={() => switchAdminModule("hotel")}
+                      className={cn(
+                        "rounded-lg px-2 py-1.5 text-[11px] font-bold uppercase tracking-wide transition-all",
+                        isHotelAdmin
+                          ? "bg-sky-500 text-white shadow-[0_6px_20px_rgba(14,165,233,0.35)]"
+                          : "text-neutral-400 hover:text-white"
+                      )}
+                    >
+                      Hotel
+                    </button>
+                  )}
                   <button
+                    key="global-settings-btn"
                     type="button"
-                    onClick={() => switchAdminModule("food")}
+                    onClick={() => switchAdminModule("common")}
                     className={cn(
-                      "rounded-lg px-2 py-1.5 text-[11px] font-bold uppercase tracking-wide transition-all",
-                      !isQuickAdmin && !isTaxiAdmin && !isHotelAdmin
-                        ? "bg-white text-neutral-900 shadow"
+                      "rounded-lg px-2 py-1.5 text-[11px] font-bold uppercase tracking-wide transition-all col-span-2",
+                      isCommonAdmin
+                        ? "bg-violet-600 text-white shadow-[0_6px_20px_rgba(124,58,237,0.35)]"
                         : "text-neutral-400 hover:text-white"
                     )}
                   >
-                    Food
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => switchAdminModule("taxi")}
-                    className={cn(
-                      "rounded-lg px-2 py-1.5 text-[11px] font-bold uppercase tracking-wide transition-all",
-                      isTaxiAdmin
-                        ? "bg-orange-500 text-white shadow-[0_6px_20px_rgba(249,115,22,0.35)]"
-                        : "text-neutral-400 hover:text-white"
-                    )}
-                  >
-                    Taxi
+                    Global Settings
                   </button>
                 </div>
               </div>

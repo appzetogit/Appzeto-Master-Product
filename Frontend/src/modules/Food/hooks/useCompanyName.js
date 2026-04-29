@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { loadBusinessSettings, getCachedSettings, getCompanyName } from '@food/utils/businessSettings';
+import { loadBusinessSettings, getCachedSettings, getCompanyName } from '@common/utils/businessSettings';
 
 /**
  * Custom hook to get company name from business settings

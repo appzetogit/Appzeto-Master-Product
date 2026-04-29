@@ -1,6 +1,6 @@
 import React from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { Car, UtensilsCrossed } from "lucide-react";
+import { Bed, Car, ShoppingBasket, UtensilsCrossed } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const ADMIN_MODULES = [
@@ -12,34 +12,32 @@ const ADMIN_MODULES = [
     icon: UtensilsCrossed,
     active: (pathname) => pathname.startsWith("/admin/food"),
   },
-  // Temporarily hidden per current admin requirement.
-  // {
-  //   key: "quick",
-  //   label: "Quick",
-  //   shortLabel: "Quick",
-  //   path: "/admin/quick-commerce",
-  //   icon: ShoppingBasket,
-  //   active: (pathname) => pathname.startsWith("/admin/quick-commerce"),
-  // },
+  {
+    key: "quick",
+    label: "Quick",
+    shortLabel: "Quick",
+    path: "/admin/quick-commerce",
+    icon: ShoppingBasket,
+    active: (pathname) => pathname.startsWith("/admin/quick-commerce"),
+  },
   {
     key: "taxi",
     label: "Taxi",
     shortLabel: "Taxi",
-    path: "/taxi/admin/dashboard",
+    path: "/admin/taxi",
     icon: Car,
     active: (pathname) =>
       pathname.startsWith("/taxi/admin") || pathname.startsWith("/admin/taxi"),
   },
-  // Temporarily hidden per current admin requirement.
-  // {
-  //   key: "hotel",
-  //   label: "Hotel",
-  //   shortLabel: "Hotel",
-  //   path: "/hotel/admin/dashboard",
-  //   icon: Building2,
-  //   active: (pathname) =>
-  //     pathname.startsWith("/hotel/admin") || pathname.startsWith("/admin/hotel"),
-  // },
+  {
+    key: "hotel",
+    label: "Hotel",
+    shortLabel: "Hotel",
+    path: "/admin/hotel",
+    icon: Bed,
+    active: (pathname) =>
+      pathname.startsWith("/hotel/admin") || pathname.startsWith("/admin/hotel"),
+  },
 ];
 
 export default function AdminModuleSwitcher({ className = "" }) {

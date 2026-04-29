@@ -870,21 +870,20 @@ export const adminAPI = {
       { reason: String(reason || "").trim() },
       { contextModule: "admin" },
     ),
-  /** Business Settings (admin) */
+  /** Global Business Settings (common) */
   getBusinessSettings: () =>
     apiClient.get(API_ENDPOINTS.ADMIN.BUSINESS_SETTINGS, {
       contextModule: "admin",
     }),
   updateBusinessSettings: (data, files = {}) => {
     const formData = new FormData();
-    // Add JSON data
+    // Add JSON data as a string in the 'data' field
     formData.append("data", JSON.stringify(data));
-    // Add files
+    // Add files with the same names expected by the backend
     if (files.logo) formData.append("logo", files.logo);
     if (files.favicon) formData.append("favicon", files.favicon);
 
     return apiClient.patch(API_ENDPOINTS.ADMIN.BUSINESS_SETTINGS, formData, {
-      headers: { "Content-Type": "multipart/form-data" },
       contextModule: "admin",
     });
   },

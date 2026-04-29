@@ -12,7 +12,7 @@ import {
 import { useLocation } from "@food/hooks/useLocation"
 import { useCart } from "@food/context/CartContext"
 import { useLocationSelector } from "./UserLayout"
-import { getCachedSettings, loadBusinessSettings } from "@food/utils/businessSettings"
+import { getCachedSettings, loadBusinessSettings } from "@common/utils/businessSettings"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -23,8 +23,8 @@ export default function Navbar() {
   const { getCartCount } = useCart()
   const { openLocationSelector } = useLocationSelector()
   const cartCount = getCartCount()
-  const [logoUrl, setLogoUrl] = useState(null)
-  const [companyName, setCompanyName] = useState(null)
+  const [logoUrl, setLogoUrl] = useState(() => getCachedSettings()?.logo?.url || null)
+  const [companyName, setCompanyName] = useState(() => getCachedSettings()?.companyName || null)
 
   // Load business settings logo
   useEffect(() => {
@@ -124,19 +124,16 @@ export default function Navbar() {
             {logoUrl ? (
               <img
                 src={logoUrl}
-                alt={companyName || "Company Logo"}
+                alt={companyName || "Logo"}
                 className="h-8 w-8 sm:h-10 sm:w-10 md:h-12 md:w-12 object-contain"
                 onError={(e) => {
-                  // Hide image if it fails to load
                   e.target.style.display = 'none'
                 }}
               />
-            ) : companyName ? (
-              <span className="text-sm sm:text-base md:text-lg font-bold text-gray-900">
-                {companyName}
-              </span>
             ) : (
-              <img src={quickSpicyLogo} alt="Logo" className="h-8 w-8 sm:h-10 sm:w-10 md:h-12 md:w-12 object-contain" />
+              <span className="text-sm sm:text-base md:text-lg font-bold text-gray-900">
+                {companyName || "Appzeto"}
+              </span>
             )}
           </Link>
 
