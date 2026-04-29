@@ -8,10 +8,18 @@ import { Seller } from '../seller/models/seller.model.js';
 import { SellerOrder } from '../seller/models/sellerOrder.model.js';
 
 const approvedProductFilter = {
-  isActive: true,
   $or: [
-    { approvalStatus: { $exists: false } },
-    { approvalStatus: 'approved' },
+    { isActive: true },
+    { isActive: { $exists: false } },
+    { status: 'active' },
+  ],
+  $and: [
+    {
+      $or: [
+        { approvalStatus: { $exists: false } },
+        { approvalStatus: 'approved' },
+      ],
+    },
   ],
 };
 
@@ -161,12 +169,16 @@ export const placeOrder = async (req, res) => {
       .map((item) => {
         const product = productMap[String(item.productId)];
         if (!product) return null;
+        const unitPrice =
+          Number(product.salePrice || 0) > 0
+            ? Number(product.salePrice)
+            : Number(product.price || 0);
         return {
           productId: product._id,
           sellerId: product.sellerId || null,
           name: product.name,
           image: product.image || product.mainImage || '',
-          price: product.price,
+          price: unitPrice,
           quantity: item.quantity,
         };
       })
@@ -187,12 +199,16 @@ export const placeOrder = async (req, res) => {
         .map((item) => {
           const product = fallbackProductMap[String(item.productId)];
           if (!product) return null;
+          const unitPrice =
+            Number(product.salePrice || 0) > 0
+              ? Number(product.salePrice)
+              : Number(product.price || 0);
           return {
             productId: product._id,
             sellerId: product.sellerId || null,
             name: product.name,
             image: product.image || product.mainImage || '',
-            price: product.price,
+            price: unitPrice,
             quantity: item.quantity,
           };
         })
@@ -200,6 +216,7 @@ export const placeOrder = async (req, res) => {
     }
 
     if (items.length === 0) {
+      logger.warn(`Quick placeOrder: No valid items found for productIds: ${JSON.stringify(productIds)} using idQuery: ${JSON.stringify(idQuery)}`);
       return res.status(400).json({ success: false, message: 'No valid items found in cart' });
     }
 
@@ -395,7 +412,7 @@ export const getOrderById = async (req, res) => {
       $or: orderIdentityQuery,
     };
 
-    const order = await QuickOrder.findOne(query).lean();
+    const order = await QuickOrder.findOne(query).select('+deliveryOtp').lean();
 
     if (!order) {
       return res.status(404).json({ success: false, message: 'Order not found' });

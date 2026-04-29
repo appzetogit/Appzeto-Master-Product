@@ -52,7 +52,13 @@ function emitOrderUpdate(order, deliveryPartnerId) {
         'order_status_update',
         payload,
       );
-      io.to(rooms.user(order.userId)).emit('order_status_update', payload);
+      if (order.userId) {
+        io.to(rooms.user(order.userId)).emit('order_status_update', payload);
+      }
+      const trackingId = order.orderId || order._id?.toString?.();
+      if (trackingId) {
+        io.to(rooms.tracking(trackingId)).emit('order_status_update', payload);
+      }
     }
 
     // Only send push notifications for key delivery milestones
