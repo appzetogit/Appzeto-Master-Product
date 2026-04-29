@@ -624,18 +624,19 @@ export default function Coupons() {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         {(() => {
-                          const expired = offer.endDate ? (new Date(offer.endDate).getTime() < new Date(new Date().toDateString()).getTime()) : false
-                          const status = expired ? 'expired' : (offer.status || 'inactive')
+                          const status = offer.status || 'inactive'
                           const cls =
                             status === 'active'
                               ? 'bg-green-100 text-green-700'
+                              : status === 'scheduled'
+                              ? 'bg-blue-100 text-blue-700'
                               : status === 'paused'
                               ? 'bg-orange-100 text-orange-700'
-                              : status === 'expired'
+                              : status === 'expired' || status === 'inactive'
                               ? 'bg-red-100 text-red-700'
                               : 'bg-gray-100 text-gray-700'
                           return (
-                            <span className={`px-2 py-1 rounded-full text-xs font-medium ${cls}`}>
+                            <span className={`px-2 py-1 rounded-full text-xs font-medium capitalize ${cls}`}>
                               {status}
                             </span>
                           )

@@ -49,6 +49,8 @@ export default function JoiningRequest() {
   const [restaurantDetails, setRestaurantDetails] = useState(null)
   const [loadingDetails, setLoadingDetails] = useState(false)
   const [showFilterDialog, setShowFilterDialog] = useState(false)
+  const [allZones, setAllZones] = useState([])
+  const [sortConfig, setSortConfig] = useState({ key: "createdAt", direction: "desc" })
   const [filters, setFilters] = useState({
     zone: "",
     businessModel: "",
@@ -58,6 +60,37 @@ export default function JoiningRequest() {
 
   // Track first render to avoid duplicate fetch in React StrictMode
   const hasFetchedOnceRef = useRef(false)
+
+  // Fetch all zones from DB for filter dropdown
+  useEffect(() => {
+    const fetchZones = async () => {
+      try {
+        const res = await adminAPI.getZones()
+        let list = []
+        if (Array.isArray(res?.data?.data)) {
+          list = res.data.data
+        } else if (Array.isArray(res?.data?.zones)) {
+          list = res.data.zones
+        } else if (Array.isArray(res?.data)) {
+          list = res.data
+        } else if (res?.data?.data?.zones && Array.isArray(res.data.data.zones)) {
+          list = res.data.data.zones
+        }
+        setAllZones(list)
+      } catch (err) {
+        debugError("Error fetching zones:", err)
+      }
+    }
+    fetchZones()
+  }, [])
+
+  const handleSort = (key) => {
+    let direction = "asc"
+    if (sortConfig.key === key && sortConfig.direction === "asc") {
+      direction = "desc"
+    }
+    setSortConfig({ key, direction })
+  }
 
   // Fetch restaurant join requests
   useEffect(() => {
@@ -103,12 +136,16 @@ export default function JoiningRequest() {
 
   const currentRequests = activeTab === "pending" ? pendingRequests : rejectedRequests
 
-  // Get unique zones and business models for filter options
+  // Get unique zones (from DB) and business models for filter options
   const filterOptions = useMemo(() => {
-    const zones = [...new Set(currentRequests.map(r => r.zone).filter(Boolean))]
+    const zonesList = Array.isArray(allZones) ? allZones : []
+    const zones = zonesList.map(z => ({
+      id: z?._id || z?.id,
+      name: z?.name || z?.zoneName || z?.serviceLocation || z?._id || "Unknown Zone"
+    }))
     const businessModels = [...new Set(currentRequests.map(r => r.businessModel).filter(Boolean))]
     return { zones, businessModels }
-  }, [currentRequests])
+  }, [allZones, currentRequests])
 
   const filteredRequests = useMemo(() => {
     let filtered = currentRequests
@@ -150,8 +187,53 @@ export default function JoiningRequest() {
       })
     }
 
+    // Apply sorting
+    if (sortConfig.key) {
+      filtered = [...filtered].sort((a, b) => {
+        let aValue, bValue
+
+        switch (sortConfig.key) {
+          case "sl":
+            aValue = a.sl || 0
+            bValue = b.sl || 0
+            break
+          case "restaurantName":
+            aValue = (a.restaurantName || "").toLowerCase()
+            bValue = (b.restaurantName || "").toLowerCase()
+            break
+          case "ownerName":
+            aValue = (a.ownerName || "").toLowerCase()
+            bValue = (b.ownerName || "").toLowerCase()
+            break
+          case "zone":
+            aValue = (a.zone || "").toLowerCase()
+            bValue = (b.zone || "").toLowerCase()
+            break
+          case "businessModel":
+            aValue = (a.businessModel || "").toLowerCase()
+            bValue = (b.businessModel || "").toLowerCase()
+            break
+          case "status":
+            aValue = (a.status || "").toLowerCase()
+            bValue = (b.status || "").toLowerCase()
+            break
+          case "createdAt":
+            aValue = new Date(a.createdAt || 0).getTime()
+            bValue = new Date(b.createdAt || 0).getTime()
+            break
+          default:
+            aValue = a[sortConfig.key]
+            bValue = b[sortConfig.key]
+        }
+
+        if (aValue < bValue) return sortConfig.direction === "asc" ? -1 : 1
+        if (aValue > bValue) return sortConfig.direction === "asc" ? 1 : -1
+        return 0
+      })
+    }
+
     return filtered
-  }, [currentRequests, searchQuery, filters])
+  }, [currentRequests, searchQuery, filters, sortConfig])
 
   const clearFilters = () => {
     setFilters({
@@ -369,40 +451,58 @@ export default function JoiningRequest() {
             <table className="w-full">
               <thead className="bg-slate-50 border-b border-slate-200">
                 <tr>
-                  <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">
+                  <th 
+                    className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors"
+                    onClick={() => handleSort("sl")}
+                  >
                     <div className="flex items-center gap-1">
                       <span>SL</span>
-                      <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                      <ArrowUpDown className={`w-3 h-3 ${sortConfig.key === "sl" ? "text-blue-600" : "text-slate-400"}`} />
                     </div>
                   </th>
-                  <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">
+                  <th 
+                    className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors"
+                    onClick={() => handleSort("restaurantName")}
+                  >
                     <div className="flex items-center gap-1">
                       <span>Restaurant Info</span>
-                      <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                      <ArrowUpDown className={`w-3 h-3 ${sortConfig.key === "restaurantName" ? "text-blue-600" : "text-slate-400"}`} />
                     </div>
                   </th>
-                  <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">
+                  <th 
+                    className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors"
+                    onClick={() => handleSort("ownerName")}
+                  >
                     <div className="flex items-center gap-1">
                       <span>Owner Info</span>
-                      <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                      <ArrowUpDown className={`w-3 h-3 ${sortConfig.key === "ownerName" ? "text-blue-600" : "text-slate-400"}`} />
                     </div>
                   </th>
-                  <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">
+                  <th 
+                    className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors"
+                    onClick={() => handleSort("zone")}
+                  >
                     <div className="flex items-center gap-1">
                       <span>Zone</span>
-                      <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                      <ArrowUpDown className={`w-3 h-3 ${sortConfig.key === "zone" ? "text-blue-600" : "text-slate-400"}`} />
                     </div>
                   </th>
-                  <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">
+                  <th 
+                    className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors"
+                    onClick={() => handleSort("businessModel")}
+                  >
                     <div className="flex items-center gap-1">
                       <span>Business Model</span>
-                      <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                      <ArrowUpDown className={`w-3 h-3 ${sortConfig.key === "businessModel" ? "text-blue-600" : "text-slate-400"}`} />
                     </div>
                   </th>
-                  <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider">
+                  <th 
+                    className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors"
+                    onClick={() => handleSort("status")}
+                  >
                     <div className="flex items-center gap-1">
                       <span>Status</span>
-                      <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                      <ArrowUpDown className={`w-3 h-3 ${sortConfig.key === "status" ? "text-blue-600" : "text-slate-400"}`} />
                     </div>
                   </th>
                   <th className="px-6 py-4 text-center text-[10px] font-bold text-slate-700 uppercase tracking-wider">Action</th>
@@ -553,23 +653,21 @@ export default function JoiningRequest() {
 
               <div className="space-y-4">
                 {/* Zone Filter */}
-                {filterOptions.zones.length > 0 && (
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-2">
-                      Zone
-                    </label>
-                    <select
-                      value={filters.zone}
-                      onChange={(e) => setFilters({ ...filters, zone: e.target.value })}
-                      className="w-full px-4 py-2.5 text-sm rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    >
-                      <option value="">All Zones</option>
-                      {filterOptions.zones.map((zone) => (
-                        <option key={zone} value={zone}>{zone}</option>
-                      ))}
-                    </select>
-                  </div>
-                )}
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">
+                    Zone
+                  </label>
+                  <select
+                    value={filters.zone}
+                    onChange={(e) => setFilters({ ...filters, zone: e.target.value })}
+                    className="w-full px-4 py-2.5 text-sm rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  >
+                    <option value="">All Zones</option>
+                    {filterOptions.zones.map((z) => (
+                      <option key={z.id} value={z.name}>{z.name}</option>
+                    ))}
+                  </select>
+                </div>
 
                 {/* Business Model Filter */}
                 {filterOptions.businessModels.length > 0 && (

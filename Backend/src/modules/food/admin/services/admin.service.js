@@ -302,7 +302,8 @@ export async function getRestaurants(query) {
 }
 
 const CANCELLED_ORDER_STATUSES = ['cancelled_by_user', 'cancelled_by_restaurant', 'cancelled_by_admin'];
-const PENDING_ORDER_STATUSES = ['created', 'confirmed', 'preparing', 'ready_for_pickup', 'picked_up'];
+const PENDING_ORDER_STATUSES = ['placed', 'created'];
+const PROCESSING_ORDER_STATUSES = ['confirmed', 'preparing', 'ready_for_pickup', 'picked_up'];
 
 const getDateRangeByPeriod = (periodRaw) => {
     const period = String(periodRaw || 'overall').trim().toLowerCase();
@@ -405,9 +406,14 @@ export async function getDashboardStats(query = {}) {
                             $cond: [{ $in: ['$orderStatus', CANCELLED_ORDER_STATUSES] }, 1, 0]
                         }
                     },
-                    pending: {
+                    pendingOnly: {
                         $sum: {
                             $cond: [{ $in: ['$orderStatus', PENDING_ORDER_STATUSES] }, 1, 0]
+                        }
+                    },
+                    processing: {
+                        $sum: {
+                            $cond: [{ $in: ['$orderStatus', PROCESSING_ORDER_STATUSES] }, 1, 0]
                         }
                     },
                     revenueTotal: { 
@@ -422,12 +428,20 @@ export async function getDashboardStats(query = {}) {
                     },
                     platformFeeTotal: { 
                         $sum: { 
-                            $cond: [{ $eq: ['$orderStatus', 'delivered'] }, { $ifNull: ['$pricing.platformFee', 0] }, 0] 
+                            $cond: [
+                                { $nin: ['$orderStatus', [...CANCELLED_ORDER_STATUSES, 'refunded']] }, 
+                                { $ifNull: ['$pricing.platformFee', 0] }, 
+                                0
+                            ] 
                         } 
                     },
                     deliveryFeeTotal: { 
                         $sum: { 
-                            $cond: [{ $eq: ['$orderStatus', 'delivered'] }, { $ifNull: ['$pricing.deliveryFee', 0] }, 0] 
+                            $cond: [
+                                { $nin: ['$orderStatus', [...CANCELLED_ORDER_STATUSES, 'refunded']] }, 
+                                { $ifNull: ['$pricing.deliveryFee', 0] }, 
+                                0
+                            ] 
                         } 
                     },
                     gstTotal: { 
@@ -491,7 +505,7 @@ export async function getDashboardStats(query = {}) {
         FoodDeliveryPartner.find({ status: 'pending' }).sort({ createdAt: -1 }).limit(5).select('name createdAt').lean(),
         FoodOrder.find({ 
             ...orderMatch,
-            orderStatus: { $in: PENDING_ORDER_STATUSES },
+            orderStatus: { $in: [...PENDING_ORDER_STATUSES, ...PROCESSING_ORDER_STATUSES] },
         }).sort({ createdAt: -1 }).limit(5).select('orderId createdAt').lean(),
         FoodOrder.find({ ...orderMatch, orderStatus: 'delivered' }).sort({ updatedAt: -1 }).limit(5).select('orderId updatedAt').lean(),
         FoodOrder.find({ 
@@ -627,7 +641,8 @@ export async function getDashboardStats(query = {}) {
             byStatus: {
                 delivered: Number(totals.delivered || 0),
                 cancelled: Number(totals.cancelled || 0),
-                pending: Number(totals.pending || 0)
+                pending: Number(totals.pendingOnly || 0),
+                processing: Number(totals.processing || 0)
             }
         },
         revenue: { total: Number(totals.revenueTotal || 0) },
@@ -649,7 +664,8 @@ export async function getDashboardStats(query = {}) {
         addons: { total: Number(addonsTotal || 0) },
         customers: { total: Number(customersTotal || 0) },
         orderStats: {
-            pending: Number(totals.pending || 0),
+            pending: Number(totals.pendingOnly || 0),
+            processing: Number(totals.processing || 0),
             completed: Number(totals.delivered || 0)
         },
         monthlyData,
@@ -3310,17 +3326,25 @@ export async function getAllOffers(_query = {}) {
 
     const offers = list.map((o, index) => {
         const now = Date.now();
+        const startTs = o.startDate ? new Date(o.startDate).getTime() : null;
         const endTs = o.endDate ? new Date(o.endDate).getTime() : null;
+        
+        const isScheduled = Boolean(startTs && now < startTs);
         const isExpired = Boolean(endTs && now >= endTs);
+
         const restaurantName =
             o.restaurantScope === 'selected'
                 ? (o.restaurantId?.restaurantName || 'Selected Restaurant')
                 : 'All Restaurants';
 
         const discountPercentage = o.discountType === 'percentage' ? Number(o.discountValue) : 0;
-
         const originalPrice = o.discountType === 'flat-price' ? Number(o.discountValue) : 0;
         const discountedPrice = 0;
+
+        let status = isExpired ? 'inactive' : (o.status || 'active');
+        if (status === 'active' && isScheduled) {
+            status = 'scheduled';
+        }
 
         return {
             sl: index + 1,
@@ -3334,7 +3358,7 @@ export async function getAllOffers(_query = {}) {
             discountPercentage,
             originalPrice,
             discountedPrice,
-            status: isExpired ? 'inactive' : (o.status || 'active'),
+            status,
             showInCart: o.showInCart !== false,
             endDate: o.endDate || null,
             // Additional info for admin UI (backward compatible)
@@ -3437,20 +3461,14 @@ export async function getDeliveryJoinRequests(query) {
         andParts.push({
             $or: [
                 { name: { $regex: term, $options: 'i' } },
-                { phone: { $regex: term, $options: 'i' } }
+                { phone: { $regex: term, $options: 'i' } },
+                { email: { $regex: term, $options: 'i' } }
             ]
         });
     }
-    if (zone && zone.trim()) {
-        const z = zone.trim();
-        andParts.push({
-            $or: [
-                { city: { $regex: z, $options: 'i' } },
-                { state: { $regex: z, $options: 'i' } },
-                { address: { $regex: z, $options: 'i' } }
-            ]
-        });
-    }
+    
+    // We will do zone filtering in memory since we need to match against polygon zones
+    // but we can still apply other filters in DB
     if (andParts.length) filter.$and = andParts;
     if (vehicleType && vehicleType.trim()) {
         filter.vehicleType = { $regex: vehicleType.trim(), $options: 'i' };
@@ -3461,18 +3479,62 @@ export async function getDeliveryJoinRequests(query) {
 
     const list = await FoodDeliveryPartner.find(filter)
         .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limitNum)
         .lean();
 
-    const requests = list.map((doc, index) => ({
+    // Fetch all active zones for detection
+    const zones = await FoodZone.find({ isActive: true }).lean();
+
+    const isPointInPolygon = (lat, lng, polygon) => {
+        if (!Array.isArray(polygon) || polygon.length < 3) return false;
+        let inside = false;
+        for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+            const xi = polygon[i].longitude;
+            const yi = polygon[i].latitude;
+            const xj = polygon[j].longitude;
+            const yj = polygon[j].latitude;
+            const intersect =
+                yi > lat !== yj > lat &&
+                lng < ((xj - xi) * (lat - yi)) / (yj - yi + 0.0) + xi;
+            if (intersect) inside = !inside;
+        }
+        return inside;
+    };
+
+    let requests = list.map((doc) => {
+        let detectedZone = null;
+        if (doc.lastLat && doc.lastLng) {
+            const match = zones.find(z => isPointInPolygon(doc.lastLat, doc.lastLng, z.coordinates));
+            if (match) detectedZone = match.name;
+        }
+        
+        // Fallback to city/address matching if no coord match or no coords
+        if (!detectedZone) {
+            const locStr = `${doc.city || ''} ${doc.state || ''} ${doc.address || ''}`.toLowerCase();
+            const match = zones.find(z => locStr.includes(z.name.toLowerCase()));
+            if (match) detectedZone = match.name;
+        }
+
+        return {
+            ...doc,
+            detectedZoneName: detectedZone || doc.city || doc.state || 'N/A'
+        };
+    });
+
+    // Apply zone filter if present
+    if (zone && zone.trim()) {
+        const zTerm = zone.trim().toLowerCase();
+        requests = requests.filter(r => r.detectedZoneName.toLowerCase().includes(zTerm));
+    }
+
+    // Pagination
+    const totalCount = requests.length;
+    const paginatedRequests = requests.slice(skip, skip + limitNum).map((doc, index) => ({
         _id: doc._id,
         sl: skip + index + 1,
         name: doc.name || '',
         email: doc.email || '',
         phone: doc.phone || '',
-        zone: doc.city || doc.state || doc.address || '',
-        jobType: doc.jobType || '',
+        zone: doc.detectedZoneName,
         vehicleType: doc.vehicleType || '',
         status: doc.status === 'rejected' ? 'denied' : doc.status,
         rejectionReason: doc.rejectionReason || undefined,
@@ -3480,7 +3542,7 @@ export async function getDeliveryJoinRequests(query) {
         profileImage: doc.profilePhoto ? { url: doc.profilePhoto } : null
     }));
 
-    return { requests };
+    return { requests: paginatedRequests, total: totalCount };
 }
 
 export function getDeliveryWalletsStub() {
@@ -3610,6 +3672,19 @@ export async function getDeliveryPartners(query) {
         FoodDeliveryPartner.countDocuments(filter)
     ]);
 
+    const partnerIds = list.map(p => p._id);
+    const orderCountsAgg = await FoodOrder.aggregate([
+        { 
+            $match: { 
+                'dispatch.deliveryPartnerId': { $in: partnerIds },
+                orderStatus: 'delivered'
+            } 
+        },
+        { $group: { _id: '$dispatch.deliveryPartnerId', totalOrders: { $sum: 1 } } }
+    ]);
+
+    const countsMap = new Map(orderCountsAgg.map(item => [item._id.toString(), item.totalOrders]));
+
     const deliveryPartners = list.map((doc, index) => ({
         _id: doc._id,
         sl: skip + index + 1,
@@ -3621,7 +3696,8 @@ export async function getDeliveryPartners(query) {
         vehicleType: doc.vehicleType || '',
         status: doc.status,
         profilePhoto: doc.profilePhoto || null,
-        profileImage: doc.profilePhoto ? { url: doc.profilePhoto } : null
+        profileImage: doc.profilePhoto ? { url: doc.profilePhoto } : null,
+        totalOrders: countsMap.get(doc._id.toString()) || 0
     }));
 
     return {
@@ -4706,6 +4782,44 @@ export async function getDeliveryWallets(query = {}) {
     };
 }
 
+export async function updateDeliveryBoyWallet(dto) {
+    const { deliveryId, pocketBalance, cashInHand } = dto;
+    const wallet = await getDeliveryPartnerWalletEnhanced(deliveryId);
+    
+    // Adjust Pocket Balance via Bonus/Adjustment
+    const pocketDiff = Number(pocketBalance) - wallet.pocketBalance;
+    if (Math.abs(pocketDiff) > 0.01) {
+        await DeliveryBonusTransaction.create({
+            deliveryPartnerId: deliveryId,
+            amount: pocketDiff,
+            reason: 'Admin manual adjustment',
+            transactionId: generateBonusTransactionId()
+        });
+    }
+    
+    // Adjust Cash In Hand via Deposit/Adjustment (Deposit reduces cashInHand)
+    const cashDiff = wallet.cashInHand - Number(cashInHand);
+    if (Math.abs(cashDiff) > 0.01) {
+        await FoodDeliveryCashDeposit.create({
+            deliveryPartnerId: deliveryId,
+            amount: cashDiff,
+            status: 'Completed',
+            paymentMethod: 'cash',
+            razorpayOrderId: 'manual_adj_' + Date.now()
+        });
+    }
+    
+    const updated = await getDeliveryPartnerWalletEnhanced(deliveryId);
+    return {
+        walletId: updated?._id,
+        deliveryId: deliveryId,
+        pocketBalance: updated.pocketBalance,
+        cashInHand: updated.cashInHand,
+        remainingCashLimit: updated.availableCashLimit,
+        availableCashLimit: updated.availableCashLimit
+    };
+}
+
 /**
  * Fetch cash limit settlement (deposit) transactions
  */
@@ -4776,8 +4890,8 @@ export async function getSidebarBadges() {
             FoodDeliveryPartner.countDocuments({ status: 'pending' }),
             FoodItem.countDocuments({ status: 'pending' }),
             FoodAddon.countDocuments({ status: 'pending' }),
-            FoodOrder.countDocuments({ orderStatus: 'pending' }),
-            FoodOrder.countDocuments({ paymentMethod: 'offline_payment', orderStatus: 'pending' }),
+            FoodOrder.countDocuments({ orderStatus: { $in: ['created', 'placed'] } }),
+            FoodOrder.countDocuments({ paymentMethod: 'offline_payment', orderStatus: { $in: ['created', 'placed'] } }),
             FoodRestaurantWithdrawal.countDocuments({ status: 'pending' }),
             FoodDeliveryWithdrawal.countDocuments({ status: 'pending' }),
             FoodSupportTicket.countDocuments({ status: 'open', userId: { $exists: true }, restaurantId: { $exists: false } }),
