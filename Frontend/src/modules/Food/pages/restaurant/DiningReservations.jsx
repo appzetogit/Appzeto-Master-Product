@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react"
+import { useNavigate } from "react-router-dom"
 import { motion, AnimatePresence } from "framer-motion"
-import { Calendar, Clock, Users, Search, MessageSquare, CheckCircle2, Clock4, UploadCloud, ImagePlus, ChevronDown, ChevronUp, Sparkles, MapPin, Phone, Info, X } from "lucide-react"
+import { Calendar, Clock, Users, Search, MessageSquare, CheckCircle2, Clock4, UploadCloud, ImagePlus, ChevronDown, ChevronUp, Sparkles, MapPin, Phone, Info, X, ArrowLeft } from "lucide-react"
 import { diningAPI, restaurantAPI } from "@food/api"
 import Loader from "@food/components/Loader"
 import { Badge } from "@food/components/ui/badge"
@@ -70,6 +71,7 @@ const getBookerPhone = (booking) =>
 
 
 export default function DiningReservations() {
+    const navigate = useNavigate()
     const [bookings, setBookings] = useState([])
     const [loading, setLoading] = useState(true)
     const [restaurant, setRestaurant] = useState(null)
@@ -410,12 +412,21 @@ export default function DiningReservations() {
                     <motion.div
                         initial={{ opacity: 0, x: -20 }}
                         animate={{ opacity: 1, x: 0 }}
+                        className="flex items-center gap-4"
                     >
-                        <h1 className="text-2xl font-black text-slate-900 tracking-tight flex items-center gap-2">
-                            Table Reservations
-                            <span className="flex h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-                        </h1>
-                        <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mt-1">Live Queue Management</p>
+                        <button
+                            onClick={() => navigate(-1)}
+                            className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors"
+                        >
+                            <ArrowLeft className="w-5 h-5" />
+                        </button>
+                        <div>
+                            <h1 className="text-2xl font-black text-slate-900 tracking-tight flex items-center gap-2">
+                                Table Reservations
+                                <span className="flex h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                            </h1>
+                            <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mt-1">Live Queue Management</p>
+                        </div>
                     </motion.div>
 
                     <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
@@ -714,7 +725,6 @@ export default function DiningReservations() {
                                     <input
                                         type="number"
                                         min={isDiningToggleOn ? "1" : "0"}
-                                        max="20"
                                         value={maxGuestsLimit}
                                         onChange={(e) => setMaxGuestsLimit(e.target.value)}
                                         disabled={!isDiningToggleOn}
@@ -928,10 +938,10 @@ export default function DiningReservations() {
                                                     <td className="px-6 py-4">
                                                         <div className="flex items-center gap-2">
                                                             <Badge className={`rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-wider ${
-                                                                booking.status === 'confirmed' ? 'bg-amber-100 text-amber-700' :
-                                                                booking.status === 'accepted' ? 'bg-emerald-100 text-emerald-700' :
-                                                                booking.status === 'checked-in' ? 'bg-orange-100 text-orange-700' :
-                                                                booking.status === 'completed' ? 'bg-blue-100 text-blue-700' :
+                                                                String(booking.status || "").toLowerCase() === 'confirmed' ? 'bg-amber-100 text-amber-700' :
+                                                                String(booking.status || "").toLowerCase() === 'accepted' ? 'bg-emerald-100 text-emerald-700' :
+                                                                String(booking.status || "").toLowerCase() === 'checked-in' ? 'bg-orange-100 text-orange-700' :
+                                                                String(booking.status || "").toLowerCase() === 'completed' ? 'bg-blue-100 text-blue-700' :
                                                                 'bg-rose-100 text-rose-700'
                                                             }`}>
                                                                 {booking.status}
@@ -940,7 +950,7 @@ export default function DiningReservations() {
                                                     </td>
                                                     <td className="px-6 py-4 text-right">
                                                         <div className="flex items-center justify-end gap-2">
-                                                            {booking.status === 'confirmed' && (
+                                                            {String(booking.status || "").toLowerCase() === 'confirmed' && (
                                                                 <button
                                                                     onClick={() => handleStatusUpdate(booking._id, 'accepted')}
                                                                     className="px-3 py-1.5 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-700 transition-colors shadow-sm"
@@ -948,7 +958,7 @@ export default function DiningReservations() {
                                                                     Accept
                                                                 </button>
                                                             )}
-                                                            {booking.status === 'confirmed' && (
+                                                            {String(booking.status || "").toLowerCase() === 'confirmed' && (
                                                                 <button
                                                                     onClick={() => handleStatusUpdate(booking._id, 'cancelled')}
                                                                     className="px-3 py-1.5 bg-white border border-rose-200 text-rose-600 text-xs font-bold rounded-lg hover:bg-rose-50 transition-colors"
@@ -956,7 +966,7 @@ export default function DiningReservations() {
                                                                     Decline
                                                                 </button>
                                                             )}
-                                                            {booking.status === 'accepted' && (
+                                                            {String(booking.status || "").toLowerCase() === 'accepted' && (
                                                                 <button
                                                                     onClick={() => handleStatusUpdate(booking._id, 'checked-in')}
                                                                     className="px-3 py-1.5 bg-orange-600 text-white text-xs font-bold rounded-lg hover:bg-orange-700 transition-colors shadow-sm"
@@ -964,7 +974,7 @@ export default function DiningReservations() {
                                                                     Check-in
                                                                 </button>
                                                             )}
-                                                            {booking.status === 'checked-in' && (
+                                                            {String(booking.status || "").toLowerCase() === 'checked-in' && (
                                                                 <button
                                                                     onClick={() => handleStatusUpdate(booking._id, 'completed')}
                                                                     className="px-3 py-1.5 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
@@ -1012,10 +1022,10 @@ export default function DiningReservations() {
                                                     </div>
                                                 </div>
                                                 <Badge className={`rounded-full px-2.5 py-0.5 text-[9px] font-black uppercase tracking-wider ${
-                                                    booking.status === 'confirmed' ? 'bg-amber-100 text-amber-700' :
-                                                    booking.status === 'accepted' ? 'bg-emerald-100 text-emerald-700' :
-                                                    booking.status === 'checked-in' ? 'bg-orange-100 text-orange-700' :
-                                                    booking.status === 'completed' ? 'bg-blue-100 text-blue-700' :
+                                                    String(booking.status || "").toLowerCase() === 'confirmed' ? 'bg-amber-100 text-amber-700' :
+                                                    String(booking.status || "").toLowerCase() === 'accepted' ? 'bg-emerald-100 text-emerald-700' :
+                                                    String(booking.status || "").toLowerCase() === 'checked-in' ? 'bg-orange-100 text-orange-700' :
+                                                    String(booking.status || "").toLowerCase() === 'completed' ? 'bg-blue-100 text-blue-700' :
                                                     'bg-rose-100 text-rose-700'
                                                 }`}>
                                                     {booking.status}
@@ -1051,7 +1061,7 @@ export default function DiningReservations() {
                                             )}
 
                                             <div className="flex items-center gap-2">
-                                                {booking.status === 'confirmed' && (
+                                                {String(booking.status || "").toLowerCase() === 'confirmed' && (
                                                     <button
                                                         onClick={() => handleStatusUpdate(booking._id, 'accepted')}
                                                         className="flex-1 py-2.5 bg-emerald-600 text-white text-xs font-black rounded-xl hover:bg-emerald-700 transition-colors uppercase tracking-widest"
@@ -1059,7 +1069,7 @@ export default function DiningReservations() {
                                                         Accept
                                                     </button>
                                                 )}
-                                                {booking.status === 'confirmed' && (
+                                                {String(booking.status || "").toLowerCase() === 'confirmed' && (
                                                     <button
                                                         onClick={() => handleStatusUpdate(booking._id, 'cancelled')}
                                                         className="flex-1 py-2.5 bg-slate-100 text-slate-600 text-xs font-black rounded-xl hover:bg-slate-200 transition-colors uppercase tracking-widest"
@@ -1067,7 +1077,7 @@ export default function DiningReservations() {
                                                         Decline
                                                     </button>
                                                 )}
-                                                {booking.status === 'accepted' && (
+                                                {String(booking.status || "").toLowerCase() === 'accepted' && (
                                                     <button
                                                         onClick={() => handleStatusUpdate(booking._id, 'checked-in')}
                                                         className="flex-1 py-2.5 bg-orange-600 text-white text-xs font-black rounded-xl hover:bg-orange-700 transition-colors uppercase tracking-widest"
@@ -1075,7 +1085,7 @@ export default function DiningReservations() {
                                                         Check-in
                                                     </button>
                                                 )}
-                                                {booking.status === 'checked-in' && (
+                                                {String(booking.status || "").toLowerCase() === 'checked-in' && (
                                                     <button
                                                         onClick={() => handleStatusUpdate(booking._id, 'completed')}
                                                         className="flex-1 py-2.5 bg-blue-600 text-white text-xs font-black rounded-xl hover:bg-blue-700 transition-colors uppercase tracking-widest"
