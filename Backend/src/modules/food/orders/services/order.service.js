@@ -1854,7 +1854,7 @@ export async function createOrder(userId, dto) {
   }
 
   const riderEarning =
-    orderType === "food" || (orderType === "mixed" && dispatchStrategy === "single")
+    orderType === "food" || orderType === "quick" || orderType === "mixed"
       ? await getRiderEarning(distanceKm)
       : 0;
 
@@ -4057,25 +4057,23 @@ export async function getPaymentStatus(orderId, deliveryPartnerId) {
 // ----- Admin -----
 export async function listOrdersAdmin(query) {
   const { page, limit, skip } = buildPaginationOptions(query);
-  const filter = {
-    $or: [
-      { "payment.method": { $in: ["cash", "wallet"] } },
-      { "payment.status": { $in: ["paid", "authorized", "captured", "settled", "refunded"] } },
-    ],
-  };
+  const filter = {};
 
-  const rawStatus =
-    typeof query.status === "string" ? query.status.trim().toLowerCase() : "";
-  const cancelledBy =
-    typeof query.cancelledBy === "string"
-      ? query.cancelledBy.trim().toLowerCase()
-      : "";
-  const restaurantIdRaw =
-    typeof query.restaurantId === "string" ? query.restaurantId.trim() : "";
-  const startDateRaw =
-    typeof query.startDate === "string" ? query.startDate.trim() : "";
-  const endDateRaw =
-    typeof query.endDate === "string" ? query.endDate.trim() : "";
+  // Extract raw query params
+  const rawStatus = typeof query.status === "string" ? query.status.trim().toLowerCase() : "";
+  const cancelledBy = typeof query.cancelledBy === "string" ? query.cancelledBy.trim().toLowerCase() : "";
+  const restaurantIdRaw = typeof query.restaurantId === "string" ? query.restaurantId.trim() : "";
+  const zoneIdRaw = typeof query.zoneId === "string" ? query.zoneId.trim() : "";
+  const userIdRaw = typeof query.userId === "string" ? query.userId.trim() : "";
+  const startDateRaw = typeof query.startDate === "string" ? query.startDate.trim() : "";
+  const endDateRaw = typeof query.endDate === "string" ? query.endDate.trim() : "";
+  const search = typeof query.search === "string" ? query.search.trim() : "";
+
+  // Base filter for visible orders (exclude those that aren't properly created or paid if online)
+  filter.$or = [
+    { "payment.method": { $in: ["cash", "wallet"] } },
+    { "payment.status": { $in: ["paid", "authorized", "captured", "settled", "refunded"] } },
+  ];
 
   if (rawStatus && rawStatus !== "all") {
     switch (rawStatus) {
@@ -4097,11 +4095,7 @@ export async function listOrdersAdmin(query) {
       case "canceled":
       case "cancelled":
         filter.orderStatus = {
-          $in: [
-            "cancelled_by_user",
-            "cancelled_by_restaurant",
-            "cancelled_by_admin",
-          ],
+          $in: ["cancelled_by_user", "cancelled_by_restaurant", "cancelled_by_admin"],
         };
         break;
       case "restaurant-cancelled":
@@ -4120,8 +4114,6 @@ export async function listOrdersAdmin(query) {
       case "scheduled":
         filter.scheduledAt = { $ne: null };
         break;
-      default:
-        break;
     }
   }
 
@@ -4133,10 +4125,18 @@ export async function listOrdersAdmin(query) {
     }
   }
 
+  // ID based filters
   if (restaurantIdRaw && mongoose.Types.ObjectId.isValid(restaurantIdRaw)) {
     filter.restaurantId = new mongoose.Types.ObjectId(restaurantIdRaw);
   }
+  if (zoneIdRaw && mongoose.Types.ObjectId.isValid(zoneIdRaw)) {
+    filter.zoneId = new mongoose.Types.ObjectId(zoneIdRaw);
+  }
+  if (userIdRaw && mongoose.Types.ObjectId.isValid(userIdRaw)) {
+    filter.userId = new mongoose.Types.ObjectId(userIdRaw);
+  }
 
+  // Date filters
   if (startDateRaw || endDateRaw) {
     const createdAt = {};
     const start = startDateRaw ? new Date(startDateRaw) : null;
@@ -4145,11 +4145,47 @@ export async function listOrdersAdmin(query) {
       createdAt.$gte = start;
     }
     if (end && !Number.isNaN(end.getTime())) {
+      // Set to end of day
+      end.setHours(23, 59, 59, 999);
       createdAt.$lte = end;
     }
     if (Object.keys(createdAt).length > 0) {
       filter.createdAt = createdAt;
     }
+  }
+
+  // Search logic
+  if (search) {
+    // Search by Order ID (exact or partial regex)
+    const searchConditions = [
+      { orderId: { $regex: search, $options: "i" } }
+    ];
+
+    // If search looks like a name, we need to find matching users and restaurants first
+    const [matchingUsers, matchingRestaurants] = await Promise.all([
+      FoodUser.find({ name: { $regex: search, $options: "i" } }).select('_id').lean(),
+      FoodRestaurant.find({ restaurantName: { $regex: search, $options: "i" } }).select('_id').lean()
+    ]);
+
+    if (matchingUsers.length > 0) {
+      searchConditions.push({ userId: { $in: matchingUsers.map(u => u._id) } });
+    }
+    if (matchingRestaurants.length > 0) {
+      searchConditions.push({ restaurantId: { $in: matchingRestaurants.map(r => r._id) } });
+    }
+
+    // Combine base filter with search conditions
+    // We use $and to ensure both the visibility/status filters AND the search conditions are met
+    const originalFilter = { ...filter };
+    delete filter.$or; // We'll reconstruct it
+
+    filter.$and = [
+      { $or: originalFilter.$or }, // Visibility filters
+      { $or: searchConditions }   // Search conditions
+    ];
+    
+    // Copy other specific filters into $and if needed, but since they are already in `filter` object, 
+    // we should be careful. Actually, it's better to just keep them as they are and let Mongo handle it.
   }
 
   const [docs, total] = await Promise.all([
@@ -4163,6 +4199,7 @@ export async function listOrdersAdmin(query) {
       .lean(),
     FoodOrder.countDocuments(filter),
   ]);
+
   const paginated = buildPaginatedResult({ docs, total, page, limit });
   return { ...paginated, orders: paginated.data };
 }
