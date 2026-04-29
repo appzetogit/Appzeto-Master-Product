@@ -106,6 +106,24 @@ export default function RestaurantReviews() {
     return stars
   }
 
+  const formatDateTime = (iso) => {
+    if (!iso) return "N/A"
+    try {
+      const d = new Date(iso)
+      if (isNaN(d.getTime())) return "N/A"
+      return d.toLocaleString("en-IN", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: true,
+      })
+    } catch (e) {
+      return "N/A"
+    }
+  }
+
   useEffect(() => {
     const fetchReviews = async () => {
       try {
@@ -290,6 +308,67 @@ export default function RestaurantReviews() {
             </div>
           )}
           <DialogFooter className="px-6 pb-6 pt-4 border-t border-slate-200"><button onClick={() => setIsReviewModalOpen(false)} className="px-4 py-2 text-sm font-medium rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition-all">Close</button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Settings Modal (Column Visibility) */}
+      <Dialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
+        <DialogContent className="max-w-md bg-white p-0 overflow-hidden rounded-2xl border-none shadow-2xl">
+          <DialogHeader className="px-6 pt-6 pb-4 border-b border-slate-100 bg-slate-50/50">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center">
+                <Columns className="w-5 h-5 text-blue-600" />
+              </div>
+              <div>
+                <DialogTitle className="text-xl font-bold text-slate-900">Column Settings</DialogTitle>
+                <p className="text-xs text-slate-500 mt-0.5">Customize your table view</p>
+              </div>
+            </div>
+          </DialogHeader>
+
+          <div className="p-6">
+            <p className="text-sm text-slate-600 mb-5 leading-relaxed">
+              Select the columns you want to see in the reviews table. Your preferences will be saved for this session.
+            </p>
+            
+            <div className="grid grid-cols-2 gap-3">
+              {Object.entries(columnsConfig).map(([key, label]) => (
+                <button
+                  key={key}
+                  onClick={() => toggleColumn(key)}
+                  className={`group relative flex items-center justify-between px-4 py-3 rounded-xl border-2 transition-all duration-200 ${
+                    visibleColumns[key]
+                      ? "bg-blue-50 border-blue-600 text-blue-700 shadow-sm"
+                      : "bg-white border-slate-100 text-slate-500 hover:border-slate-200 hover:bg-slate-50"
+                  }`}
+                >
+                  <span className={`text-sm font-semibold ${visibleColumns[key] ? "text-blue-700" : "text-slate-600"}`}>
+                    {label}
+                  </span>
+                  <div className={`shrink-0 w-5 h-5 rounded-full flex items-center justify-center transition-all ${
+                    visibleColumns[key] ? "bg-blue-600 text-white scale-110" : "bg-slate-100 text-transparent"
+                  }`}>
+                    <Check className="w-3 h-3" strokeWidth={3} />
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <DialogFooter className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex flex-row items-center justify-between gap-3">
+            <button
+              onClick={resetColumns}
+              className="px-4 py-2 text-sm font-bold text-slate-500 hover:text-blue-600 transition-colors flex items-center gap-2"
+            >
+              Reset to Default
+            </button>
+            <button
+              onClick={() => setIsSettingsOpen(false)}
+              className="px-6 py-2.5 text-sm font-bold rounded-xl bg-slate-900 text-white hover:bg-slate-800 hover:shadow-lg transition-all active:scale-95"
+            >
+              Save & Close
+            </button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
