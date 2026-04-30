@@ -98,9 +98,10 @@ export default function SignupStep1() {
       updatedValue = updatedValue.replace(/[^A-Z0-9]/g, "").slice(0, 16)
     }
 
-    // Restrict Aadhaar to numeric only
+    // Restrict Aadhaar to numeric only and format as XXXX XXXX XXXX
     if (name === "aadharNumber") {
-      updatedValue = value.replace(/\D/g, "").slice(0, 12)
+      const digits = value.replace(/\D/g, "").slice(0, 12)
+      updatedValue = digits.replace(/(\d{4})(?=\d)/g, "$1 ")
     }
 
     if (name === "city" || name === "state") {
@@ -427,11 +428,11 @@ export default function SignupStep1() {
               name="aadharNumber"
               value={formData.aadharNumber}
               onChange={handleChange}
-              maxLength={12}
+              maxLength={14}
               inputMode="numeric"
               className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 ${errors.aadharNumber ? "border-red-500" : "border-gray-300"
                 }`}
-              placeholder="123456789012"
+              placeholder="1234 5678 9012"
             />
             {errors.aadharNumber && <p className="text-red-500 text-sm mt-1">{errors.aadharNumber}</p>}
           </div>
