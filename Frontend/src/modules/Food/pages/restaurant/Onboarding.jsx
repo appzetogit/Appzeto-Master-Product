@@ -1512,8 +1512,8 @@ export default function RestaurantOnboarding() {
     let cancelled = false
 
     const init = async () => {
-      // Wait for the ref to be attached (up to 1s)
-      for (let i = 0; i < 20; i++) {
+      // Wait for the ref to be attached (up to 3s for slower mobile devices)
+      for (let i = 0; i < 60; i++) {
         if (locationSearchInputRef.current) break
         await new Promise((r) => setTimeout(r, 50))
       }
