@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react"
 import { useNavigate } from "react-router-dom"
-import { MapPin, Search, Save, Loader2, ArrowLeft } from "lucide-react"
+import { MapPin, Search, Save, Loader2, ArrowLeft, AlertTriangle, X } from "lucide-react"
+import { motion, AnimatePresence } from "framer-motion"
 import RestaurantNavbar from "@food/components/restaurant/RestaurantNavbar"
 import { restaurantAPI, zoneAPI } from "@food/api"
 import { getGoogleMapsApiKey } from "@food/utils/googleMapsApiKey"
@@ -66,7 +67,10 @@ export default function ZoneSetup() {
   const [locationSearch, setLocationSearch] = useState("")
   const [selectedLocation, setSelectedLocation] = useState(null)
   const [selectedAddress, setSelectedAddress] = useState("")
+  const [addressParts, setAddressParts] = useState({})
   const [zones, setZones] = useState([])
+  const [showConfirmModal, setShowConfirmModal] = useState(false)
+  const [isSuccess, setIsSuccess] = useState(false)
 
   useEffect(() => {
     fetchRestaurantData()
@@ -155,18 +159,68 @@ export default function ZoneSetup() {
   const getAddressFromCoords = (lat, lng) => {
     return new Promise((resolve) => {
       if (!window.google || !window.google.maps || !window.google.maps.Geocoder) {
-        resolve(`${lat.toFixed(6)}, ${lng.toFixed(6)}`)
+        resolve({ 
+          formattedAddress: `${lat.toFixed(6)}, ${lng.toFixed(6)}`,
+          parts: {} 
+        })
         return
       }
       const geocoder = new window.google.maps.Geocoder()
       geocoder.geocode({ location: { lat, lng } }, (results, status) => {
         if (status === "OK" && results[0]) {
-          resolve(results[0].formatted_address)
+          const components = results[0].address_components
+          const parts = {
+            addressLine1: "",
+            area: "",
+            city: "",
+            state: "",
+            pincode: "",
+            landmark: ""
+          }
+          
+          components.forEach(comp => {
+            const types = comp.types
+            if (types.includes("premise") || types.includes("street_number") || types.includes("route") || types.includes("sublocality_level_3")) {
+              parts.addressLine1 += (parts.addressLine1 ? ", " : "") + comp.long_name
+            }
+            if (types.includes("sublocality_level_1") || types.includes("sublocality_level_2") || types.includes("neighborhood")) {
+              parts.area = comp.long_name
+            }
+            if (types.includes("locality")) {
+              parts.city = comp.long_name
+            }
+            if (types.includes("administrative_area_level_1")) {
+              parts.state = comp.long_name
+            }
+            if (types.includes("postal_code")) {
+              parts.pincode = comp.long_name
+            }
+          })
+          
+          resolve({ 
+            formattedAddress: results[0].formatted_address, 
+            parts 
+          })
         } else {
-          resolve(`${lat.toFixed(6)}, ${lng.toFixed(6)}`)
+          resolve({ 
+            formattedAddress: `${lat.toFixed(6)}, ${lng.toFixed(6)}`,
+            parts: {} 
+          })
         }
       })
     })
+  }
+
+  const handleLocationSelect = async (lat, lng) => {
+    // Use geocoding to get address
+    const result = await getAddressFromCoords(lat, lng)
+    const { formattedAddress, parts } = result
+    
+    setLocationSearch(formattedAddress)
+    setSelectedAddress(formattedAddress)
+    setAddressParts(parts)
+    setSelectedLocation({ lat, lng, address: formattedAddress })
+    updateMarker(lat, lng, formattedAddress)
   }
 
   const fetchZones = async () => {
@@ -269,16 +323,7 @@ export default function ZoneSetup() {
 
       // Add click listener to place marker
       map.addListener('click', async (event) => {
-        const lat = event.latLng.lat()
-        const lng = event.latLng.lng()
-        
-        // Use geocoding to get address
-        const address = await getAddressFromCoords(lat, lng)
-        
-        setLocationSearch(address)
-        setSelectedAddress(address)
-        setSelectedLocation({ lat, lng, address })
-        updateMarker(lat, lng, address)
+        handleLocationSelect(event.latLng.lat(), event.latLng.lng())
       })
 
       setMapLoading(false)
@@ -352,6 +397,10 @@ export default function ZoneSetup() {
       })
 
       polygon.addListener('click', (event) => {
+        // Drop pin first
+        handleLocationSelect(event.latLng.lat(), event.latLng.lng())
+        
+        // Then show info window
         infoWindow.setPosition(event.latLng)
         infoWindow.open(map)
       })
@@ -427,22 +476,22 @@ export default function ZoneSetup() {
     return parts.length > 0 ? parts.join(", ") : ""
   }
 
-  const handleSaveLocation = async () => {
+  const handleSaveLocation = () => {
     if (!selectedLocation) {
       alert("Please select a location on the map first")
       return
     }
+    setShowConfirmModal(true)
+  }
 
-    if (!window.confirm("Changing your location will put your restaurant in 'Pending' status for re-verification. You will be logged out and can only log in once admin approves your new location. Do you want to proceed?")) {
-      return
-    }
-
+  const proceedSave = async () => {
+    setShowConfirmModal(false)
     try {
       setSaving(true)
       
       const { lat, lng, address } = selectedLocation
 
-      // Calculate current zone name if possible (optional enhancement)
+      // Calculate current zone name if possible
       const currentZone = zones.find(z => {
         if (!window.google || !z.coordinates || z.coordinates.length < 3) return false
         const path = z.coordinates.map(c => new window.google.maps.LatLng(c.latitude || c.lat, c.longitude || c.lng))
@@ -452,36 +501,64 @@ export default function ZoneSetup() {
       
       // Update restaurant location and trigger re-verification
       const payload = {
+        // Top level address fields for DB update
+        addressLine1: addressParts.addressLine1 || address.split(',')[0] || "",
+        area: addressParts.area || "",
+        city: addressParts.city || "",
+        state: addressParts.state || "",
+        pincode: addressParts.pincode || "",
+        formattedAddress: address,
+        zoneId: currentZone?._id || currentZone?.id || null, // Critical: Update the zone ID in DB
+        
         location: {
           ...(restaurantData?.location || {}),
+          type: "Point",
           latitude: lat,
           longitude: lng,
           coordinates: [lng, lat], // GeoJSON format: [longitude, latitude]
-          formattedAddress: address
+          formattedAddress: address,
+          address: address // Some schemas use 'address' inside location
         },
         // Meta data for admin review
         reVerification: {
           isZoneUpdate: true,
-          previousAddress: restaurantData?.location?.formattedAddress || "",
+          previousAddress: restaurantData?.location?.formattedAddress || restaurantData?.address || "",
           previousLocation: {
             latitude: restaurantData?.location?.latitude,
             longitude: restaurantData?.location?.longitude
           },
+          previousZoneId: restaurantData?.zoneId || null,
           previousZone: restaurantData?.zone || restaurantData?.zoneName || "",
           updatedZone: currentZone?.name || currentZone?.zoneName || ""
         },
         status: "pending", // Force pending status for re-approval
-        isActive: false     // Deactivate until approval
+        isActive: false,     // Deactivate until approval
+
+        // Update onboarding data as well, as admin panel/backend might prioritize it for pending requests
+        onboarding: {
+          ...(restaurantData?.onboarding || {}),
+          step1: {
+            ...(restaurantData?.onboarding?.step1 || {}),
+            location: {
+              ...(restaurantData?.onboarding?.step1?.location || {}),
+              latitude: lat,
+              longitude: lng,
+              coordinates: [lng, lat],
+              formattedAddress: address,
+              addressLine1: addressParts.addressLine1 || address.split(',')[0] || "",
+              area: addressParts.area || "",
+              city: addressParts.city || "",
+              state: addressParts.state || "",
+              pincode: addressParts.pincode || ""
+            }
+          }
+        }
       }
 
       const response = await restaurantAPI.updateProfile(payload)
 
       if (response?.data?.success) {
-        alert("Location update submitted! Your restaurant is now under re-verification. You will be logged out.")
-        
-        // Logout
-        clearAuthData("restaurant")
-        navigate("/food/restaurant")
+        setIsSuccess(true)
       } else {
         throw new Error("Failed to submit location update")
       }
@@ -588,6 +665,104 @@ export default function ZoneSetup() {
           )}
         </div>
       </div>
+
+      {/* Confirmation Modal */}
+      <AnimatePresence>
+        {showConfirmModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowConfirmModal(false)}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden"
+            >
+              <div className="p-6">
+                {!isSuccess ? (
+                  <>
+                    <div className="flex items-center justify-between mb-6">
+                      <div className="w-12 h-12 rounded-full bg-amber-100 flex items-center justify-center">
+                        <AlertTriangle className="w-6 h-6 text-amber-600" />
+                      </div>
+                      <button
+                        onClick={() => setShowConfirmModal(false)}
+                        className="p-2 hover:bg-slate-100 rounded-full transition-colors"
+                      >
+                        <X className="w-5 h-5 text-slate-400" />
+                      </button>
+                    </div>
+
+                    <h3 className="text-xl font-bold text-slate-900 mb-2">
+                      Confirm Location Change?
+                    </h3>
+                    <p className="text-slate-600 mb-6 leading-relaxed">
+                      Changing your location will put your restaurant in <span className="font-semibold text-amber-600">"Pending"</span> status for re-verification. 
+                      You will be logged out and can only access your dashboard once the admin approves your new location.
+                    </p>
+
+                    <div className="flex flex-col gap-3">
+                      <button
+                        onClick={proceedSave}
+                        className="w-full py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl shadow-lg shadow-red-200 transition-all flex items-center justify-center gap-2"
+                      >
+                        <Save className="w-5 h-5" />
+                        Confirm & Update Location
+                      </button>
+                      <button
+                        onClick={() => setShowConfirmModal(false)}
+                        className="w-full py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-xl transition-all"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-center py-4">
+                    <div className="w-20 h-20 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-6">
+                      <motion.div
+                        initial={{ scale: 0 }}
+                        animate={{ scale: 1 }}
+                        transition={{ type: "spring", stiffness: 200, damping: 10 }}
+                      >
+                        <Save className="w-10 h-10 text-green-600" />
+                      </motion.div>
+                    </div>
+                    <h3 className="text-2xl font-bold text-slate-900 mb-2">
+                      Request Submitted!
+                    </h3>
+                    <p className="text-slate-600 mb-8">
+                      Your restaurant is now under re-verification. Please log in again once the admin approves your new location.
+                    </p>
+                    <button
+                      onClick={() => {
+                        clearAuthData("restaurant")
+                        navigate("/food/restaurant")
+                      }}
+                      className="w-full py-4 bg-slate-900 text-white font-bold rounded-xl hover:bg-black transition-all shadow-xl"
+                    >
+                      Logout from Dashboard
+                    </button>
+                  </div>
+                )}
+              </div>
+              
+              {!isSuccess && (
+                <div className="bg-slate-50 px-6 py-4 border-t border-slate-100">
+                  <p className="text-xs text-slate-500 text-center">
+                    This action helps maintain the accuracy of our delivery zones.
+                  </p>
+                </div>
+              )}
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }
