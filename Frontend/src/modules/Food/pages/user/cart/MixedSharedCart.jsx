@@ -278,6 +278,34 @@ export default function MixedSharedCart() {
             throw new Error("Payment verification failed");
           }
         },
+        onClose: async () => {
+          try {
+            const cancelId = order?._id || order?.id || order?.orderId;
+            if (cancelId) {
+              await orderAPI.cancelOrder(cancelId, {
+                reason: "Payment Cancelled",
+                note: "User closed payment modal in Mixed Cart",
+              });
+            }
+          } catch (err) {
+            console.error("Failed to cancel mixed order after close", err);
+          }
+          setIsPlacingOrder(false);
+        },
+        onError: async (error) => {
+          try {
+            const cancelId = order?._id || order?.id || order?.orderId;
+            if (cancelId) {
+              await orderAPI.cancelOrder(cancelId, {
+                reason: "Payment Failed",
+                note: error?.message || "Payment failed in Mixed Cart",
+              });
+            }
+          } catch (err) {
+            console.error("Failed to cancel mixed order after error", err);
+          }
+          setIsPlacingOrder(false);
+        },
       });
     } catch (error) {
       console.error("Mixed order failed", error);

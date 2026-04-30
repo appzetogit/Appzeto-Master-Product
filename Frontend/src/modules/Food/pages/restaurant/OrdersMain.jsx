@@ -21,6 +21,10 @@ import {
   Clock,
   Users,
   MessageSquare,
+  Check,
+  Phone,
+  Hash,
+  User,
 } from "lucide-react";
 import { toast } from "sonner";
 import BottomNavOrders from "@food/components/restaurant/BottomNavOrders";
@@ -552,36 +556,41 @@ function TableBookings() {
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    let isMounted = true;
+  const fetchBookings = async () => {
+    try {
+      const res = await restaurantAPI.getCurrentRestaurant();
+      const restaurant =
+        res.data?.data?.restaurant || res.data?.restaurant || res.data?.data;
+      const restaurantId = restaurant?._id || restaurant?.id;
 
-    const fetchBookings = async () => {
-      try {
-        const res = await restaurantAPI.getCurrentRestaurant();
-        const restaurant =
-          res.data?.data?.restaurant || res.data?.restaurant || res.data?.data;
-        const restaurantId = restaurant?._id || restaurant?.id;
-
-        if (restaurantId) {
-          const response = await diningAPI.getRestaurantBookings(restaurant);
-          if (isMounted && response.data.success) {
-            setBookings(response.data.data);
-          }
+      if (restaurantId) {
+        const response = await diningAPI.getRestaurantBookings(restaurant);
+        if (response.data.success) {
+          setBookings(response.data.data);
         }
-      } catch (error) {
-        debugError("Error fetching table bookings:", error);
-      } finally {
-        if (isMounted) setLoading(false);
       }
-    };
+    } catch (error) {
+      debugError("Error fetching table bookings:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
+  useEffect(() => {
     fetchBookings();
     const interval = setInterval(fetchBookings, 10000);
-    return () => {
-      isMounted = false;
-      clearInterval(interval);
-    };
+    return () => clearInterval(interval);
   }, []);
+
+  const handleUpdateStatus = async (bookingId, nextStatus) => {
+    try {
+      await diningAPI.updateBookingStatusRestaurant(bookingId, nextStatus);
+      toast.success(`Booking ${nextStatus}`);
+      fetchBookings();
+    } catch (error) {
+      toast.error("Failed to update booking status");
+    }
+  };
 
   if (loading)
     return (
@@ -600,64 +609,108 @@ function TableBookings() {
           <p className="text-gray-400 text-sm">No table bookings yet</p>
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-4">
           {bookings.map((booking) => (
             <div
               key={booking._id}
-              className="bg-white rounded-2xl p-4 border border-gray-200 shadow-sm transition-all hover:border-gray-300">
-              <div className="flex justify-between items-start mb-3">
-                <div className="flex-1">
-                  <h3 className="text-sm font-bold text-gray-900">
-                    {booking.user?.name}
-                  </h3>
-                  <p className="text-[11px] text-gray-500">
-                    {booking.user?.phone || "No phone"}
-                  </p>
+              className="bg-white rounded-[2rem] p-5 border border-gray-100 shadow-sm transition-all hover:shadow-md">
+              {/* Header: Avatar, Name, ID and Status */}
+              <div className="flex justify-between items-start mb-5">
+                <div className="flex gap-3 items-center">
+                  <div className="h-12 w-12 rounded-full bg-[#111827] flex items-center justify-center text-white text-lg font-bold">
+                    {booking.user?.name?.charAt(0).toUpperCase() || "U"}
+                  </div>
+                  <div>
+                    <h3 className="text-[15px] font-bold text-gray-900 leading-tight">
+                      {booking.user?.name}
+                    </h3>
+                    <p className="text-[11px] font-bold text-[#94A3B8] flex items-center gap-0.5 mt-0.5">
+                      <Hash className="w-3 h-3" />
+                      {booking.bookingId || booking._id?.slice(-8).toUpperCase()}
+                    </p>
+                  </div>
                 </div>
                 <span
-                  className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase ${
+                  className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${
                     booking.status === "confirmed"
                       ? "bg-green-100 text-green-700"
-                      : booking.status === "checked-in"
-                        ? "bg-orange-100 text-orange-700"
-                        : booking.status === "completed"
-                          ? "bg-blue-100 text-blue-700"
-                          : "bg-gray-100 text-gray-600"
+                      : booking.status === "pending"
+                        ? "bg-[#FFF9E7] text-[#D97706]"
+                        : booking.status === "checked-in"
+                          ? "bg-orange-100 text-orange-700"
+                          : booking.status === "completed"
+                            ? "bg-blue-100 text-blue-700"
+                            : "bg-gray-100 text-gray-600"
                   }`}>
-                  {booking.status}
+                  {booking.status === "pending" ? "Pending" : booking.status}
                 </span>
               </div>
 
-              <div className="flex items-center gap-4 text-[11px] text-gray-600 bg-gray-50 p-2.5 rounded-xl border border-gray-100">
-                <div className="flex items-center gap-1">
-                  <Calendar className="w-3.5 h-3.5 text-gray-400" />
-                  <span>
+              {/* Info Grid */}
+              <div className="grid grid-cols-2 gap-x-4 gap-y-3 bg-[#F8FAFC] p-4 rounded-2xl border border-gray-50 mb-5">
+                <div className="flex items-center gap-2.5">
+                  <div className="h-7 w-7 rounded-lg bg-white flex items-center justify-center shadow-sm">
+                    <Calendar className="w-3.5 h-3.5 text-[#3B82F6]" />
+                  </div>
+                  <span className="text-[12px] font-semibold text-gray-700">
                     {new Date(booking.date).toLocaleDateString("en-GB", {
                       day: "2-digit",
                       month: "short",
                     })}
                   </span>
                 </div>
-                <div className="flex items-center gap-1">
-                  <Clock className="w-3.5 h-3.5 text-gray-400" />
-                  <span>{booking.timeSlot}</span>
+                <div className="flex items-center gap-2.5">
+                  <div className="h-7 w-7 rounded-lg bg-white flex items-center justify-center shadow-sm">
+                    <Clock className="w-3.5 h-3.5 text-[#3B82F6]" />
+                  </div>
+                  <span className="text-[12px] font-semibold text-gray-700">
+                    {booking.timeSlot}
+                  </span>
                 </div>
-                <div className="flex items-center gap-1">
-                  <Users className="w-3.5 h-3.5 text-gray-400" />
-                  <span>{booking.guests} Guests</span>
+                <div className="flex items-center gap-2.5">
+                  <div className="h-7 w-7 rounded-lg bg-white flex items-center justify-center shadow-sm">
+                    <Users className="w-3.5 h-3.5 text-[#3B82F6]" />
+                  </div>
+                  <span className="text-[12px] font-semibold text-gray-700">
+                    {booking.guests} Guests
+                  </span>
+                </div>
+                <div className="flex items-center gap-2.5">
+                  <div className="h-7 w-7 rounded-lg bg-white flex items-center justify-center shadow-sm">
+                    <Phone className="w-3.5 h-3.5 text-[#3B82F6]" />
+                  </div>
+                  <span className="text-[12px] font-semibold text-gray-700">
+                    {booking.user?.phone || "No phone"}
+                  </span>
                 </div>
               </div>
 
               {booking.specialRequest && (
-                <div className="mt-3 p-2 bg-blue-50/50 rounded-lg border border-blue-100/50">
-                  <p className="text-[10px] text-blue-700 italic flex items-start gap-1">
-                    <MessageSquare className="w-3 h-3 mt-0.5 shrink-0" />
-                    <span className="line-clamp-2">
-                      {booking.specialRequest}
-                    </span>
+                <div className="mb-5 p-3 bg-blue-50/50 rounded-xl border border-blue-100/30">
+                  <p className="text-[11px] text-blue-700 italic flex items-start gap-1.5">
+                    <MessageSquare className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                    <span>{booking.specialRequest}</span>
                   </p>
                 </div>
               )}
+
+              {/* Action Buttons */}
+              <div className="flex gap-3">
+                {String(booking.status || "").toLowerCase() === "pending" && (
+                  <button
+                    onClick={() => handleUpdateStatus(booking._id, "confirmed")}
+                    className="flex-1 bg-[#059669] text-white py-3 rounded-2xl text-[13px] font-bold hover:bg-[#047857] transition-all active:scale-[0.98] shadow-sm shadow-emerald-100 uppercase tracking-wide">
+                    Accept
+                  </button>
+                )}
+                {String(booking.status || "").toLowerCase() === "pending" && (
+                  <button
+                    onClick={() => handleUpdateStatus(booking._id, "cancelled")}
+                    className="flex-1 bg-[#F1F5F9] text-[#64748B] py-3 rounded-2xl text-[13px] font-bold hover:bg-gray-200 transition-all active:scale-[0.98] uppercase tracking-wide">
+                    Decline
+                  </button>
+                )}
+              </div>
             </div>
           ))}
         </div>
@@ -881,6 +934,28 @@ export default function OrdersMain() {
   const isMutedRef = useRef(isMuted);
   const newOrderRef = useRef(null);
 
+  // Timer persistence helpers
+  const getInitialCountdown = (orderId) => {
+    if (!orderId) return 240;
+    const storageKey = `order_timer_${orderId}`;
+    const startTime = localStorage.getItem(storageKey);
+    
+    if (startTime) {
+      const elapsed = Math.floor((Date.now() - parseInt(startTime)) / 1000);
+      const remaining = 240 - elapsed;
+      return remaining > 0 ? remaining : 0;
+    } else {
+      localStorage.setItem(storageKey, Date.now().toString());
+      return 240;
+    }
+  };
+
+  const clearOrderTimer = (orderId) => {
+    if (orderId) {
+      localStorage.removeItem(`order_timer_${orderId}`);
+    }
+  };
+
   const markOrderAsShown = (orderLike) => {
     const keys = [
       orderLike?.orderMongoId,
@@ -1102,7 +1177,7 @@ export default function OrdersMain() {
         ? new Date(newOrder.scheduledAt).getTime()
         : null;
       const isFutureScheduled =
-        scheduledAt && scheduledAt > Date.now() + 30 * 60000;
+        scheduledAt && scheduledAt > Date.now() + 15 * 60000;
 
       if (isFutureScheduled) {
         toast.info(
@@ -1116,7 +1191,8 @@ export default function OrdersMain() {
         markOrderAsShown(newOrder);
         setPopupOrder(newOrder);
         setShowNewOrderPopup(true);
-        setCountdown(240); // Reset countdown to 4 minutes
+        const orderId = newOrder.orderMongoId || newOrder.orderId || newOrder._id;
+        setCountdown(getInitialCountdown(orderId));
         requestOrdersRefresh();
       }
     }
@@ -1200,8 +1276,8 @@ export default function OrdersMain() {
               (order.status === "created" || order.status === "confirmed")
             ) {
               const scheduledTime = new Date(order.scheduledAt).getTime();
-              // Show popup if scheduled time is <= 30 mins from now
-              if (scheduledTime <= now + 30 * 60000) return true;
+              // Show popup if scheduled time is <= 15 mins from now
+              if (scheduledTime <= now + 15 * 60000) return true;
             }
 
             return false;
@@ -1242,7 +1318,7 @@ export default function OrdersMain() {
             markOrderAsShown({ orderId, _id: orderToPopup._id });
             setPopupOrder(orderForPopup);
             setShowNewOrderPopup(true);
-            setCountdown(240);
+            setCountdown(getInitialCountdown(orderId));
           }
         }
       } catch (error) {
@@ -1279,11 +1355,16 @@ export default function OrdersMain() {
 
   // Countdown timer
   useEffect(() => {
-    if (showNewOrderPopup && countdown > 0) {
-      const timer = setInterval(() => {
-        setCountdown((prev) => prev - 1);
-      }, 1000);
-      return () => clearInterval(timer);
+    if (showNewOrderPopup) {
+      if (countdown > 0) {
+        const timer = setInterval(() => {
+          setCountdown((prev) => prev - 1);
+        }, 1000);
+        return () => clearInterval(timer);
+      } else {
+        // Automatically reject when countdown hits 0
+        handleAutoReject();
+      }
     }
   }, [showNewOrderPopup, countdown]);
 
@@ -1384,6 +1465,40 @@ export default function OrdersMain() {
     setAcceptSwipeProgress(0);
   };
 
+  // Handle auto reject on timeout
+  const handleAutoReject = async () => {
+    const orderToReject = popupOrder || newOrder;
+    if (!orderToReject) return;
+
+    const orderId = orderToReject.orderMongoId || orderToReject.orderId || orderToReject?._id;
+    if (!orderId) return;
+
+    try {
+      // Use a special reason for auto-rejection
+      await restaurantAPI.rejectOrder(orderId, "Order timeout - No response from restaurant");
+      toast.info("Order auto-rejected due to timeout");
+      clearOrderTimer(orderId);
+      requestOrdersRefresh();
+    } catch (error) {
+      debugError("Error auto-rejecting order:", error);
+    } finally {
+      // Clean up UI state regardless of API success
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.currentTime = 0;
+      }
+      setShowRejectPopup(false);
+      setShowNewOrderPopup(false);
+      setPopupOrder(null);
+      clearNewOrder();
+      setRejectReason("");
+      setCountdown(240);
+      setPrepTime(11);
+      setAcceptSwipeProgress(0);
+      setIsAcceptingOrder(false);
+    }
+  };
+
   // Handle accept order
   const handleAcceptOrder = async () => {
     if (isAcceptingOrder) return;
@@ -1431,6 +1546,9 @@ export default function OrdersMain() {
       }
     }
 
+    const orderId = orderToAccept?.orderMongoId || orderToAccept?.orderId || orderToAccept?._id;
+    clearOrderTimer(orderId);
+    
     setShowNewOrderPopup(false);
     setPopupOrder(null);
     clearNewOrder();
@@ -1467,6 +1585,9 @@ export default function OrdersMain() {
         return;
       }
     }
+
+    const orderId = orderToReject?.orderMongoId || orderToReject?.orderId || orderToReject?._id;
+    clearOrderTimer(orderId);
 
     if (audioRef.current) {
       audioRef.current.pause();
@@ -1844,7 +1965,12 @@ export default function OrdersMain() {
           />
         );
       case "scheduled":
-        return <EmptyState message="Scheduled orders will appear here" />;
+        return (
+          <ScheduledOrders
+            onSelectOrder={handleSelectOrder}
+            refreshToken={ordersRefreshToken}
+          />
+        );
       case "completed":
         return (
           <CompletedOrders
@@ -3486,6 +3612,111 @@ const OutForDeliveryOrders = ({ onSelectOrder, refreshToken = 0 }) => {
     </div>
   );
 };
+
+// Scheduled Orders List
+function ScheduledOrders({ onSelectOrder, refreshToken = 0 }) {
+  const [orders, setOrders] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const fetchOrders = async () => {
+      try {
+        const response = await restaurantAPI.getOrders();
+        if (!isMounted) return;
+
+        if (response.data?.success && response.data.data?.orders) {
+          const scheduledOrders = response.data.data.orders.filter(
+            (order) => order.status === "scheduled",
+          );
+
+          const transformedOrders = scheduledOrders.map((order) => ({
+            orderId: order.orderId || order._id,
+            mongoId: order._id,
+            status: order.status || "scheduled",
+            customerName: order.userId?.name || "Customer",
+            type: order.deliveryFleet === "standard" ? "Home Delivery" : "Express Delivery",
+            tableOrToken: null,
+            timePlaced: new Date(order.createdAt).toLocaleTimeString("en-US", {
+              hour: "2-digit",
+              minute: "2-digit",
+            }),
+            scheduledAt: order.scheduledAt,
+            itemsSummary: buildOrderItemsSummary(order.items),
+            photoUrl: getOrderPreviewItem(order.items)?.image || null,
+            photoAlt: getOrderPreviewItem(order.items)?.name || "Order",
+            paymentMethod: order.paymentMethod || order.payment?.method || null,
+          }));
+
+          setOrders(transformedOrders);
+        } else {
+          setOrders([]);
+        }
+      } catch (error) {
+        if (error.code !== "ERR_NETWORK" && error.response?.status !== 404) {
+          debugError("Error fetching scheduled orders:", error);
+        }
+        setOrders([]);
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    };
+
+    fetchOrders();
+    const interval = setInterval(fetchOrders, 30000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [refreshToken]);
+
+  if (loading) {
+    return (
+      <div className="pt-4 pb-6">
+        <div className="flex items-baseline justify-between mb-3">
+          <h2 className="text-base font-semibold text-black">Scheduled orders</h2>
+          <Loader2 className="w-4 h-4 animate-spin text-gray-500" />
+        </div>
+        <div className="text-center py-8 text-gray-500 text-sm">Loading...</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="pt-4 pb-6">
+      <div className="flex items-baseline justify-between mb-3">
+        <h2 className="text-base font-semibold text-black">Scheduled orders</h2>
+        <span className="text-xs text-gray-500">{orders.length} total</span>
+      </div>
+      {orders.length === 0 ? (
+        <div className="text-center py-12 bg-white rounded-2xl border border-gray-200 flex flex-col items-center">
+           <Calendar className="w-12 h-12 text-gray-300 mb-3" />
+           <p className="text-gray-500 text-sm">Scheduled orders will appear here</p>
+        </div>
+      ) : (
+        <div>
+          {orders.map((order) => {
+             const scheduledTime = new Date(order.scheduledAt).toLocaleString("en-US", {
+               day: "numeric",
+               month: "short",
+               hour: "2-digit",
+               minute: "2-digit",
+             });
+             return (
+               <OrderCard
+                 key={order.orderId || order.mongoId}
+                 {...order}
+                 timePlaced={`For: ${scheduledTime}`}
+                 onSelect={onSelectOrder}
+               />
+             );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
 
 // Empty State Component
 function EmptyState({ message = "Temporarily closed" }) {

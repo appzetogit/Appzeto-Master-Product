@@ -235,6 +235,14 @@ export const useFoodHomeData = ({
             location: restaurant.location,
             offer: restaurant.offer,
             slug: restaurant.slug,
+            // Timing fields for availability status
+            openingTime: restaurant.openingTime,
+            closingTime: restaurant.closingTime,
+            outletTimings: restaurant.outletTimings,
+            deliveryTimings: restaurant.deliveryTimings,
+            openDays: restaurant.openDays,
+            isActive: restaurant.isActive,
+            isAcceptingOrders: restaurant.isAcceptingOrders,
           };
         });
 
@@ -312,16 +320,18 @@ export const useFoodHomeData = ({
   const filteredRestaurants = useMemo(() => {
     let filtered = [...deferredRestaurants].filter(r => !vegMode || r.pureVegRestaurant);
     
+    // Strictly filter by availability (only show open restaurants)
+    filtered = filtered.filter(r => {
+      const status = getRestaurantAvailabilityStatus(r, new Date(availabilityTick), { ignoreOperationalStatus: false });
+      return status.isOpen;
+    });
+
     // Apply sorting
-    if (sortBy === "rating-high") filtered.sort((a, b) => b.rating - a.rating);
-    else {
-      // Default: Availability then Rating/Distance (Simplified for hook)
-      filtered.sort((a, b) => {
-        const aOpen = getRestaurantAvailabilityStatus(a, new Date(availabilityTick), { ignoreOperationalStatus: true }).isOpen;
-        const bOpen = getRestaurantAvailabilityStatus(b, new Date(availabilityTick), { ignoreOperationalStatus: true }).isOpen;
-        if (aOpen !== bOpen) return aOpen ? -1 : 1;
-        return b.rating - a.rating;
-      });
+    if (sortBy === "rating-high") {
+      filtered.sort((a, b) => b.rating - a.rating);
+    } else {
+      // Default: Rating/Distance
+      filtered.sort((a, b) => b.rating - a.rating);
     }
     return filtered;
   }, [deferredRestaurants, vegMode, sortBy, availabilityTick]);

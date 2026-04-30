@@ -310,6 +310,10 @@ export const adminAPI = {
       params,
       contextModule: "admin",
     }),
+  updateDeliveryBoyWallet: (body) =>
+    apiClient.patch("/food/admin/delivery/wallets", body, {
+      contextModule: "admin",
+    }),
   getDeliveryPartnerById: (id) =>
     apiClient.get(`/food/admin/delivery/${id}`, { contextModule: "admin" }),
   approveDeliveryPartner: (id) =>
@@ -2657,7 +2661,7 @@ export const diningAPI = {
       date: new Date(payload?.date || nowIso).toISOString(),
       timeSlot: String(payload?.timeSlot || "").trim(),
       specialRequest: String(payload?.specialRequest || "").trim(),
-      status: "confirmed",
+      status: "pending",
       createdAt: nowIso,
       updatedAt: nowIso,
     };

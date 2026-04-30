@@ -54,15 +54,26 @@ export default function SignupStep1() {
     /^[A-Za-z][A-Za-z\s]*[A-Za-z]$/.test(value.trim())
 
   const isValidEmailValue = (value) => {
-    const normalizedValue = value.trim()
-    if (!/^[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$/.test(normalizedValue)) {
+    const normalizedValue = value.trim().toLowerCase()
+    // General email regex
+    if (!/^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(normalizedValue)) {
       return false
     }
 
     const [, domain = ""] = normalizedValue.split("@")
-    const normalizedDomain = domain.toLowerCase()
+    
+    // Catch common typos for Gmail
+    const gmailTypos = [
+      "gnail.com", "gmal.com", "gmaill.com", "gamil.com", "gmial.com", 
+      "gmail.co", "gmail.con", "gmail.cm", "g-mail.com"
+    ]
+    
+    if (gmailTypos.includes(domain)) {
+      return false
+    }
 
-    if (normalizedDomain.startsWith("gmail.") && normalizedDomain !== "gmail.com") {
+    // If it starts with gmail. but isn't gmail.com (e.g. gmail.in is usually not a thing)
+    if (domain.startsWith("gmail.") && domain !== "gmail.com") {
       return false
     }
 
@@ -98,9 +109,10 @@ export default function SignupStep1() {
       updatedValue = updatedValue.replace(/[^A-Z0-9]/g, "").slice(0, 16)
     }
 
-    // Restrict Aadhaar to numeric only
+    // Restrict Aadhaar to numeric only and format as XXXX XXXX XXXX
     if (name === "aadharNumber") {
-      updatedValue = value.replace(/\D/g, "").slice(0, 12)
+      const digits = value.replace(/\D/g, "").slice(0, 12)
+      updatedValue = digits.replace(/(\d{4})(?=\d)/g, "$1 ")
     }
 
     if (name === "city" || name === "state") {
@@ -167,13 +179,14 @@ export default function SignupStep1() {
 
     if (!formData.panNumber.trim()) {
       newErrors.panNumber = "PAN number is required"
-    } else if (!/^[A-Z]{5}[0-9]{4}[A-Z]{1}$/.test(formData.panNumber)) {
+    } else if (!/^[A-Z]{5}[0-9]{4}[A-Z]{1}$/.test(formData.panNumber.replace(/\s/g, ""))) {
       newErrors.panNumber = "Invalid PAN format (e.g., ABCDE1234F)"
     }
 
-    if (!formData.aadharNumber.trim()) {
+    const aadharClean = formData.aadharNumber.replace(/\s/g, "")
+    if (!aadharClean) {
       newErrors.aadharNumber = "Aadhar number is required"
-    } else if (!/^\d{12}$/.test(formData.aadharNumber.replace(/\s/g, ""))) {
+    } else if (!/^\d{12}$/.test(aadharClean)) {
       newErrors.aadharNumber = "Aadhar number must be 12 digits"
     }
 
@@ -427,11 +440,11 @@ export default function SignupStep1() {
               name="aadharNumber"
               value={formData.aadharNumber}
               onChange={handleChange}
-              maxLength={12}
+              maxLength={14}
               inputMode="numeric"
               className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 ${errors.aadharNumber ? "border-red-500" : "border-gray-300"
                 }`}
-              placeholder="123456789012"
+              placeholder="1234 5678 9012"
             />
             {errors.aadharNumber && <p className="text-red-500 text-sm mt-1">{errors.aadharNumber}</p>}
           </div>

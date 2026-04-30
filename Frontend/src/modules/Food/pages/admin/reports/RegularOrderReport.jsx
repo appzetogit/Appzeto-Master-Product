@@ -39,6 +39,8 @@ const PAGE_SIZE = 25
 export default function RegularOrderReport() {
   const [orders, setOrders] = useState([])
   const [loading, setLoading] = useState(true)
+  const [isInitialLoading, setIsInitialLoading] = useState(true)
+  const [isFiltering, setIsFiltering] = useState(false)
   const [error, setError] = useState(null)
   const [zones, setZones] = useState([])
   const [restaurants, setRestaurants] = useState([])
@@ -117,17 +119,21 @@ export default function RegularOrderReport() {
   // Fetch orders from backend
   useEffect(() => {
     const fetchOrders = async () => {
-      setLoading(true)
+      if (isInitialLoading) {
+        setLoading(true)
+      } else {
+        setIsFiltering(true)
+      }
       setError(null)
       try {
         const { fromDate, toDate } = getDateRange()
         const params = {
           page: 1,
-          limit: 10000, // Fetch all orders for report (can be optimized later)
+          limit: 10000,
           search: searchQuery || undefined,
-          zone: filters.zone !== "All Zones" ? filters.zone : undefined,
-          restaurant: filters.restaurant !== "All restaurants" ? filters.restaurant : undefined,
-          customer: filters.customer !== "All customers" ? filters.customer : undefined,
+          zoneId: filters.zone !== "All Zones" ? filters.zone : undefined,
+          restaurantId: filters.restaurant !== "All restaurants" ? filters.restaurant : undefined,
+          userId: filters.customer !== "All customers" ? filters.customer : undefined,
           startDate: fromDate ? fromDate.toISOString().split('T')[0] : undefined,
           endDate: toDate ? toDate.toISOString().split('T')[0] : undefined,
         }
@@ -214,6 +220,8 @@ export default function RegularOrderReport() {
         toast.error(err.response?.data?.message || "Failed to fetch orders")
       } finally {
         setLoading(false)
+        setIsInitialLoading(false)
+        setIsFiltering(false)
       }
     }
 
@@ -221,14 +229,9 @@ export default function RegularOrderReport() {
   }, [filters, searchQuery])
 
   const filteredOrders = useMemo(() => {
-    if (!searchQuery.trim()) return orders
-    const q = searchQuery.toLowerCase().trim()
-    return orders.filter((o) =>
-      String(o.orderId || "")
-        .toLowerCase()
-        .includes(q),
-    )
-  }, [orders, searchQuery])
+    // Backend already handles search and filters
+    return orders
+  }, [orders])
 
   const handleExport = (format) => {
     if (filteredOrders.length === 0) {
@@ -337,7 +340,7 @@ export default function RegularOrderReport() {
     )
   }
 
-  if (loading) {
+  if (isInitialLoading && loading) {
     return (
       <div className="p-2 lg:p-3 bg-slate-50 min-h-screen flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
@@ -388,7 +391,7 @@ export default function RegularOrderReport() {
               >
                 <option value="All Zones">All Zones</option>
                 {zones.map((zone) => (
-                  <option key={zone._id} value={zone.name}>
+                  <option key={zone._id} value={zone._id}>
                     {zone.name}
                   </option>
                 ))}
@@ -404,8 +407,8 @@ export default function RegularOrderReport() {
               >
                 <option value="All restaurants">All restaurants</option>
                 {restaurants.map((restaurant) => (
-                  <option key={restaurant._id} value={restaurant.name}>
-                    {restaurant.name}
+                  <option key={restaurant._id} value={restaurant._id}>
+                    {restaurant.restaurantName || restaurant.name}
                   </option>
                 ))}
               </select>
@@ -420,7 +423,7 @@ export default function RegularOrderReport() {
               >
                 <option value="All customers">All customers</option>
                 {customers.map((customer) => (
-                  <option key={customer._id} value={customer.name}>
+                  <option key={customer._id} value={customer._id}>
                     {customer.name}
                   </option>
                 ))}
@@ -577,7 +580,7 @@ export default function RegularOrderReport() {
                   </th>
                 </tr>
               </thead>
-              <tbody className="bg-white divide-y divide-slate-100">
+              <tbody className={`bg-white divide-y divide-slate-100 transition-opacity duration-200 ${isFiltering ? "opacity-50 pointer-events-none" : "opacity-100"}`}>
                 {paginatedOrders.length === 0 ? (
                   <tr>
                     <td colSpan={11} className="px-6 py-20 text-center">

@@ -51,7 +51,10 @@ const IFSC_CODE_REGEX = /^[A-Z0-9]{11}$/
 const ACCOUNT_HOLDER_NAME_REGEX = /^[A-Za-z ]+$/
 const GST_LEGAL_NAME_REGEX = /^[A-Za-z ]+$/
 const FEATURED_DISH_NAME_REGEX = /^[A-Za-z ]+$/
-const OWNER_EMAIL_REGEX = /^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/
+const NAME_REGEX = /^[A-Za-z ]+$/
+const OWNER_EMAIL_REGEX = /^[a-zA-Z0-9._%+\-]+@gmail\.com$/
+const PHONE_NUMBER_REGEX = /^\d{10,12}$/
+const PINCODE_REGEX = /^\d{6}$/
 const LOCAL_IMAGE_FILE_ACCEPT = ".jpg,.jpeg,.png,.webp,.heic,.heif"
 const GALLERY_IMAGE_ACCEPT =
   ".jpg,.jpeg,.png,.webp,.heic,.heif,image/jpeg,image/png,image/webp,image/heic,image/heif"
@@ -867,26 +870,40 @@ export default function RestaurantOnboarding() {
     }
     if (!step1.ownerName?.trim()) {
       errors.push("Owner name is required")
+    } else if (!NAME_REGEX.test(step1.ownerName.trim())) {
+      errors.push("Owner name must contain only letters")
     }
     if (!step1.ownerEmail?.trim()) {
       errors.push("Owner email is required")
     } else if (!OWNER_EMAIL_REGEX.test(step1.ownerEmail.trim())) {
-      errors.push("Email should be in format (ex - aaa@gmail.com)")
+      errors.push("Email must be a valid @gmail.com address")
     }
     if (!step1.ownerPhone?.trim()) {
       errors.push("Owner phone number is required")
+    } else if (!PHONE_NUMBER_REGEX.test(step1.ownerPhone.trim())) {
+      errors.push("Owner phone number must be a valid 10-digit number")
     }
     if (!step1.primaryContactNumber?.trim()) {
       errors.push("Primary contact number is required")
+    } else if (!PHONE_NUMBER_REGEX.test(step1.primaryContactNumber.trim())) {
+      errors.push("Primary contact number must be a valid 10-digit number")
     }
     if (!step1.zoneId?.trim()) {
       errors.push("Service zone is required")
+    }
+    if (!step1.location?.addressLine1?.trim()) {
+      errors.push("Building/Floor/Street address is required")
     }
     if (!step1.location?.area?.trim()) {
       errors.push("Area/Sector/Locality is required")
     }
     if (!step1.location?.city?.trim()) {
       errors.push("City is required")
+    }
+    if (!step1.location?.pincode?.trim()) {
+      errors.push("Pincode is required")
+    } else if (!PINCODE_REGEX.test(step1.location.pincode.trim())) {
+      errors.push("Pincode must contain exactly 6 digits")
     }
 
     return errors
@@ -1319,7 +1336,10 @@ export default function RestaurantOnboarding() {
             <Label className="text-xs text-gray-700">Phone number*</Label>
             <Input
               value={step1.ownerPhone || ""}
-              onChange={(e) => setStep1({ ...step1, ownerPhone: e.target.value })}
+              onChange={(e) => {
+                const val = e.target.value.replace(/\D/g, "").slice(0, 12)
+                setStep1({ ...step1, ownerPhone: val })
+              }}
               readOnly={Boolean(verifiedPhoneNumber)}
               className="mt-1 bg-white text-sm text-black placeholder-black"
               placeholder="+91 98XXXXXX"
@@ -1336,17 +1356,17 @@ export default function RestaurantOnboarding() {
           <Input
             value={step1.primaryContactNumber || ""}
             onChange={(e) => {
-              const val = e.target.value.replace(/\D/g, "").slice(0, 10)
+              const val = e.target.value.replace(/\D/g, "").slice(0, 12)
               setStep1({ ...step1, primaryContactNumber: val })
             }}
             onKeyDown={(e) => {
               const allowed = ["Backspace", "Delete", "ArrowLeft", "ArrowRight", "Tab", "Enter"]
               if (!allowed.includes(e.key) && !/^\d$/.test(e.key)) e.preventDefault()
-              if (/^\d$/.test(e.key) && (step1.primaryContactNumber || "").length >= 10) e.preventDefault()
+              if (/^\d$/.test(e.key) && (step1.primaryContactNumber || "").length >= 12) e.preventDefault()
             }}
             onPaste={(e) => {
               e.preventDefault()
-              const pasted = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, 10)
+              const pasted = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, 12)
               setStep1({ ...step1, primaryContactNumber: pasted })
             }}
             inputMode="numeric"

@@ -278,7 +278,19 @@ export const HistoryV2 = () => {
           {showBonusModal && (
              <div className="fixed inset-0 z-[1000] flex items-end">
                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowBonusModal(false)} className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
-                <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: "spring", damping: 25, stiffness: 200 }} className="relative w-full bg-white rounded-t-[2.5rem] p-8 max-h-[85vh] flex flex-col shadow-2xl">
+                <motion.div 
+                   drag="y"
+                   dragConstraints={{ top: 0, bottom: 0 }}
+                   dragElastic={0.1}
+                   onDragEnd={(e, info) => {
+                      if (info.offset.y > 100) setShowBonusModal(false);
+                   }}
+                   initial={{ y: '100%' }} 
+                   animate={{ y: 0 }} 
+                   exit={{ y: '100%' }} 
+                   transition={{ type: "spring", damping: 25, stiffness: 200 }} 
+                   className="relative w-full bg-white rounded-t-[2.5rem] p-8 max-h-[85vh] flex flex-col shadow-2xl"
+                >
                    <div className="w-12 h-1 bg-gray-100 rounded-full mx-auto mb-8 shrink-0" />
                    <div className="flex items-center justify-between mb-8 shrink-0">
                       <div className="flex items-center gap-4">
@@ -290,7 +302,6 @@ export const HistoryV2 = () => {
                             <p className="text-xs text-gray-400 font-medium">Extra bonuses credited by team</p>
                          </div>
                       </div>
-                      <button onClick={() => setShowBonusModal(false)} className="p-2 text-gray-400"><X className="w-5 h-5" /></button>
                    </div>
                    
                    <div className="flex-1 overflow-y-auto pr-1 space-y-4">

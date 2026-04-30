@@ -79,6 +79,9 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
   // Track URL changes (Prop changes) to update sub-page content
   useEffect(() => {
     setCurrentTab(tab);
+    if (scrollContainerRef.current) {
+       scrollContainerRef.current.scrollTo(0, 0);
+    }
 }, [tab]);
 
   const [showVerification, setShowVerification] = useState(false);
@@ -93,6 +96,7 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
     
     const [isModalMinimized, setIsModalMinimized] = useState(false);
     const [eta, setEta] = useState(null);
+    const scrollContainerRef = useRef(null);
     const lastLocationSentAt = useRef(0);
     const lastCoordRef = useRef(null);
     const rollingSpeedRef = useRef([]);
@@ -612,7 +616,7 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
   return (
     <div className="relative h-screen w-full bg-white text-gray-900 overflow-hidden flex flex-col">
       {/* ─── 1. TOP HEADER (Premium Dark Gray) ─── */}
-      {currentTab !== 'history' && (
+      {currentTab === 'feed' && (
       <div className="absolute top-0 inset-x-0 bg-[#121212]/95 backdrop-blur-2xl shadow-2xl z-[200] safe-top pb-2 border-b border-white/10">
         <div className="flex items-center justify-between px-4 py-2">
           <div className="flex items-center gap-4">
@@ -714,7 +718,10 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
       )}
 
       {/* ─── 2. MAIN CONTENT ─── */}
-      <div className={`flex-1 relative overflow-y-auto ${currentTab === 'history' ? 'pt-0' : 'pt-[120px]'} no-scrollbar`}>
+      <div 
+        ref={scrollContainerRef}
+        className={`flex-1 relative overflow-y-auto ${currentTab === 'feed' ? 'pt-[120px]' : 'pt-0'} no-scrollbar`}
+      >
          {currentTab === 'feed' ? (
            <div className="absolute inset-0 top-[-120px]">
                <LiveMap 
@@ -889,8 +896,8 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
                 {showVerification && tripStatus !== 'COMPLETED' && (
                   <DeliveryVerificationModal 
                     order={activeOrder} 
-                    onComplete={async (otp) => {
-                      const res = await completeDelivery(otp);
+                    onComplete={async (...args) => {
+                      const res = await completeDelivery(...args);
                       setShowVerification(false);
                       return res;
                     }}

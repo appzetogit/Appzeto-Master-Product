@@ -322,26 +322,18 @@ export default function DiningRestaurantDetails() {
         </div>
 
           <div className="px-3 pb-1 pt-3">
-            <div className="grid grid-cols-[1.62fr_0.72fr_0.72fr] gap-2.5">
-              <button
-                onClick={() => isDiningEnabled && setIsBookingSheetOpen(true)}
-                disabled={!isDiningEnabled}
-                className={`flex h-[52px] items-center justify-center gap-2 rounded-full border px-3 text-[15px] font-medium shadow-[0_10px_24px_rgba(15,23,42,0.05)] transition-opacity ${
-                  isDiningEnabled
-                    ? "border-[#f1ebee] bg-white text-[#2b2118]"
-                    : "cursor-not-allowed border-[#f2d7da] bg-[#fff5f6] text-[#c06a79] opacity-80"
-                }`}
-              >
+            <button
+              onClick={handleContinueBooking}
+              disabled={!isDiningEnabled}
+              className={`flex h-[52px] w-full items-center justify-center gap-2 rounded-full border px-3 text-[15px] font-medium shadow-[0_10px_24px_rgba(15,23,42,0.05)] transition-all active:scale-[0.98] ${
+                isDiningEnabled
+                  ? "border-[#f1ebee] bg-white text-[#2b2118]"
+                  : "cursor-not-allowed border-[#f2d7da] bg-[#fff5f6] text-[#c06a79] opacity-80"
+              }`}
+            >
               <Ticket className="h-[15px] w-[15px] text-[#ef4c62]" />
               <span>{isDiningEnabled ? "Book a table" : "Dining paused"}</span>
-              </button>
-              <button className="flex h-[52px] items-center justify-center rounded-full border border-[#f1ebee] bg-white text-[#ef4c62] shadow-[0_10px_24px_rgba(15,23,42,0.05)]">
-                <Tag className="h-[15px] w-[15px]" />
-              </button>
-              <button className="flex h-[52px] items-center justify-center rounded-full border border-[#f1ebee] bg-white text-[#ef4c62] shadow-[0_10px_24px_rgba(15,23,42,0.05)]">
-                <Clock3 className="h-[15px] w-[15px]" />
-              </button>
-            </div>
+            </button>
 
             {!isDiningEnabled && (
               <div className="mt-3 rounded-[18px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
