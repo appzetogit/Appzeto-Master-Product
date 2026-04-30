@@ -53,7 +53,7 @@ const GST_LEGAL_NAME_REGEX = /^[A-Za-z ]+$/
 const FEATURED_DISH_NAME_REGEX = /^[A-Za-z ]+$/
 const NAME_REGEX = /^[A-Za-z ]+$/
 const OWNER_EMAIL_REGEX = /^[a-zA-Z0-9._%+\-]+@gmail\.com$/
-const PHONE_NUMBER_REGEX = /^[6-9]\d{9}$/
+const PHONE_NUMBER_REGEX = /^\d{10,12}$/
 const PINCODE_REGEX = /^\d{6}$/
 const LOCAL_IMAGE_FILE_ACCEPT = ".jpg,.jpeg,.png,.webp,.heic,.heif"
 const GALLERY_IMAGE_ACCEPT =
@@ -1336,7 +1336,10 @@ export default function RestaurantOnboarding() {
             <Label className="text-xs text-gray-700">Phone number*</Label>
             <Input
               value={step1.ownerPhone || ""}
-              onChange={(e) => setStep1({ ...step1, ownerPhone: e.target.value })}
+              onChange={(e) => {
+                const val = e.target.value.replace(/\D/g, "").slice(0, 12)
+                setStep1({ ...step1, ownerPhone: val })
+              }}
               readOnly={Boolean(verifiedPhoneNumber)}
               className="mt-1 bg-white text-sm text-black placeholder-black"
               placeholder="+91 98XXXXXX"
@@ -1353,17 +1356,17 @@ export default function RestaurantOnboarding() {
           <Input
             value={step1.primaryContactNumber || ""}
             onChange={(e) => {
-              const val = e.target.value.replace(/\D/g, "").slice(0, 10)
+              const val = e.target.value.replace(/\D/g, "").slice(0, 12)
               setStep1({ ...step1, primaryContactNumber: val })
             }}
             onKeyDown={(e) => {
               const allowed = ["Backspace", "Delete", "ArrowLeft", "ArrowRight", "Tab", "Enter"]
               if (!allowed.includes(e.key) && !/^\d$/.test(e.key)) e.preventDefault()
-              if (/^\d$/.test(e.key) && (step1.primaryContactNumber || "").length >= 10) e.preventDefault()
+              if (/^\d$/.test(e.key) && (step1.primaryContactNumber || "").length >= 12) e.preventDefault()
             }}
             onPaste={(e) => {
               e.preventDefault()
-              const pasted = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, 10)
+              const pasted = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, 12)
               setStep1({ ...step1, primaryContactNumber: pasted })
             }}
             inputMode="numeric"

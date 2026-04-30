@@ -79,6 +79,9 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
   // Track URL changes (Prop changes) to update sub-page content
   useEffect(() => {
     setCurrentTab(tab);
+    if (scrollContainerRef.current) {
+       scrollContainerRef.current.scrollTo(0, 0);
+    }
 }, [tab]);
 
   const [showVerification, setShowVerification] = useState(false);
@@ -93,6 +96,7 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
     
     const [isModalMinimized, setIsModalMinimized] = useState(false);
     const [eta, setEta] = useState(null);
+    const scrollContainerRef = useRef(null);
     const lastLocationSentAt = useRef(0);
     const lastCoordRef = useRef(null);
     const rollingSpeedRef = useRef([]);
@@ -714,7 +718,10 @@ export default function DeliveryHomeV2({ tab = 'feed' }) {
       )}
 
       {/* ─── 2. MAIN CONTENT ─── */}
-      <div className={`flex-1 relative overflow-y-auto ${currentTab === 'feed' ? 'pt-[120px]' : 'pt-0'} no-scrollbar`}>
+      <div 
+        ref={scrollContainerRef}
+        className={`flex-1 relative overflow-y-auto ${currentTab === 'feed' ? 'pt-[120px]' : 'pt-0'} no-scrollbar`}
+      >
          {currentTab === 'feed' ? (
            <div className="absolute inset-0 top-[-120px]">
                <LiveMap 

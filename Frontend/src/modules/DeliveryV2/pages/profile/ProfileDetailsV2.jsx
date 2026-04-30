@@ -911,27 +911,23 @@ export const ProfileDetailsV2 = () => {
 
 
 
-      {/* Fullscreen Document Viewer */}
-      <AnimatePresence>
-        {showDocumentModal && selectedDocument && (
-          <motion.div 
-             initial={{ opacity: 0 }}
-             animate={{ opacity: 1 }}
-             exit={{ opacity: 0 }}
-             className="fixed inset-0 z-[1000] bg-black/95 backdrop-blur-xl flex flex-col items-center p-6"
-          >
-             <div className="w-full flex justify-between items-center mb-10 pt-safe">
-                <h3 className="text-white text-lg font-black uppercase tracking-widest">{selectedDocument.name}</h3>
-                <button onClick={() => setShowDocumentModal(false)} className="bg-white/10 text-white p-3 rounded-2xl hover:bg-white/20 transition-all active:scale-90">
-                   <X className="w-6 h-6" />
-                </button>
-             </div>
-             <div className="flex-1 w-full flex items-center justify-center">
-                <img src={selectedDocument.url} alt="Doc" className="max-w-full max-h-full object-contain rounded-3xl shadow-2xl" />
-             </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* Document Viewer Popup */}
+      <BottomPopup 
+        isOpen={showDocumentModal} 
+        onClose={() => setShowDocumentModal(false)} 
+        title={selectedDocument?.name || "Document"}
+        maxHeight="95vh"
+        showCloseButton={false}
+        closeOnHandleClick={true}
+      >
+         <div className="flex items-center justify-center py-4">
+            <img 
+               src={selectedDocument?.url} 
+               alt="Document" 
+               className="max-w-full max-h-[70vh] object-contain rounded-2xl shadow-lg" 
+            />
+         </div>
+      </BottomPopup>
     </div>
   )
 }
