@@ -44,6 +44,12 @@ export default function RestaurantLogin() {
     }
   }, [])
 
+  useEffect(() => {
+    if (keyboardInset > 0) {
+      ensurePhoneFieldVisible()
+    }
+  }, [keyboardInset])
+
   const validatePhone = (phone, countryCode) => {
     if (!phone || phone.trim() === "") return "Phone number is required"
 
@@ -70,6 +76,7 @@ export default function RestaurantLogin() {
   }
 
   const ensurePhoneFieldVisible = () => {
+    // Wait for keyboard to animate in
     window.setTimeout(() => {
       const content = document.getElementById('login-content')
       if (content) {

@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import { useNavigate } from "react-router-dom"
+import { useNavigate, Link } from "react-router-dom"
 import {
   X,
   User,
@@ -20,6 +20,29 @@ export default function RestaurantProfile({ isOpen, onClose }) {
   const [isLoggingOut, setIsLoggingOut] = useState(false)
   const [restaurantData, setRestaurantData] = useState(null)
   const [loadingRestaurant, setLoadingRestaurant] = useState(true)
+
+  // Handle back button to close the sheet
+  useEffect(() => {
+    if (!isOpen) return
+
+    // Push a new state to the history when the sheet opens
+    window.history.pushState({ profileOpen: true }, "")
+
+    const handlePopState = (e) => {
+      // When back button is pressed, if the sheet was open, close it
+      onClose()
+    }
+
+    window.addEventListener("popstate", handlePopState)
+
+    return () => {
+      window.removeEventListener("popstate", handlePopState)
+      // If we are still on the profile state (e.g. onClose called manually), go back
+      if (window.history.state?.profileOpen) {
+        window.history.back()
+      }
+    }
+  }, [isOpen, onClose])
 
   // Fetch restaurant data on mount
   useEffect(() => {
@@ -108,6 +131,7 @@ export default function RestaurantProfile({ isOpen, onClose }) {
       window.dispatchEvent(new Event("restaurantAuthChanged"))
 
       setTimeout(() => {
+        onClose()
         navigate("/food/restaurant/login", { replace: true })
       }, 300)
     } catch (error) {
@@ -117,7 +141,6 @@ export default function RestaurantProfile({ isOpen, onClose }) {
       navigate("/food/restaurant/login", { replace: true })
     } finally {
       setIsLoggingOut(false)
-      onClose()
     }
   }
 
@@ -156,6 +179,7 @@ export default function RestaurantProfile({ isOpen, onClose }) {
       window.dispatchEvent(new Event("userAuthChanged"))
 
       setTimeout(() => {
+        onClose()
         navigate("/food/restaurant/login", { replace: true })
       }, 300)
     } catch (error) {
@@ -165,7 +189,6 @@ export default function RestaurantProfile({ isOpen, onClose }) {
       navigate("/food/restaurant/login", { replace: true })
     } finally {
       setIsLoggingOut(false)
-      onClose()
     }
   }
 
@@ -193,7 +216,15 @@ export default function RestaurantProfile({ isOpen, onClose }) {
               damping: 30,
               stiffness: 300
             }}
-            className="fixed bottom-0 left-0 right-0 bg-white rounded-t-3xl shadow-2xl z-[101] max-h-[90vh] overflow-y-auto"
+            drag="y"
+            dragConstraints={{ top: 0, bottom: 0 }}
+            dragElastic={0.2}
+            onDragEnd={(e, { offset, velocity }) => {
+              if (offset.y > 100 || velocity.y > 500) {
+                onClose()
+              }
+            }}
+            className="fixed bottom-0 left-0 right-0 bg-white rounded-t-3xl shadow-2xl z-[101] max-h-[90vh] overflow-y-auto overflow-x-hidden"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Drag Handle */}
@@ -204,13 +235,6 @@ export default function RestaurantProfile({ isOpen, onClose }) {
             {/* Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 sticky top-0 bg-white z-10">
               <h2 className="text-xl font-bold text-gray-900">My profile</h2>
-              <button
-                onClick={onClose}
-                className="p-2 hover:bg-gray-100 rounded-full transition-colors"
-                aria-label="Close"
-              >
-                <X className="w-6 h-6 text-gray-500" />
-              </button>
             </div>
 
             {/* User Information Section */}
@@ -232,7 +256,7 @@ export default function RestaurantProfile({ isOpen, onClose }) {
                   <button 
                     onClick={() => {
                       onClose()
-                      navigate("/food/restaurant/onboarding?step=1")
+                      navigate("/food/restaurant/outlet-info")
                     }}
                     className="absolute -bottom-1 -right-1 p-1.5 bg-white rounded-full shadow-md border border-gray-100 hover:bg-gray-50 transition-colors"
                   >
@@ -287,11 +311,9 @@ export default function RestaurantProfile({ isOpen, onClose }) {
             {/* Footer Links */}
             <div className="px-6 py-6 border-t border-gray-100 bg-gray-50/50">
               <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-[13px] text-gray-500 font-medium">
-                <a href="#" className="hover:text-gray-900 transition-colors">Terms of Service</a>
+                <Link to="/food/restaurant/terms" onClick={onClose} className="hover:text-gray-900 transition-colors">Terms & Conditions</Link>
                 <span className="text-gray-300">•</span>
-                <a href="#" className="hover:text-gray-900 transition-colors">Privacy Policy</a>
-                <span className="text-gray-300">•</span>
-                <a href="#" className="hover:text-gray-900 transition-colors">Code of Conduct</a>
+                <Link to="/food/restaurant/privacy" onClick={onClose} className="hover:text-gray-900 transition-colors">Privacy Policy</Link>
               </div>
             </div>
           </motion.div>
