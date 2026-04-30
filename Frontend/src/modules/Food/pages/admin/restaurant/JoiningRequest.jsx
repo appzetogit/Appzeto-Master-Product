@@ -16,11 +16,9 @@ const getZoneLabel = (request) =>
   request?.zoneId?.serviceLocation ||
   "—"
 
-const normalizeRequestRecord = (request, index) => ({
+const normalizeRequestRecord = (request) => ({
   ...request,
-  sl: index + 1,
   zone: getZoneLabel(request),
-  businessModel: request?.businessModel || "",
   fullData: request?.fullData || request,
 })
 
@@ -31,6 +29,39 @@ const formatTime12Hour = (timeStr) => {
   const period = h >= 12 ? "PM" : "AM"
   const hour = h % 12 || 12
   return `${String(hour).padStart(2, "0")}:${String(m).padStart(2, "0")} ${period}`
+}
+
+const formatRestaurantId = (id) => {
+  if (!id) return "REST000000"
+
+  const idString = String(id)
+  const parts = idString.split(/[-.]/)
+  let lastDigits = ""
+
+  if (parts.length > 0) {
+    const lastPart = parts[parts.length - 1]
+    const digits = lastPart.match(/\d+/g)
+    if (digits && digits.length > 0) {
+      const allDigits = digits.join("")
+      lastDigits = allDigits.slice(-6).padStart(6, "0")
+    } else {
+      const allParts = parts.join("")
+      const allDigits = allParts.match(/\d+/g)
+      if (allDigits && allDigits.length > 0) {
+        const combinedDigits = allDigits.join("")
+        lastDigits = combinedDigits.slice(-6).padStart(6, "0")
+      }
+    }
+  }
+
+  if (!lastDigits) {
+    const hash = idString.split("").reduce((acc, char) => {
+      return ((acc << 5) - acc) + char.charCodeAt(0) | 0
+    }, 0)
+    lastDigits = Math.abs(hash).toString().slice(-6).padStart(6, "0")
+  }
+
+  return `REST${lastDigits}`
 }
 
 
@@ -53,7 +84,6 @@ export default function JoiningRequest() {
   const [sortConfig, setSortConfig] = useState({ key: "createdAt", direction: "desc" })
   const [filters, setFilters] = useState({
     zone: "",
-    businessModel: "",
     dateFrom: "",
     dateTo: ""
   })
@@ -113,8 +143,8 @@ export default function JoiningRequest() {
       setError(null)
 
       const response = await adminAPI.getPendingRestaurants()
-      const list = (response?.data?.data || []).map((request, index) =>
-        normalizeRequestRecord(request, index),
+      const list = (response?.data?.data || []).map((request) =>
+        normalizeRequestRecord(request),
       )
       if (activeTab === "pending") {
         setPendingRequests(list.filter((r) => r.status === "pending"))
@@ -136,15 +166,14 @@ export default function JoiningRequest() {
 
   const currentRequests = activeTab === "pending" ? pendingRequests : rejectedRequests
 
-  // Get unique zones (from DB) and business models for filter options
+  // Get unique zones (from DB) for filter options
   const filterOptions = useMemo(() => {
     const zonesList = Array.isArray(allZones) ? allZones : []
     const zones = zonesList.map(z => ({
       id: z?._id || z?.id,
       name: z?.name || z?.zoneName || z?.serviceLocation || z?._id || "Unknown Zone"
     }))
-    const businessModels = [...new Set(currentRequests.map(r => r.businessModel).filter(Boolean))]
-    return { zones, businessModels }
+    return { zones }
   }, [allZones, currentRequests])
 
   const filteredRequests = useMemo(() => {
@@ -163,11 +192,6 @@ export default function JoiningRequest() {
     // Apply zone filter
     if (filters.zone) {
       filtered = filtered.filter(request => request.zone === filters.zone)
-    }
-
-    // Apply business model filter
-    if (filters.businessModel) {
-      filtered = filtered.filter(request => request.businessModel === filters.businessModel)
     }
 
     // Apply date range filter
@@ -193,10 +217,6 @@ export default function JoiningRequest() {
         let aValue, bValue
 
         switch (sortConfig.key) {
-          case "sl":
-            aValue = a.sl || 0
-            bValue = b.sl || 0
-            break
           case "restaurantName":
             aValue = (a.restaurantName || "").toLowerCase()
             bValue = (b.restaurantName || "").toLowerCase()
@@ -208,10 +228,6 @@ export default function JoiningRequest() {
           case "zone":
             aValue = (a.zone || "").toLowerCase()
             bValue = (b.zone || "").toLowerCase()
-            break
-          case "businessModel":
-            aValue = (a.businessModel || "").toLowerCase()
-            bValue = (b.businessModel || "").toLowerCase()
             break
           case "status":
             aValue = (a.status || "").toLowerCase()
@@ -238,13 +254,12 @@ export default function JoiningRequest() {
   const clearFilters = () => {
     setFilters({
       zone: "",
-      businessModel: "",
       dateFrom: "",
       dateTo: ""
     })
   }
 
-  const hasActiveFilters = filters.zone || filters.businessModel || filters.dateFrom || filters.dateTo
+  const hasActiveFilters = filters.zone || filters.dateFrom || filters.dateTo
 
   const handleApprove = async (request) => {
     if (window.confirm(`Are you sure you want to approve "${request.restaurantName}" restaurant request?`)) {
@@ -417,7 +432,7 @@ export default function JoiningRequest() {
               <div className="relative flex-1 sm:flex-initial min-w-[250px]">
                 <input
                   type="text"
-                  placeholder="Ex: Search by restaurant na"
+                  placeholder="Search by restaurant name, owner name or phone"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="pl-10 pr-4 py-2.5 w-full text-sm rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -439,7 +454,7 @@ export default function JoiningRequest() {
                 Filter
                 {hasActiveFilters && (
                   <span className="ml-1 px-1.5 py-0.5 bg-blue-600 text-white text-xs rounded-full">
-                    {[filters.zone, filters.businessModel, filters.dateFrom, filters.dateTo].filter(Boolean).length}
+                    {[filters.zone, filters.dateFrom, filters.dateTo].filter(Boolean).length}
                   </span>
                 )}
               </button>
@@ -452,13 +467,9 @@ export default function JoiningRequest() {
               <thead className="bg-slate-50 border-b border-slate-200">
                 <tr>
                   <th 
-                    className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors"
-                    onClick={() => handleSort("sl")}
+                    className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider"
                   >
-                    <div className="flex items-center gap-1">
-                      <span>SL</span>
-                      <ArrowUpDown className={`w-3 h-3 ${sortConfig.key === "sl" ? "text-blue-600" : "text-slate-400"}`} />
-                    </div>
+                    SL
                   </th>
                   <th 
                     className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors"
@@ -489,15 +500,6 @@ export default function JoiningRequest() {
                   </th>
                   <th 
                     className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors"
-                    onClick={() => handleSort("businessModel")}
-                  >
-                    <div className="flex items-center gap-1">
-                      <span>Business Model</span>
-                      <ArrowUpDown className={`w-3 h-3 ${sortConfig.key === "businessModel" ? "text-blue-600" : "text-slate-400"}`} />
-                    </div>
-                  </th>
-                  <th 
-                    className="px-6 py-4 text-left text-[10px] font-bold text-slate-700 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors"
                     onClick={() => handleSort("status")}
                   >
                     <div className="flex items-center gap-1">
@@ -511,21 +513,21 @@ export default function JoiningRequest() {
               <tbody className="bg-white divide-y divide-slate-100">
                 {loading ? (
                   <tr>
-                    <td colSpan={7} className="px-6 py-20 text-center">
+                    <td colSpan={6} className="px-6 py-20 text-center">
                       <Loader2 className="w-8 h-8 animate-spin text-blue-600 mx-auto mb-3" />
                       <p className="text-lg font-semibold text-slate-700">Loading restaurant requests...</p>
                     </td>
                   </tr>
                 ) : error ? (
                   <tr>
-                    <td colSpan={7} className="px-6 py-20 text-center">
+                    <td colSpan={6} className="px-6 py-20 text-center">
                       <p className="text-lg font-semibold text-red-600 mb-1">Error: {error}</p>
                       <p className="text-sm text-slate-500">Failed to load restaurant requests. Please try again.</p>
                     </td>
                   </tr>
                 ) : filteredRequests.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-6 py-20 text-center">
+                    <td colSpan={6} className="px-6 py-20 text-center">
                       <div className="flex flex-col items-center justify-center">
                         <p className="text-lg font-semibold text-slate-700 mb-1">No Data Found</p>
                         <p className="text-sm text-slate-500">No restaurant requests match your search</p>
@@ -536,7 +538,7 @@ export default function JoiningRequest() {
                   filteredRequests.map((request, index) => (
                     <tr key={request._id || request.id || `${request.restaurantName}-${index}`} className="hover:bg-slate-50 transition-colors">
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <span className="text-sm font-medium text-slate-700">{request.sl ?? index + 1}</span>
+                        <span className="text-sm font-medium text-slate-700">{index + 1}</span>
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
@@ -575,9 +577,6 @@ export default function JoiningRequest() {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className="text-sm text-slate-700">{request.zone || "—"}</span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className="text-sm text-slate-700">{request.businessModel || "—"}</span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className={`px-3 py-1 rounded-full text-xs font-medium ${
@@ -668,25 +667,6 @@ export default function JoiningRequest() {
                     ))}
                   </select>
                 </div>
-
-                {/* Business Model Filter */}
-                {filterOptions.businessModels.length > 0 && (
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-2">
-                      Business Model
-                    </label>
-                    <select
-                      value={filters.businessModel}
-                      onChange={(e) => setFilters({ ...filters, businessModel: e.target.value })}
-                      className="w-full px-4 py-2.5 text-sm rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    >
-                      <option value="">All Business Models</option>
-                      {filterOptions.businessModels.map((model) => (
-                        <option key={model} value={model}>{model}</option>
-                      ))}
-                    </select>
-                  </div>
-                )}
 
                 {/* Date Range Filters */}
                 <div className="grid grid-cols-2 gap-3">
@@ -888,7 +868,7 @@ export default function JoiningRequest() {
                         )}
                         <div className="flex items-center gap-1 text-slate-600">
                           <Building2 className="w-4 h-4" />
-                          <span className="text-sm">{r?.restaurantId || r?._id || "N/A"}</span>
+                          <span className="text-sm">{formatRestaurantId(r?.restaurantId || r?._id || "N/A")}</span>
                         </div>
                         <span className={`px-3 py-1 rounded-full text-xs font-medium ${
                           approvalStatus === "approved" ? "bg-green-100 text-green-700" : approvalStatus === "rejected" ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"
@@ -1290,7 +1270,7 @@ export default function JoiningRequest() {
                   )}
 
                   {/* Registration & approval info */}
-                  {(r?.createdAt || r?.restaurantId || r?.businessModel || r?.approvedAt != null) && (
+                  {(r?.createdAt || r?.restaurantId || r?.approvedAt != null) && (
                     <div className="pt-6 border-t border-slate-200">
                       <h4 className="text-lg font-semibold text-slate-900 mb-4">Registration & Approval</h4>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
@@ -1311,22 +1291,16 @@ export default function JoiningRequest() {
                             </div>
                           </div>
                         )}
-                        {r.restaurantId && (
+                        {(r.restaurantId || r._id) && (
                           <div>
                             <p className="text-xs text-slate-500 mb-1">Restaurant ID</p>
-                            <p className="font-medium text-slate-900">{r.restaurantId}</p>
+                            <p className="font-medium text-slate-900">{formatRestaurantId(r.restaurantId || r._id)}</p>
                           </div>
                         )}
                         {r.approvedAt != null && (
                           <div>
                             <p className="text-xs text-slate-500 mb-1">Approved At</p>
                             <p className="font-medium text-slate-900">{new Date(r.approvedAt).toLocaleString('en-IN')}</p>
-                          </div>
-                        )}
-                        {r.businessModel && (
-                          <div>
-                            <p className="text-xs text-slate-500 mb-1">Business Model</p>
-                            <p className="font-medium text-slate-900">{r.businessModel}</p>
                           </div>
                         )}
                         {r.phoneVerified !== undefined && (

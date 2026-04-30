@@ -80,10 +80,16 @@ const resolveRestaurantBackPath = ({ pathname, state }) => {
     normalizedPath === "/delivery-settings" ||
     normalizedPath === "/rush-hour" ||
     normalizedPath === "/status" ||
-    normalizedPath === "/menu-categories" ||
-    normalizedPath === "/terms"
+    normalizedPath === "/menu-categories"
   ) {
     return explicitBackPath || "/food/restaurant"
+  }
+
+  if (
+    normalizedPath === "/terms" ||
+    normalizedPath === "/privacy"
+  ) {
+    return explicitBackPath || "/food/restaurant/explore"
   }
 
   if (

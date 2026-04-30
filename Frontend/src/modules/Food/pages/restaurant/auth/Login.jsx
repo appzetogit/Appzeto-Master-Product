@@ -44,6 +44,12 @@ export default function RestaurantLogin() {
     }
   }, [])
 
+  useEffect(() => {
+    if (keyboardInset > 0) {
+      ensurePhoneFieldVisible()
+    }
+  }, [keyboardInset])
+
   const validatePhone = (phone, countryCode) => {
     if (!phone || phone.trim() === "") return "Phone number is required"
 
@@ -70,12 +76,23 @@ export default function RestaurantLogin() {
   }
 
   const ensurePhoneFieldVisible = () => {
+    // Wait for keyboard to animate in
     window.setTimeout(() => {
-      phoneInputRef.current?.scrollIntoView({
-        behavior: "smooth",
-        block: "center",
-      })
-    }, 180)
+      if (phoneInputRef.current) {
+        phoneInputRef.current.scrollIntoView({
+          behavior: "smooth",
+          block: "center",
+        })
+        
+        // Secondary scroll after a bit more time to ensure it's correct
+        window.setTimeout(() => {
+          phoneInputRef.current?.scrollIntoView({
+            behavior: "smooth",
+            block: "center",
+          })
+        }, 300)
+      }
+    }, 300)
   }
 
   const handleSendOTP = async () => {
