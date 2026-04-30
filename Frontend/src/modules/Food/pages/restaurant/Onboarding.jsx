@@ -237,6 +237,7 @@ const loadOnboardingFromLocalStorage = () => {
 const clearOnboardingFromLocalStorage = () => {
   try {
     localStorage.removeItem(ONBOARDING_STORAGE_KEY)
+    localStorage.removeItem("restaurant_pendingPhone")
   } catch (error) {
     debugError("Failed to clear onboarding data from localStorage:", error)
   }
@@ -408,12 +409,15 @@ export default function RestaurantOnboarding() {
       await restaurantAPI.logout()
       clearModuleAuth("restaurant")
       clearAuthData()
-      localStorage.removeItem("restaurant_onboarding")
+      clearOnboardingFromLocalStorage()
+      clearOnboardingFileCache()
       window.dispatchEvent(new Event("restaurantAuthChanged"))
       navigate("/food/restaurant/login", { replace: true })
     } catch (error) {
       debugError("Logout failed:", error)
       clearModuleAuth("restaurant")
+      clearOnboardingFromLocalStorage()
+      clearOnboardingFileCache()
       navigate("/food/restaurant/login", { replace: true })
     } finally {
       setIsLoggingOut(false)
@@ -731,6 +735,22 @@ export default function RestaurantOnboarding() {
   useEffect(() => {
     syncOnboardingFileCache(step2, step3)
   }, [step2, step3])
+
+  // Clear onboarding data when user navigates away using browser back button
+   useEffect(() => {
+     const handlePopState = () => {
+       // Clear auth and onboarding data synchronously on back navigation
+       // to ensure the session is terminated as per user request.
+       clearModuleAuth("restaurant")
+       clearAuthData()
+       clearOnboardingFromLocalStorage()
+       clearOnboardingFileCache()
+     }
+     window.addEventListener("popstate", handlePopState)
+     return () => {
+       window.removeEventListener("popstate", handlePopState)
+     }
+   }, [])
 
   useEffect(() => {
     return () => {
@@ -1512,8 +1532,8 @@ export default function RestaurantOnboarding() {
     let cancelled = false
 
     const init = async () => {
-      // Wait for the ref to be attached (up to 1s)
-      for (let i = 0; i < 20; i++) {
+      // Wait for the ref to be attached (up to 3s for slower mobile devices)
+      for (let i = 0; i < 60; i++) {
         if (locationSearchInputRef.current) break
         await new Promise((r) => setTimeout(r, 50))
       }
@@ -2364,7 +2384,7 @@ export default function RestaurantOnboarding() {
         <header className="px-4 py-4 sm:px-6 sm:py-5 bg-white flex items-center justify-between border-b">
           <div className="flex items-center gap-3">
             <button
-              onClick={() => navigate("/food/restaurant/explore")}
+              onClick={handleLogout}
               className="p-1 hover:bg-gray-100 rounded-full transition-colors"
               aria-label="Close onboarding"
             >
