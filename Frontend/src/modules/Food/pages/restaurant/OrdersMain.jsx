@@ -696,15 +696,14 @@ function TableBookings() {
 
               {/* Action Buttons */}
               <div className="flex gap-3">
-                {(booking.status === "pending" || booking.status === "confirmed") && (
+                {String(booking.status || "").toLowerCase() === "pending" && (
                   <button
                     onClick={() => handleUpdateStatus(booking._id, "confirmed")}
                     className="flex-1 bg-[#059669] text-white py-3 rounded-2xl text-[13px] font-bold hover:bg-[#047857] transition-all active:scale-[0.98] shadow-sm shadow-emerald-100 uppercase tracking-wide">
                     Accept
                   </button>
                 )}
-                {(booking.status === "pending" ||
-                  booking.status === "confirmed") && (
+                {String(booking.status || "").toLowerCase() === "pending" && (
                   <button
                     onClick={() => handleUpdateStatus(booking._id, "cancelled")}
                     className="flex-1 bg-[#F1F5F9] text-[#64748B] py-3 rounded-2xl text-[13px] font-bold hover:bg-gray-200 transition-all active:scale-[0.98] uppercase tracking-wide">
@@ -934,6 +933,28 @@ export default function OrdersMain() {
   const showNewOrderPopupRef = useRef(showNewOrderPopup);
   const isMutedRef = useRef(isMuted);
   const newOrderRef = useRef(null);
+
+  // Timer persistence helpers
+  const getInitialCountdown = (orderId) => {
+    if (!orderId) return 240;
+    const storageKey = `order_timer_${orderId}`;
+    const startTime = localStorage.getItem(storageKey);
+    
+    if (startTime) {
+      const elapsed = Math.floor((Date.now() - parseInt(startTime)) / 1000);
+      const remaining = 240 - elapsed;
+      return remaining > 0 ? remaining : 0;
+    } else {
+      localStorage.setItem(storageKey, Date.now().toString());
+      return 240;
+    }
+  };
+
+  const clearOrderTimer = (orderId) => {
+    if (orderId) {
+      localStorage.removeItem(`order_timer_${orderId}`);
+    }
+  };
 
   const markOrderAsShown = (orderLike) => {
     const keys = [
@@ -1170,7 +1191,8 @@ export default function OrdersMain() {
         markOrderAsShown(newOrder);
         setPopupOrder(newOrder);
         setShowNewOrderPopup(true);
-        setCountdown(240); // Reset countdown to 4 minutes
+        const orderId = newOrder.orderMongoId || newOrder.orderId || newOrder._id;
+        setCountdown(getInitialCountdown(orderId));
         requestOrdersRefresh();
       }
     }
@@ -1296,7 +1318,7 @@ export default function OrdersMain() {
             markOrderAsShown({ orderId, _id: orderToPopup._id });
             setPopupOrder(orderForPopup);
             setShowNewOrderPopup(true);
-            setCountdown(240);
+            setCountdown(getInitialCountdown(orderId));
           }
         }
       } catch (error) {
@@ -1333,11 +1355,16 @@ export default function OrdersMain() {
 
   // Countdown timer
   useEffect(() => {
-    if (showNewOrderPopup && countdown > 0) {
-      const timer = setInterval(() => {
-        setCountdown((prev) => prev - 1);
-      }, 1000);
-      return () => clearInterval(timer);
+    if (showNewOrderPopup) {
+      if (countdown > 0) {
+        const timer = setInterval(() => {
+          setCountdown((prev) => prev - 1);
+        }, 1000);
+        return () => clearInterval(timer);
+      } else {
+        // Automatically reject when countdown hits 0
+        handleAutoReject();
+      }
     }
   }, [showNewOrderPopup, countdown]);
 
@@ -1438,6 +1465,40 @@ export default function OrdersMain() {
     setAcceptSwipeProgress(0);
   };
 
+  // Handle auto reject on timeout
+  const handleAutoReject = async () => {
+    const orderToReject = popupOrder || newOrder;
+    if (!orderToReject) return;
+
+    const orderId = orderToReject.orderMongoId || orderToReject.orderId || orderToReject?._id;
+    if (!orderId) return;
+
+    try {
+      // Use a special reason for auto-rejection
+      await restaurantAPI.rejectOrder(orderId, "Order timeout - No response from restaurant");
+      toast.info("Order auto-rejected due to timeout");
+      clearOrderTimer(orderId);
+      requestOrdersRefresh();
+    } catch (error) {
+      debugError("Error auto-rejecting order:", error);
+    } finally {
+      // Clean up UI state regardless of API success
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.currentTime = 0;
+      }
+      setShowRejectPopup(false);
+      setShowNewOrderPopup(false);
+      setPopupOrder(null);
+      clearNewOrder();
+      setRejectReason("");
+      setCountdown(240);
+      setPrepTime(11);
+      setAcceptSwipeProgress(0);
+      setIsAcceptingOrder(false);
+    }
+  };
+
   // Handle accept order
   const handleAcceptOrder = async () => {
     if (isAcceptingOrder) return;
@@ -1485,6 +1546,9 @@ export default function OrdersMain() {
       }
     }
 
+    const orderId = orderToAccept?.orderMongoId || orderToAccept?.orderId || orderToAccept?._id;
+    clearOrderTimer(orderId);
+    
     setShowNewOrderPopup(false);
     setPopupOrder(null);
     clearNewOrder();
@@ -1521,6 +1585,9 @@ export default function OrdersMain() {
         return;
       }
     }
+
+    const orderId = orderToReject?.orderMongoId || orderToReject?.orderId || orderToReject?._id;
+    clearOrderTimer(orderId);
 
     if (audioRef.current) {
       audioRef.current.pause();

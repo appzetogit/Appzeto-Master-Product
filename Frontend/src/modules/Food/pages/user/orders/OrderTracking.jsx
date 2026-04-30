@@ -18,7 +18,8 @@ import {
   Shield,
   Receipt,
   CircleSlash,
-  Loader2
+  Loader2,
+  Star
 } from "lucide-react"
 import { jsPDF } from "jspdf"
 import autoTable from "jspdf-autotable"
@@ -848,6 +849,31 @@ export default function OrderTracking() {
   const [isUpdatingInstructions, setIsUpdatingInstructions] = useState(false)
   const [resolvedLookupId, setResolvedLookupId] = useState("")
   const [timerNow, setTimerNow] = useState(Date.now())
+  
+  // Rating states
+  const [ratingModal, setRatingModal] = useState({ open: false, order: null })
+  const [selectedRestaurantRating, setSelectedRestaurantRating] = useState(null)
+  const [selectedDeliveryRating, setSelectedDeliveryRating] = useState(null)
+  const [restaurantFeedbackText, setRestaurantFeedbackText] = useState("")
+  const [deliveryFeedbackText, setDeliveryFeedbackText] = useState("")
+  const [submittingRating, setSubmittingRating] = useState(false)
+  const [shownRatingForOrders, setShownRatingForOrders] = useState(() => {
+    try {
+      const stored = localStorage.getItem('shownRatingForOrders')
+      return stored ? new Set(JSON.parse(stored)) : new Set()
+    } catch {
+      return new Set()
+    }
+  })
+
+  // Save shown ratings to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem('shownRatingForOrders', JSON.stringify(Array.from(shownRatingForOrders)))
+    } catch (error) {
+      debugError('Error saving shownRatingForOrders to localStorage:', error)
+    }
+  }, [shownRatingForOrders])
   const handleEtaUpdate = useCallback((newEta) => setEstimatedTime(newEta), [])
   const lastRealtimeRefreshRef = useRef(0)
   const confirmationShownAtRef = useRef(confirmed ? Date.now() : 0)
@@ -1427,6 +1453,45 @@ export default function OrderTracking() {
     return () => clearInterval(timer)
   }, [])
 
+  // Auto-show rating popup when order is delivered
+  useEffect(() => {
+    if (orderStatus !== 'delivered' || !order || ratingModal.open) return;
+
+    const orderIdToRate = order.orderId || order.mongoId || order._id || orderId;
+    if (!orderIdToRate) return;
+
+    const idStr = String(orderIdToRate);
+    const hasShownPopup = shownRatingForOrders.has(idStr);
+    
+    // Check if already rated (using structure from transformOrderForTracking)
+    const hasRestaurantRating = Number.isFinite(Number(order.ratings?.restaurant?.rating));
+    const hasDeliveryPartner = !!order.deliveryPartnerId;
+    const hasDeliveryRating = Number.isFinite(Number(order.ratings?.deliveryPartner?.rating));
+    const hasRating = hasRestaurantRating && (!hasDeliveryPartner || hasDeliveryRating);
+
+    if (!hasRating && !hasShownPopup) {
+      debugLog('? Auto-triggering rating popup for delivered order:', idStr);
+      
+      // Mark as shown to avoid re-triggering
+      setShownRatingForOrders(prev => {
+        const next = new Set(prev);
+        next.add(idStr);
+        return next;
+      });
+
+      // Show after a short delay for better UX
+      const timer = setTimeout(() => {
+        setRatingModal({ open: true, order: order });
+        setSelectedRestaurantRating(null);
+        setSelectedDeliveryRating(null);
+        setRestaurantFeedbackText("");
+        setDeliveryFeedbackText("");
+      }, 1500);
+      
+      return () => clearTimeout(timer);
+    }
+  }, [orderStatus, order, shownRatingForOrders, ratingModal.open, orderId]);
+
   // Listen for order status updates from socket (e.g., "Delivery partner on the way")
   useEffect(() => {
     const handleOrderStatusNotification = (event) => {
@@ -1601,6 +1666,60 @@ export default function OrderTracking() {
       }
     }
   };
+
+  const handleCloseRating = () => {
+    setRatingModal({ open: false, order: null })
+    setSelectedRestaurantRating(null)
+    setSelectedDeliveryRating(null)
+    setRestaurantFeedbackText("")
+    setDeliveryFeedbackText("")
+  }
+
+  const handleSubmitRating = async () => {
+    const hasDeliveryPartner = !!order?.deliveryPartnerId;
+    const isMissingDeliveryRating = hasDeliveryPartner && selectedDeliveryRating === null;
+    
+    if (!order || selectedRestaurantRating === null || isMissingDeliveryRating) {
+      toast.error("Please select all required ratings first");
+      return;
+    }
+
+    try {
+      setSubmittingRating(true);
+      const targetId = order.mongoId || order._id || orderId;
+      
+      const response = await orderAPI.submitOrderRatings(targetId, {
+        restaurantRating: selectedRestaurantRating,
+        deliveryPartnerRating: hasDeliveryPartner ? selectedDeliveryRating : undefined,
+        restaurantComment: restaurantFeedbackText || undefined,
+        deliveryPartnerComment: hasDeliveryPartner ? (deliveryFeedbackText || undefined) : undefined,
+      });
+
+      const updatedOrderData = response?.data?.data?.order || response?.data?.order || null;
+      
+      if (updatedOrderData) {
+        setOrder(prev => transformOrderForTracking(updatedOrderData, prev));
+      } else {
+        // Fallback update if API response doesn't include the full order
+        setOrder(prev => ({
+          ...prev,
+          ratings: {
+            ...prev.ratings,
+            restaurant: { rating: selectedRestaurantRating, comment: restaurantFeedbackText },
+            deliveryPartner: hasDeliveryPartner ? { rating: selectedDeliveryRating, comment: deliveryFeedbackText } : undefined
+          }
+        }));
+      }
+
+      toast.success("Thanks for rating your order!");
+      handleCloseRating();
+    } catch (error) {
+      debugError("Error submitting order ratings:", error);
+      toast.error(error?.response?.data?.message || "Failed to submit ratings. Please try again.");
+    } finally {
+      setSubmittingRating(false);
+    }
+  }
 
   const handleRefresh = async () => {
     setIsRefreshing(true)
@@ -2835,6 +2954,132 @@ export default function OrderTracking() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Rating & Feedback Modal */}
+      <AnimatePresence>
+        {ratingModal.open && ratingModal.order && (
+          <div className="fixed inset-0 z-[210] flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="w-full max-w-md rounded-3xl bg-white shadow-2xl overflow-hidden"
+            >
+              {/* Header with gradient */}
+              <div className="bg-gradient-to-r from-green-600 to-emerald-600 px-6 py-5">
+                <div className="flex items-center justify-between mb-1">
+                  <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                    <Star className="w-5 h-5 fill-white" />
+                    Rate Your Experience
+                  </h2>
+                  <button
+                    type="button"
+                    onClick={handleCloseRating}
+                    className="text-white/80 hover:text-white transition-colors p-1 rounded-full hover:bg-white/20"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+                <p className="text-sm text-white/90">{ratingModal.order.restaurant}</p>
+              </div>
+
+              <div className="px-6 py-6 space-y-6">
+                <div>
+                  <p className="text-sm font-semibold text-gray-900 mb-3">
+                    Restaurant rating (out of 5)
+                  </p>
+                  <div className="flex items-center justify-center gap-2 mb-3">
+                    {[1, 2, 3, 4, 5].map((num) => {
+                      const isActive = (selectedRestaurantRating || 0) >= num
+                      return (
+                        <button
+                          key={`restaurant-${num}`}
+                          type="button"
+                          onClick={() => setSelectedRestaurantRating(num)}
+                          className="p-2 transition-transform hover:scale-125 active:scale-95"
+                        >
+                          <Star
+                            className={`w-10 h-10 transition-all ${isActive
+                                ? "text-yellow-400 fill-yellow-400 drop-shadow-lg"
+                                : "text-gray-200 hover:text-yellow-200"
+                              }`}
+                          />
+                        </button>
+                      )
+                    })}
+                  </div>
+                  <Textarea
+                    rows={2}
+                    value={restaurantFeedbackText}
+                    onChange={(e) => setRestaurantFeedbackText(e.target.value)}
+                    className="w-full rounded-xl border-2 border-gray-100 px-4 py-2 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 resize-none transition-all"
+                    placeholder="Tell us what you liked (optional)"
+                  />
+                </div>
+
+                {!!order?.deliveryPartnerId && (
+                  <div className="pt-4 border-t border-gray-100">
+                    <p className="text-sm font-semibold text-gray-900 mb-3">
+                      Delivery partner rating (out of 5)
+                    </p>
+                    <div className="flex items-center justify-center gap-2 mb-3">
+                      {[1, 2, 3, 4, 5].map((num) => {
+                        const isActive = (selectedDeliveryRating || 0) >= num
+                        return (
+                          <button
+                            key={`delivery-${num}`}
+                            type="button"
+                            onClick={() => setSelectedDeliveryRating(num)}
+                            className="p-2 transition-transform hover:scale-125 active:scale-95"
+                          >
+                            <Star
+                              className={`w-10 h-10 transition-all ${isActive
+                                  ? "text-yellow-400 fill-yellow-400 drop-shadow-lg"
+                                  : "text-gray-200 hover:text-yellow-200"
+                                }`}
+                            />
+                          </button>
+                        )
+                      })}
+                    </div>
+                    <Textarea
+                      rows={2}
+                      value={deliveryFeedbackText}
+                      onChange={(e) => setDeliveryFeedbackText(e.target.value)}
+                      className="w-full rounded-xl border-2 border-gray-100 px-4 py-2 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 resize-none transition-all"
+                      placeholder="How was the delivery? (optional)"
+                    />
+                  </div>
+                )}
+
+                {/* Submit Button */}
+                <Button
+                  type="button"
+                  disabled={submittingRating || selectedRestaurantRating === null || (!!order?.deliveryPartnerId && selectedDeliveryRating === null)}
+                  onClick={handleSubmitRating}
+                  className="w-full rounded-xl bg-gradient-to-r from-green-600 to-emerald-600 text-white text-base font-bold h-12 hover:from-green-700 hover:to-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-green-500/20 flex items-center justify-center gap-2"
+                >
+                  {submittingRating ? (
+                    <>
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      Submitting...
+                    </>
+                  ) : (
+                    <>
+                      <Check className="w-5 h-5" />
+                      Submit Ratings
+                    </>
+                  )}
+                </Button>
+
+                {selectedRestaurantRating === null && (
+                  <p className="text-[10px] text-center text-gray-400">Please select a rating to enable submission</p>
+                )}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }
