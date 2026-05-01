@@ -1,17 +1,51 @@
-import { useState, useRef } from "react"
+import { useState, useRef, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
 import useRestaurantBackNavigation from "@food/hooks/useRestaurantBackNavigation"
-import { ArrowLeft, Upload } from "lucide-react"
+import { ArrowLeft, Upload, Loader2, X } from "lucide-react"
 import { ImageSourcePicker } from "@food/components/ImageSourcePicker"
 import { isFlutterBridgeAvailable } from "@food/utils/imageUploadUtils"
 import { toast } from "sonner"
+import { restaurantAPI } from "@food/api"
+import { clearModuleAuth } from "@food/utils/auth"
 
 export default function FssaiUpdate() {
   const navigate = useNavigate()
   const goBack = useRestaurantBackNavigation()
+  const [fssaiNumber, setFssaiNumber] = useState("")
+  const [fssaiExpiry, setFssaiExpiry] = useState("")
+  const [originalExpiry, setOriginalExpiry] = useState("")
   const [uploadedFile, setUploadedFile] = useState(null)
+  const [existingImageUrl, setExistingImageUrl] = useState("")
   const [isPhotoPickerOpen, setIsPhotoPickerOpen] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [fetching, setFetching] = useState(true)
   const fileInputRef = useRef(null)
+
+  useEffect(() => {
+    const fetchCurrentData = async () => {
+      try {
+        setFetching(true)
+        const response = await restaurantAPI.getCurrentRestaurant()
+        const data = response?.data?.data?.restaurant || response?.data?.restaurant
+        if (data) {
+          setFssaiNumber(data.fssaiNumber || "")
+          // Format date for input YYYY-MM-DD
+          if (data.fssaiExpiry) {
+            const date = new Date(data.fssaiExpiry)
+            const formatted = date.toISOString().split('T')[0]
+            setFssaiExpiry(formatted)
+            setOriginalExpiry(formatted)
+          }
+          setExistingImageUrl(typeof data.fssaiImage === 'string' ? data.fssaiImage : data.fssaiImage?.url || "")
+        }
+      } catch (error) {
+        console.error("Error fetching FSSAI data:", error)
+      } finally {
+        setFetching(false)
+      }
+    }
+    fetchCurrentData()
+  }, [])
 
   const handleFileSelect = (file) => {
     if (file) {
@@ -20,7 +54,7 @@ export default function FssaiUpdate() {
         return
       }
       setUploadedFile(file)
-      toast.success("FSSAI license uploaded")
+      toast.success("FSSAI license selected")
     }
   }
 
@@ -32,11 +66,83 @@ export default function FssaiUpdate() {
     }
   }
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault()
-    // For now just go back
-    toast.success("FSSAI details updated")
-    goBack()
+    
+    if (!fssaiNumber.trim()) {
+      toast.error("FSSAI number is required")
+      return
+    }
+
+    if (!/^\d{14}$/.test(fssaiNumber.trim())) {
+      toast.error("FSSAI number must be exactly 14 digits")
+      return
+    }
+
+    if (!fssaiExpiry) {
+      toast.error("Expiry date is required")
+      return
+    }
+
+    const expiryDate = new Date(fssaiExpiry)
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+
+    if (expiryDate < today) {
+      toast.error("Expiry date must be in the future")
+      return
+    }
+
+    if (!uploadedFile && !existingImageUrl) {
+      toast.error("FSSAI license document is required")
+      return
+    }
+
+    try {
+      setLoading(true)
+      let imageUrl = existingImageUrl
+
+      // 1. Upload new image if selected
+      if (uploadedFile) {
+        const uploadRes = await restaurantAPI.uploadMenuImage(uploadedFile)
+        imageUrl = uploadRes?.data?.data?.menuImage?.url || uploadRes?.data?.menuImage?.url || ""
+      }
+
+      // 2. Update profile
+      const response = await restaurantAPI.updateProfile({
+        fssaiNumber: fssaiNumber.trim(),
+        fssaiExpiry: fssaiExpiry,
+        fssaiImage: imageUrl
+      })
+
+      const result = response?.data?.data || response?.data
+
+      if (result?.requireLogout) {
+        toast.success("FSSAI details updated. Account sent for re-verification.")
+        setTimeout(() => {
+          clearModuleAuth()
+          window.location.href = "/food/restaurant/login"
+        }, 2000)
+        return
+      }
+
+      toast.success("FSSAI details updated successfully")
+      navigate("/food/restaurant/fssai")
+    } catch (error) {
+      console.error("Error updating FSSAI:", error)
+      toast.error(error.response?.data?.message || "Failed to update FSSAI details")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  if (fetching) {
+    return (
+      <div className="min-h-screen bg-white flex flex-col items-center justify-center">
+        <Loader2 className="w-8 h-8 text-blue-600 animate-spin mb-2" />
+        <p className="text-sm text-gray-500">Loading current details...</p>
+      </div>
+    )
   }
 
   return (
@@ -44,7 +150,7 @@ export default function FssaiUpdate() {
       {/* Header */}
       <div className="px-4 pt-4 pb-3 flex items-center gap-3 border-b border-gray-200">
         <button
-          onClick={goBack}
+          onClick={() => navigate("/food/restaurant/fssai")}
           className="p-2 rounded-full hover:bg-gray-100"
           aria-label="Back"
         >
@@ -60,9 +166,12 @@ export default function FssaiUpdate() {
           </label>
           <input
             type="text"
-            placeholder="eg. 19138110019201"
+            value={fssaiNumber}
+            onChange={(e) => setFssaiNumber(e.target.value.replace(/\D/g, '').slice(0, 14))}
+            placeholder="14-digit registration number"
             className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-black focus:border-black"
           />
+          <p className="text-[10px] text-gray-500 mt-1">Exactly 14 digits required</p>
         </div>
 
         <div>
@@ -70,8 +179,14 @@ export default function FssaiUpdate() {
             Valid up to
           </label>
           <input
-            type="text"
-            placeholder="DD-MM-YYYY"
+            type="date"
+            value={fssaiExpiry}
+            min={(() => {
+              const today = new Date().toISOString().split('T')[0];
+              if (!originalExpiry) return today;
+              return originalExpiry > today ? originalExpiry : today;
+            })()}
+            onChange={(e) => setFssaiExpiry(e.target.value)}
             className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-black focus:border-black"
           />
         </div>
@@ -89,6 +204,12 @@ export default function FssaiUpdate() {
                 <div className="text-2xl">✅</div>
                 <p className="text-sm font-medium text-gray-900">{uploadedFile.name}</p>
                 <p className="text-xs text-gray-500">Click to change</p>
+              </div>
+            ) : existingImageUrl ? (
+              <div className="space-y-2">
+                <img src={existingImageUrl} alt="Current FSSAI" className="h-20 w-auto mx-auto object-contain rounded-lg border" />
+                <p className="text-xs text-gray-500">Current license document</p>
+                <p className="text-[10px] text-blue-600 font-medium">Click to upload new</p>
               </div>
             ) : (
               <>
@@ -109,12 +230,7 @@ export default function FssaiUpdate() {
               accept="image/*,application/pdf"
             />
           </div>
-          <button
-            type="button"
-            className="text-xs text-gray-700 underline underline-offset-2"
-          >
-            View upload guidelines
-          </button>
+
         </div>
       </form>
 
@@ -123,14 +239,15 @@ export default function FssaiUpdate() {
         <button
           type="submit"
           form="fssai-form"
-          className={`w-full py-3 rounded-full text-sm font-medium transition-colors ${
-            uploadedFile 
+          className={`w-full py-3 rounded-full text-sm font-medium transition-colors flex items-center justify-center gap-2 ${
+            fssaiNumber 
               ? "bg-black text-white hover:bg-gray-900" 
               : "bg-gray-200 text-gray-500 cursor-not-allowed"
           }`}
-          disabled={!uploadedFile}
+          disabled={!fssaiNumber || loading}
         >
-          Confirm
+          {loading && <Loader2 className="w-4 h-4 animate-spin" />}
+          {loading ? "Updating..." : "Confirm"}
         </button>
       </div>
 

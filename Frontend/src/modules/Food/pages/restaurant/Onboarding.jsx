@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom"
 import { Input } from "@food/components/ui/input"
 import { Button } from "@food/components/ui/button"
 import { Label } from "@food/components/ui/label"
-import { Image as ImageIcon, Upload, Clock, Calendar as CalendarIcon, Sparkles, X, LogOut } from "lucide-react"
+import { Image as ImageIcon, Upload, Clock, Calendar as CalendarIcon, Sparkles, X, LogOut, ChevronLeft } from "lucide-react"
 import { Popover, PopoverContent, PopoverTrigger } from "@food/components/ui/popover"
 import { Calendar } from "@food/components/ui/calendar"
 import {
@@ -51,7 +51,11 @@ const IFSC_CODE_REGEX = /^[A-Z0-9]{11}$/
 const ACCOUNT_HOLDER_NAME_REGEX = /^[A-Za-z ]+$/
 const GST_LEGAL_NAME_REGEX = /^[A-Za-z ]+$/
 const FEATURED_DISH_NAME_REGEX = /^[A-Za-z ]+$/
-const OWNER_EMAIL_REGEX = /^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/
+const NAME_REGEX = /^[A-Za-z ]+$/
+const OWNER_EMAIL_REGEX = /^[a-zA-Z0-9._%+\-]+@gmail\.com$/
+const PHONE_NUMBER_REGEX = /^\d{10,12}$/
+const PRIMARY_PHONE_NUMBER_REGEX = /^\d{10}$/
+const PINCODE_REGEX = /^\d{6}$/
 const LOCAL_IMAGE_FILE_ACCEPT = ".jpg,.jpeg,.png,.webp,.heic,.heif"
 const GALLERY_IMAGE_ACCEPT =
   ".jpg,.jpeg,.png,.webp,.heic,.heif,image/jpeg,image/png,image/webp,image/heic,image/heif"
@@ -234,6 +238,7 @@ const loadOnboardingFromLocalStorage = () => {
 const clearOnboardingFromLocalStorage = () => {
   try {
     localStorage.removeItem(ONBOARDING_STORAGE_KEY)
+    localStorage.removeItem("restaurant_pendingPhone")
   } catch (error) {
     debugError("Failed to clear onboarding data from localStorage:", error)
   }
@@ -405,12 +410,15 @@ export default function RestaurantOnboarding() {
       await restaurantAPI.logout()
       clearModuleAuth("restaurant")
       clearAuthData()
-      localStorage.removeItem("restaurant_onboarding")
+      clearOnboardingFromLocalStorage()
+      clearOnboardingFileCache()
       window.dispatchEvent(new Event("restaurantAuthChanged"))
       navigate("/food/restaurant/login", { replace: true })
     } catch (error) {
       debugError("Logout failed:", error)
       clearModuleAuth("restaurant")
+      clearOnboardingFromLocalStorage()
+      clearOnboardingFileCache()
       navigate("/food/restaurant/login", { replace: true })
     } finally {
       setIsLoggingOut(false)
@@ -451,7 +459,7 @@ export default function RestaurantOnboarding() {
     profileImage: null,
     cuisines: [],
     openingTime: "",
-    closingTime: "",
+    closingTime: "21:00",
     openDays: [],
   })
 
@@ -867,26 +875,40 @@ export default function RestaurantOnboarding() {
     }
     if (!step1.ownerName?.trim()) {
       errors.push("Owner name is required")
+    } else if (!NAME_REGEX.test(step1.ownerName.trim())) {
+      errors.push("Owner name must contain only letters")
     }
     if (!step1.ownerEmail?.trim()) {
       errors.push("Owner email is required")
     } else if (!OWNER_EMAIL_REGEX.test(step1.ownerEmail.trim())) {
-      errors.push("Email should be in format (ex - aaa@gmail.com)")
+      errors.push("Email must be a valid @gmail.com address")
     }
     if (!step1.ownerPhone?.trim()) {
       errors.push("Owner phone number is required")
+    } else if (!PHONE_NUMBER_REGEX.test(step1.ownerPhone.trim())) {
+      errors.push("Owner phone number must be a valid 10 to 12-digit number")
     }
     if (!step1.primaryContactNumber?.trim()) {
       errors.push("Primary contact number is required")
+    } else if (!PRIMARY_PHONE_NUMBER_REGEX.test(step1.primaryContactNumber.trim())) {
+      errors.push("Primary contact number must contain exactly 10 digits")
     }
     if (!step1.zoneId?.trim()) {
       errors.push("Service zone is required")
+    }
+    if (!step1.location?.addressLine1?.trim()) {
+      errors.push("Building/Floor/Street address is required")
     }
     if (!step1.location?.area?.trim()) {
       errors.push("Area/Sector/Locality is required")
     }
     if (!step1.location?.city?.trim()) {
       errors.push("City is required")
+    }
+    if (!step1.location?.pincode?.trim()) {
+      errors.push("Pincode is required")
+    } else if (!PINCODE_REGEX.test(step1.location.pincode.trim())) {
+      errors.push("Pincode must contain exactly 6 digits")
     }
 
     return errors
@@ -1318,11 +1340,26 @@ export default function RestaurantOnboarding() {
           <div>
             <Label className="text-xs text-gray-700">Phone number*</Label>
             <Input
+              type="tel"
               value={step1.ownerPhone || ""}
-              onChange={(e) => setStep1({ ...step1, ownerPhone: e.target.value })}
+              onChange={(e) => {
+                const val = e.target.value.replace(/\D/g, "").slice(0, 12)
+                setStep1({ ...step1, ownerPhone: val })
+              }}
+              onKeyDown={(e) => {
+                const allowed = ["Backspace", "Delete", "ArrowLeft", "ArrowRight", "Tab", "Enter"]
+                if (!allowed.includes(e.key) && !/^\d$/.test(e.key)) e.preventDefault()
+                if (/^\d$/.test(e.key) && (step1.ownerPhone || "").length >= 12) e.preventDefault()
+              }}
+              onPaste={(e) => {
+                e.preventDefault()
+                const pasted = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, 12)
+                setStep1({ ...step1, ownerPhone: pasted })
+              }}
+              maxLength={12}
               readOnly={Boolean(verifiedPhoneNumber)}
               className="mt-1 bg-white text-sm text-black placeholder-black"
-              placeholder="+91 98XXXXXX"
+              placeholder="Owner phone number (10-12 digits)"
               disabled={!isEditing}
             />
           </div>
@@ -1334,6 +1371,7 @@ export default function RestaurantOnboarding() {
         <div>
           <Label className="text-xs text-gray-700">Primary contact number*</Label>
           <Input
+            type="tel"
             value={step1.primaryContactNumber || ""}
             onChange={(e) => {
               const val = e.target.value.replace(/\D/g, "").slice(0, 10)
@@ -1349,9 +1387,10 @@ export default function RestaurantOnboarding() {
               const pasted = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, 10)
               setStep1({ ...step1, primaryContactNumber: pasted })
             }}
+            maxLength={10}
             inputMode="numeric"
             className="mt-1 bg-white text-sm text-black placeholder-black"
-            placeholder="Restaurant's primary contact number"
+            placeholder="Primary contact number (10 digits)"
             disabled={!isEditing}
           />
           <p className="text-[11px] text-gray-500 mt-1">
@@ -1447,7 +1486,7 @@ export default function RestaurantOnboarding() {
             onChange={(e) =>
               setStep1({
                 ...step1,
-                location: { ...step1.location, city: e.target.value },
+                location: { ...step1.location, city: e.target.value.replace(/[^A-Za-z ]/g, "") },
               })
             }
             className="bg-white text-sm"
@@ -1459,7 +1498,7 @@ export default function RestaurantOnboarding() {
               onChange={(e) =>
                 setStep1({
                   ...step1,
-                  location: { ...step1.location, state: e.target.value },
+                  location: { ...step1.location, state: e.target.value.replace(/[^A-Za-z ]/g, "") },
                 })
               }
               className="bg-white text-sm"
@@ -1470,7 +1509,7 @@ export default function RestaurantOnboarding() {
               onChange={(e) =>
                 setStep1({
                   ...step1,
-                  location: { ...step1.location, pincode: e.target.value },
+                  location: { ...step1.location, pincode: e.target.value.replace(/\D/g, "").slice(0, 6) },
                 })
               }
               className="bg-white text-sm"
@@ -1492,8 +1531,8 @@ export default function RestaurantOnboarding() {
     let cancelled = false
 
     const init = async () => {
-      // Wait for the ref to be attached (up to 1s)
-      for (let i = 0; i < 20; i++) {
+      // Wait for the ref to be attached (up to 3s for slower mobile devices)
+      for (let i = 0; i < 60; i++) {
         if (locationSearchInputRef.current) break
         await new Promise((r) => setTimeout(r, 50))
       }
@@ -2344,11 +2383,22 @@ export default function RestaurantOnboarding() {
         <header className="px-4 py-4 sm:px-6 sm:py-5 bg-white flex items-center justify-between border-b">
           <div className="flex items-center gap-3">
             <button
-              onClick={() => navigate("/food/restaurant/explore")}
+              onClick={() => {
+                if (step > 1) {
+                  setStep((s) => s - 1)
+                  window.scrollTo({ top: 0, behavior: "instant" })
+                } else {
+                  handleLogout()
+                }
+              }}
               className="p-1 hover:bg-gray-100 rounded-full transition-colors"
-              aria-label="Close onboarding"
+              aria-label={step > 1 ? "Go back" : "Close onboarding"}
             >
-              <X className="w-5 h-5 text-gray-600" />
+              {step > 1 ? (
+                <ChevronLeft className="w-5 h-5 text-gray-600" />
+              ) : (
+                <X className="w-5 h-5 text-gray-600" />
+              )}
             </button>
             <div className="text-sm font-semibold text-black">Restaurant onboarding</div>
           </div>

@@ -32,14 +32,22 @@ const resolveDeliveryBackPath = ({ pathname, state }) => {
 
   if (
     normalizedPath === "/profile/details" ||
-    normalizedPath === "/profile/bank" ||
-    normalizedPath === "/profile/documents" ||
     normalizedPath === "/profile/terms" ||
     normalizedPath === "/profile/privacy" ||
-    normalizedPath === "/help/id-card" ||
     normalizedPath === "/help/tickets"
   ) {
     return explicitBackPath || "/food/delivery/profile"
+  }
+
+  if (
+    normalizedPath === "/profile/bank" ||
+    normalizedPath === "/profile/documents"
+  ) {
+    return explicitBackPath || "/food/delivery/profile/details"
+  }
+
+  if (normalizedPath === "/help/id-card") {
+    return explicitBackPath || "/food/delivery"
   }
 
   if (

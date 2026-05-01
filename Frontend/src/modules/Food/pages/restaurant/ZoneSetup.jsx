@@ -1,10 +1,13 @@
 import { useState, useEffect, useRef } from "react"
 import { useNavigate } from "react-router-dom"
-import { MapPin, Search, Save, Loader2, ArrowLeft } from "lucide-react"
+import { MapPin, Search, Save, Loader2, ArrowLeft, AlertTriangle, X } from "lucide-react"
+import { motion, AnimatePresence } from "framer-motion"
+import { toast } from "react-hot-toast"
 import RestaurantNavbar from "@food/components/restaurant/RestaurantNavbar"
-import { restaurantAPI } from "@food/api"
+import { restaurantAPI, zoneAPI } from "@food/api"
 import { getGoogleMapsApiKey } from "@food/utils/googleMapsApiKey"
 import { loadGoogleMaps as loadGoogleMapsSdk } from "@core/services/googleMapsLoader"
+import { clearAuthData } from "@food/utils/auth"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
@@ -56,6 +59,7 @@ export default function ZoneSetup() {
   const markerRef = useRef(null)
   const autocompleteInputRef = useRef(null)
   const autocompleteRef = useRef(null)
+  const zonesPolygonsRef = useRef([])
   
   const [googleMapsApiKey, setGoogleMapsApiKey] = useState("")
   const [mapLoading, setMapLoading] = useState(true)
@@ -64,9 +68,15 @@ export default function ZoneSetup() {
   const [locationSearch, setLocationSearch] = useState("")
   const [selectedLocation, setSelectedLocation] = useState(null)
   const [selectedAddress, setSelectedAddress] = useState("")
+  const [addressParts, setAddressParts] = useState({})
+  const [zones, setZones] = useState([])
+  const [showConfirmModal, setShowConfirmModal] = useState(false)
+  const [isSuccess, setIsSuccess] = useState(false)
+  const [reVerificationData, setReVerificationData] = useState(null)
 
   useEffect(() => {
     fetchRestaurantData()
+    fetchZones()
     loadGoogleMaps()
   }, [])
 
@@ -133,9 +143,95 @@ export default function ZoneSetup() {
       const data = response?.data?.data?.restaurant || response?.data?.restaurant
       if (data) {
         setRestaurantData(data)
+        // Set initial location from restaurant data
+        if (data.location?.latitude && data.location?.longitude) {
+          const lat = data.location.latitude
+          const lng = data.location.longitude
+          const address = data.location.formattedAddress || ""
+          setSelectedLocation({ lat, lng, address })
+          setSelectedAddress(address)
+          setLocationSearch(address)
+        }
       }
     } catch (error) {
       debugError("Error fetching restaurant data:", error)
+    }
+  }
+
+  const getAddressFromCoords = (lat, lng) => {
+    return new Promise((resolve) => {
+      if (!window.google || !window.google.maps || !window.google.maps.Geocoder) {
+        resolve({ 
+          formattedAddress: `${lat.toFixed(6)}, ${lng.toFixed(6)}`,
+          parts: {} 
+        })
+        return
+      }
+      const geocoder = new window.google.maps.Geocoder()
+      geocoder.geocode({ location: { lat, lng } }, (results, status) => {
+        if (status === "OK" && results[0]) {
+          const components = results[0].address_components
+          const parts = {
+            addressLine1: "",
+            area: "",
+            city: "",
+            state: "",
+            pincode: "",
+            landmark: ""
+          }
+          
+          components.forEach(comp => {
+            const types = comp.types
+            if (types.includes("premise") || types.includes("street_number") || types.includes("route") || types.includes("sublocality_level_3")) {
+              parts.addressLine1 += (parts.addressLine1 ? ", " : "") + comp.long_name
+            }
+            if (types.includes("sublocality_level_1") || types.includes("sublocality_level_2") || types.includes("neighborhood")) {
+              parts.area = comp.long_name
+            }
+            if (types.includes("locality")) {
+              parts.city = comp.long_name
+            }
+            if (types.includes("administrative_area_level_1")) {
+              parts.state = comp.long_name
+            }
+            if (types.includes("postal_code")) {
+              parts.pincode = comp.long_name
+            }
+          })
+          
+          resolve({ 
+            formattedAddress: results[0].formatted_address, 
+            parts 
+          })
+        } else {
+          resolve({ 
+            formattedAddress: `${lat.toFixed(6)}, ${lng.toFixed(6)}`,
+            parts: {} 
+          })
+        }
+      })
+    })
+  }
+
+  const handleLocationSelect = async (lat, lng) => {
+    // Use geocoding to get address
+    const result = await getAddressFromCoords(lat, lng)
+    const { formattedAddress, parts } = result
+    
+    setLocationSearch(formattedAddress)
+    setSelectedAddress(formattedAddress)
+    setAddressParts(parts)
+    setSelectedLocation({ lat, lng, address: formattedAddress })
+    updateMarker(lat, lng, formattedAddress)
+  }
+
+  const fetchZones = async () => {
+    try {
+      const response = await zoneAPI.getPublicZones()
+      const list = response?.data?.data?.zones || response?.data?.zones || []
+      setZones(Array.isArray(list) ? list : [])
+    } catch (error) {
+      debugError("Error fetching zones:", error)
     }
   }
 
@@ -228,24 +324,89 @@ export default function ZoneSetup() {
       debugLog("? Map initialized successfully")
 
       // Add click listener to place marker
-      map.addListener('click', (event) => {
-        const lat = event.latLng.lat()
-        const lng = event.latLng.lng()
-        // Maps geocode API disabled - use coordinates as address (no external API call)
-        const address = `${lat.toFixed(6)}, ${lng.toFixed(6)}`
-        setLocationSearch(address)
-        setSelectedAddress(address)
-        setSelectedLocation({ lat, lng, address })
-        updateMarker(lat, lng, address)
+      map.addListener('click', async (event) => {
+        handleLocationSelect(event.latLng.lat(), event.latLng.lng())
       })
 
       setMapLoading(false)
       debugLog("? Map loading complete")
+
+      // Draw zones if they are already loaded
+      if (zones.length > 0) {
+        drawZonesOnMap(google, map)
+      }
     } catch (error) {
       debugError("? Error in initializeMap:", error)
       setMapLoading(false)
       alert("Failed to initialize map. Please refresh the page.")
     }
+  }
+
+  // Effect to draw zones when map is ready and zones are loaded
+  useEffect(() => {
+    if (!mapLoading && mapInstanceRef.current && zones.length > 0 && window.google) {
+      drawZonesOnMap(window.google, mapInstanceRef.current)
+    }
+  }, [zones, mapLoading])
+
+  const drawZonesOnMap = (google, map) => {
+    if (!zones || zones.length === 0) return
+
+    // Clear previous polygons
+    zonesPolygonsRef.current.forEach(polygon => {
+      if (polygon) polygon.setMap(null)
+    })
+    zonesPolygonsRef.current = []
+
+    zones.forEach((zone) => {
+      if (!zone.coordinates || zone.coordinates.length < 3) return
+
+      // Convert coordinates to LatLng array
+      const path = zone.coordinates.map(coord => {
+        const lat = typeof coord === 'object' ? (coord.latitude || coord.lat) : null
+        const lng = typeof coord === 'object' ? (coord.longitude || coord.lng) : null
+        if (lat === null || lng === null) return null
+        return new google.maps.LatLng(lat, lng)
+      }).filter(Boolean)
+
+      if (path.length < 3) return
+
+      // Create polygon for zone
+      const polygon = new google.maps.Polygon({
+        paths: path,
+        strokeColor: "#3b82f6", // Blue color
+        strokeOpacity: 0.6,
+        strokeWeight: 2,
+        fillColor: "#3b82f6",
+        fillOpacity: 0.15,
+        editable: false,
+        draggable: false,
+        clickable: true,
+        zIndex: 1
+      })
+
+      polygon.setMap(map)
+      zonesPolygonsRef.current.push(polygon)
+
+      // Add info window on click
+      const infoWindow = new google.maps.InfoWindow({
+        content: `
+          <div style="padding: 8px;">
+            <strong style="display: block; margin-bottom: 4px; color: #1e3a8a;">${zone.name || zone.zoneName || 'Unnamed Zone'}</strong>
+            <span style="font-size: 11px; color: #6b7280;">Service Area</span>
+          </div>
+        `
+      })
+
+      polygon.addListener('click', (event) => {
+        // Drop pin first
+        handleLocationSelect(event.latLng.lat(), event.latLng.lng())
+        
+        // Then show info window
+        infoWindow.setPosition(event.latLng)
+        infoWindow.open(map)
+      })
+    })
   }
 
   const updateMarker = (lat, lng, address) => {
@@ -280,11 +441,13 @@ export default function ZoneSetup() {
     })
 
     // Update location when marker is dragged
-    marker.addListener('dragend', (event) => {
+    marker.addListener('dragend', async (event) => {
       const newLat = event.latLng.lat()
       const newLng = event.latLng.lng()
-      // Maps geocode API disabled - use coordinates as address (no external API call)
-      const newAddress = `${newLat.toFixed(6)}, ${newLng.toFixed(6)}`
+      
+      // Use geocoding to get address
+      const newAddress = await getAddressFromCoords(newLat, newLng)
+      
       setLocationSearch(newAddress)
       setSelectedAddress(newAddress)
       setSelectedLocation({ lat: newLat, lng: newLng, address: newAddress })
@@ -315,40 +478,108 @@ export default function ZoneSetup() {
     return parts.length > 0 ? parts.join(", ") : ""
   }
 
-  const handleSaveLocation = async () => {
+  const handleSaveLocation = () => {
     if (!selectedLocation) {
       alert("Please select a location on the map first")
       return
     }
+    proceedSave()
+  }
 
+  const proceedSave = async () => {
     try {
       setSaving(true)
       
       const { lat, lng, address } = selectedLocation
+
+      // Calculate current zone name if possible
+      const currentZone = zones.find(z => {
+        if (!window.google || !z.coordinates || z.coordinates.length < 3) return false
+        const path = z.coordinates.map(c => new window.google.maps.LatLng(c.latitude || c.lat, c.longitude || c.lng))
+        const polygon = new window.google.maps.Polygon({ paths: path })
+        return window.google.maps.geometry.poly.containsLocation(new window.google.maps.LatLng(lat, lng), polygon)
+      })
       
-      // Update restaurant location
-      const response = await restaurantAPI.updateProfile({
+      // Update restaurant location and trigger re-verification
+      const payload = {
+        // Top level address fields for DB update
+        addressLine1: addressParts.addressLine1 || address.split(',')[0] || "",
+        area: addressParts.area || "",
+        city: addressParts.city || "",
+        state: addressParts.state || "",
+        pincode: addressParts.pincode || "",
+        formattedAddress: address,
+        zoneId: currentZone?._id || currentZone?.id || null, // Critical: Update the zone ID in DB
+        
         location: {
           ...(restaurantData?.location || {}),
+          type: "Point",
           latitude: lat,
           longitude: lng,
           coordinates: [lng, lat], // GeoJSON format: [longitude, latitude]
-          formattedAddress: address
-        }
-      })
+          formattedAddress: address,
+          address: address // Some schemas use 'address' inside location
+        },
+        // Meta data for admin review
+        reVerification: {
+          isZoneUpdate: true,
+          previousAddress: restaurantData?.location?.formattedAddress || restaurantData?.address || "",
+          previousLocation: {
+            latitude: restaurantData?.location?.latitude,
+            longitude: restaurantData?.location?.longitude
+          },
+          previousZoneId: restaurantData?.zoneId || null,
+          previousZone: restaurantData?.zone || restaurantData?.zoneName || "",
+          updatedZone: currentZone?.name || currentZone?.zoneName || "",
+          reVerificationReason: (currentZone?.name || currentZone?.zoneName) !== (restaurantData?.zone || restaurantData?.zoneName) 
+            ? "Zone and Address Update" 
+            : "Location Address Update"
+        },
+        status: "pending", // Force pending status for re-approval
+        isActive: false,     // Deactivate until approval
 
-      if (response?.data?.data?.restaurant) {
-        setRestaurantData(response.data.data.restaurant)
-        alert("Location saved successfully!")
+        // Update onboarding data as well, as admin panel/backend might prioritize it for pending requests
+        onboarding: {
+          ...(restaurantData?.onboarding || {}),
+          step1: {
+            ...(restaurantData?.onboarding?.step1 || {}),
+            location: {
+              ...(restaurantData?.onboarding?.step1?.location || {}),
+              latitude: lat,
+              longitude: lng,
+              coordinates: [lng, lat],
+              formattedAddress: address,
+              addressLine1: addressParts.addressLine1 || address.split(',')[0] || "",
+              area: addressParts.area || "",
+              city: addressParts.city || "",
+              state: addressParts.state || "",
+              pincode: addressParts.pincode || ""
+            }
+          }
+        }
+      }
+
+      setReVerificationData(payload.reVerification)
+      const response = await restaurantAPI.updateProfile(payload)
+
+      if (response?.data?.success) {
+        toast.success("Location updated! Logging out for re-verification...")
         
-        // Refresh the page to update navbar
-        window.location.reload()
+        // Delay logout slightly to let user see the toast
+        const phone = restaurantData?.ownerPhone || ""
+        setTimeout(() => {
+          clearAuthData("restaurant")
+          navigate("/food/restaurant/pending-verification", { 
+            replace: true,
+            state: { phone } 
+          });
+        }, 1500)
       } else {
-        throw new Error("Failed to save location")
+        throw new Error("Failed to submit location update")
       }
     } catch (error) {
       debugError("Error saving location:", error)
-      alert(error.response?.data?.message || "Failed to save location. Please try again.")
+      toast.error(error.response?.data?.message || "Failed to save location. Please try again.")
     } finally {
       setSaving(false)
     }
@@ -449,7 +680,17 @@ export default function ZoneSetup() {
           )}
         </div>
       </div>
+
+      {/* Loading Overlay */}
+      {saving && (
+        <div className="fixed inset-0 bg-black/50 z-[9999] flex items-center justify-center backdrop-blur-sm">
+          <div className="bg-white p-8 rounded-2xl shadow-2xl flex flex-col items-center">
+            <Loader2 className="w-12 h-12 text-red-500 animate-spin mb-4" />
+            <p className="text-gray-900 font-bold text-lg">Saving Location...</p>
+            <p className="text-gray-500 text-sm">Please wait while we update your details</p>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
-

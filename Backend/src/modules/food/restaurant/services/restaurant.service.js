@@ -1,10 +1,15 @@
 import { FoodRestaurant } from '../models/restaurant.model.js';
+import { FoodRestaurantOutletTimings } from '../models/outletTimings.model.js';
 import { uploadImageBuffer } from '../../../../services/cloudinary.service.js';
 import { ValidationError } from '../../../../core/auth/errors.js';
 import mongoose from 'mongoose';
 import { FoodZone } from '../../admin/models/zone.model.js';
 import { FoodOffer } from '../../admin/models/offer.model.js';
 import { getRestaurantDiningSnapshot, submitRestaurantDiningRequest } from '../../dining/services/dining.service.js';
+import { 
+    notifyAdminsSafely, 
+    notifyOwnerSafely 
+} from '../../../../core/notifications/firebase.service.js';
 
 const normalizeName = (value) =>
     String(value || '')
@@ -147,17 +152,17 @@ const toRestaurantProfile = (doc) => {
         ownerEmail: doc.ownerEmail || '',
         ownerPhone: doc.ownerPhone || '',
         primaryContactNumber: doc.primaryContactNumber || '',
-        panNumber: doc.panNumber || '',
+        panNumber: doc.panNumber || doc.pan || '',
         nameOnPan: doc.nameOnPan || '',
-        panImage: doc.panImage ? { url: doc.panImage } : null,
+        panImage: (doc.panImage || doc.pan_image) ? { url: (doc.panImage || doc.pan_image) } : null,
         gstRegistered: Boolean(doc.gstRegistered),
-        gstNumber: doc.gstNumber || '',
+        gstNumber: doc.gstNumber || doc.gst || '',
         gstLegalName: doc.gstLegalName || '',
         gstAddress: doc.gstAddress || '',
-        gstImage: doc.gstImage ? { url: doc.gstImage } : null,
-        fssaiNumber: doc.fssaiNumber || '',
-        fssaiExpiry: doc.fssaiExpiry || null,
-        fssaiImage: doc.fssaiImage ? { url: doc.fssaiImage } : null,
+        gstImage: (doc.gstImage || doc.gst_image) ? { url: (doc.gstImage || doc.gst_image) } : null,
+        fssaiNumber: doc.fssaiNumber || doc.fssai || '',
+        fssaiExpiry: doc.fssaiExpiry || doc.fssai_expiry || null,
+        fssaiImage: (doc.fssaiImage || doc.fssai_image) ? { url: (doc.fssaiImage || doc.fssai_image) } : null,
         accountNumber: doc.accountNumber || '',
         ifscCode: doc.ifscCode || '',
         accountHolderName: doc.accountHolderName || '',
@@ -409,6 +414,24 @@ export const registerRestaurant = async (payload, files) => {
             ...images
         });
 
+        const daysOfWeek = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+        const shortDaysMap = { Mon: "Monday", Tue: "Tuesday", Wed: "Wednesday", Thu: "Thursday", Fri: "Friday", Sat: "Saturday", Sun: "Sunday" };
+        const normalizedOpenDays = (openDays || []).map(d => shortDaysMap[d] || d);
+        const timingsArray = daysOfWeek.map(day => {
+            const isOpen = normalizedOpenDays.includes(day);
+            return {
+                day,
+                isOpen,
+                openingTime: normalizedOpeningTime || '',
+                closingTime: normalizedClosingTime || ''
+            };
+        });
+
+        await FoodRestaurantOutletTimings.create({
+            restaurantId: restaurant._id,
+            timings: timingsArray
+        });
+
         try {
             const { notifyAdminsSafely } = await import('../../../../core/notifications/firebase.service.js');
             void notifyAdminsSafely({
@@ -475,6 +498,17 @@ export const getCurrentRestaurantProfile = async (restaurantId) => {
                 'diningSettings',
                 'isAcceptingOrders',
                 'status',
+                'fssaiNumber',
+                'fssaiExpiry',
+                'gstNumber',
+                'gstRegistered',
+                'gstLegalName',
+                'gstAddress',
+                'panNumber',
+                'nameOnPan',
+                'fssaiImage',
+                'gstImage',
+                'panImage',
                 'createdAt',
                 'updatedAt'
             ].join(' ')
@@ -556,7 +590,7 @@ export const updateRestaurantProfile = async (restaurantId, body = {}) => {
     }
 
     const currentRestaurant = await FoodRestaurant.findById(restaurantId)
-        .select('restaurantName restaurantNameNormalized ownerPhone ownerPhoneDigits ownerPhoneLast10 primaryContactNumber status')
+        .select('restaurantName restaurantNameNormalized ownerPhone ownerPhoneDigits ownerPhoneLast10 primaryContactNumber status fssaiNumber fssaiImage')
         .lean();
 
     if (!currentRestaurant) {
@@ -829,6 +863,24 @@ export const updateRestaurantProfile = async (restaurantId, body = {}) => {
     if (body.gstImage !== undefined) {
         update.gstImage = toUrl(body.gstImage) || '';
     }
+
+    // FSSAI Re-verification Flow
+    let fssaiChanged = false;
+    if (body.fssaiNumber !== undefined && String(body.fssaiNumber || '').trim() !== String(currentRestaurant.fssaiNumber || '').trim()) {
+        fssaiChanged = true;
+    }
+    if (body.fssaiImage !== undefined && String(body.fssaiImage || '').trim() !== String(currentRestaurant.fssaiImage || '').trim()) {
+        fssaiChanged = true;
+    }
+
+    if (fssaiChanged) {
+        update.status = 'pending';
+        update.reVerification = {
+            ...currentRestaurant.reVerification,
+            reVerificationReason: 'FSSAI License Update'
+        };
+    }
+
     if (body.fssaiNumber !== undefined) {
         update.fssaiNumber = String(body.fssaiNumber || '').trim();
     }
@@ -848,11 +900,31 @@ export const updateRestaurantProfile = async (restaurantId, body = {}) => {
         update.fssaiImage = toUrl(body.fssaiImage) || '';
     }
 
+    if (body.reVerification !== undefined) {
+        update.reVerification = {
+            isZoneUpdate: body.reVerification.isZoneUpdate === true,
+            previousAddress: String(body.reVerification.previousAddress || '').trim(),
+            previousLocation: {
+                latitude: toFiniteNumber(body.reVerification.previousLocation?.latitude),
+                longitude: toFiniteNumber(body.reVerification.previousLocation?.longitude)
+            },
+            previousZoneId: body.reVerification.previousZoneId && mongoose.Types.ObjectId.isValid(body.reVerification.previousZoneId)
+                ? new mongoose.Types.ObjectId(body.reVerification.previousZoneId)
+                : undefined,
+            previousZone: String(body.reVerification.previousZone || '').trim(),
+            updatedZone: String(body.reVerification.updatedZone || '').trim(),
+            reVerificationReason: String(body.reVerification.reVerificationReason || 'Zone Update').trim()
+        };
+    }
+
+
     if (!Object.keys(update).length) {
         return getCurrentRestaurantProfile(restaurantId);
     }
 
-    update.status = 'pending';
+    if (body.reVerification !== undefined) {
+        update.status = 'pending';
+    }
 
     try {
         const doc = await FoodRestaurant.findByIdAndUpdate(
@@ -912,18 +984,45 @@ export const updateRestaurantProfile = async (restaurantId, body = {}) => {
                     'upiQrImage',
                     'estimatedDeliveryTime',
                     'estimatedDeliveryTimeMinutes',
-                    'zoneId'
+                    'zoneId',
+                    'reVerification'
                 ].join(' ')
             }
         ).lean();
 
-        if (currentRestaurant.status !== 'pending') {
+        if (fssaiChanged) {
+            // Notify Admin
+            void notifyAdminsSafely({
+                title: 'FSSAI License Update',
+                body: `Restaurant "${doc.restaurantName}" has updated their FSSAI license and is pending re-verification.`,
+                data: {
+                    type: 'RE_VERIFICATION',
+                    subType: 'FSSAI_UPDATE',
+                    restaurantId: String(restaurantId)
+                }
+            });
+            // Notify Owner (Mobile/Web Push)
+            void notifyOwnerSafely({
+                ownerType: 'RESTAURANT',
+                ownerId: String(restaurantId),
+                payload: {
+                    title: 'FSSAI Updated',
+                    body: 'Your FSSAI license has been updated. Your account is now pending re-verification and you have been logged out for security.',
+                    data: { type: 'FSSAI_UPDATE' }
+                }
+            });
+        } else if (currentRestaurant.status !== 'pending') {
             const restaurantNameForNotification =
                 update.restaurantName || currentRestaurant.restaurantName || doc?.restaurantName;
             void notifyAdminsAboutRestaurantProfileReview(restaurantId, restaurantNameForNotification);
         }
 
-        return toRestaurantProfile(doc);
+        const profile = toRestaurantProfile(doc);
+        if (fssaiChanged) {
+            profile.requireLogout = true;
+            profile.logoutReason = 'fssai_update';
+        }
+        return profile;
     } catch (err) {
         if (err && err.code === 11000) {
             throw new ValidationError('A restaurant with this name and phone already exists');
@@ -941,7 +1040,6 @@ export const uploadRestaurantProfileImage = async (restaurantId, file) => {
         .lean();
     if (!currentRestaurant) throw new ValidationError('Restaurant not found');
 
-    const url = await uploadImageBuffer(file.buffer, 'food/restaurants/profile');
     const doc = await FoodRestaurant.findByIdAndUpdate(
         restaurantId,
         {

@@ -57,14 +57,12 @@ const resolveRestaurantBackPath = ({ pathname, state }) => {
 
   if (
     normalizedPath === "/edit-owner" ||
-    normalizedPath === "/edit-cuisines" ||
     normalizedPath === "/edit-address" ||
     normalizedPath === "/phone" ||
     normalizedPath === "/manage-outlets" ||
     normalizedPath === "/update-bank-details" ||
     normalizedPath === "/fssai" ||
     normalizedPath === "/fssai/update" ||
-    normalizedPath === "/outlet-info" ||
     normalizedPath === "/outlet-timings" ||
     /^\/outlet-timings\/[^/]+$/.test(normalizedPath) ||
     normalizedPath === "/zone-setup"
@@ -72,15 +70,25 @@ const resolveRestaurantBackPath = ({ pathname, state }) => {
     return explicitBackPath || "/food/restaurant/outlet-info"
   }
 
+  if (normalizedPath === "/outlet-info") {
+    return explicitBackPath || "/food/restaurant/explore"
+  }
+
   if (
     normalizedPath === "/settings" ||
     normalizedPath === "/delivery-settings" ||
     normalizedPath === "/rush-hour" ||
     normalizedPath === "/status" ||
-    normalizedPath === "/menu-categories" ||
-    normalizedPath === "/terms"
+    normalizedPath === "/menu-categories"
   ) {
     return explicitBackPath || "/food/restaurant"
+  }
+
+  if (
+    normalizedPath === "/terms" ||
+    normalizedPath === "/privacy"
+  ) {
+    return explicitBackPath || "/food/restaurant/explore"
   }
 
   if (

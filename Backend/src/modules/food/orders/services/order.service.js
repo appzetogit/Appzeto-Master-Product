@@ -1,3 +1,4 @@
+// Order Service - Backend Logic
 import mongoose from 'mongoose';
 import { FoodOrder, FoodSettings } from '../models/order.model.js';
 // import { paymentSnapshotFromOrder } from './foodOrderPayment.service.js';
@@ -728,59 +729,12 @@ async function applyAggregateRating(model, entityId, newRating) {
   await doc.save();
 }
 
-const COMMISSION_CACHE_MS = 10 * 1000;
-let commissionRulesCache = null;
-let commissionRulesLoadedAt = 0;
-
-async function getActiveCommissionRules() {
-  const now = Date.now();
-  if (
-    commissionRulesCache &&
-    now - commissionRulesLoadedAt < COMMISSION_CACHE_MS
-  ) {
-    return commissionRulesCache;
-  }
-  const list = await FoodDeliveryCommissionRule.find({
-    status: { $ne: false },
-  }).lean();
-  commissionRulesCache = list || [];
-  commissionRulesLoadedAt = now;
-  return commissionRulesCache;
-}
+// 🗑️ Moved to foodTransaction.service.js to centralize finance logic.
 
 // 🗑️ Moved to foodTransaction.service.js to centralize finance logic.
 
 
-async function getRiderEarning(distanceKm) {
-  const d = Number(distanceKm);
-  if (!Number.isFinite(d) || d <= 0) return 0;
-  const rules = await getActiveCommissionRules();
-  if (!rules.length) return 0;
 
-  const sorted = [...rules].sort(
-    (a, b) => (a.minDistance || 0) - (b.minDistance || 0),
-  );
-  const baseRule = sorted.find((r) => Number(r.minDistance || 0) === 0) || null;
-  if (!baseRule) return 0;
-
-  let earning = Number(baseRule.basePayout || 0);
-
-  for (const r of sorted) {
-    const perKm = Number(r.commissionPerKm || 0);
-    if (!Number.isFinite(perKm) || perKm <= 0) continue;
-    const min = Number(r.minDistance || 0);
-    const max = r.maxDistance == null ? null : Number(r.maxDistance);
-    if (d <= min) continue;
-    const upper = max == null ? d : Math.min(d, max);
-    const kmInSlab = Math.max(0, upper - min);
-    if (kmInSlab > 0) {
-      earning += kmInSlab * perKm;
-    }
-  }
-
-  if (!Number.isFinite(earning) || earning <= 0) return 0;
-  return Math.round(earning);
-}
 
 /** Append-only food_order_payments row; never blocks main flow on failure */
 // 🗑️ Deprecated in favor of FoodTransaction system.
@@ -914,6 +868,7 @@ function emitOrderClaimedToOtherPartners(order, {
 }
 
 function canExposeOrderToRestaurant(orderLike) {
+  if (orderLike?.orderStatus === "scheduled") return false;
   const method = String(orderLike?.payment?.method || "").toLowerCase();
   const status = String(orderLike?.payment?.status || "").toLowerCase();
 
@@ -926,6 +881,7 @@ function canExposeOrderToRestaurant(orderLike) {
 async function notifyRestaurantNewOrder(orderDoc) {
   try {
     if (!orderDoc || !canExposeOrderToRestaurant(orderDoc)) return;
+    if (orderDoc.orderStatus === "scheduled") return;
 
     const io = getIO();
     if (io) {
@@ -1071,6 +1027,7 @@ async function upsertSellerOrdersForParent(orderDoc, options = {}) {
 async function notifySellerNewOrders(orderDoc, sellerOrders = []) {
   try {
     if (!orderDoc || !canExposeOrderToRestaurant(orderDoc) || !sellerOrders.length) return;
+    if (orderDoc.orderStatus === "scheduled") return;
 
     const io = getIO();
     for (const sellerOrder of sellerOrders) {
@@ -1360,6 +1317,39 @@ export async function notifySplitDispatchOffersForOrder(orderId) {
   }
 
   await notifySplitDispatchOffers(order);
+  return { success: true };
+}
+
+/** Triggered by BullMQ 15 minutes before scheduledAt. */
+export async function processScheduledOrderNotification(orderMongoId) {
+  const order = await FoodOrder.findById(orderMongoId);
+  if (!order) return { success: false, reason: "Order not found" };
+
+  // If order was cancelled or already confirmed, skip
+  if (order.orderStatus !== "scheduled") {
+    return { success: false, reason: `Order is in ${order.orderStatus} status` };
+  }
+
+  // Update status to 'placed' (which is the state for orders waiting restaurant action)
+  order.orderStatus = "placed";
+  pushStatusHistory(order, {
+    byRole: "SYSTEM",
+    from: "scheduled",
+    to: "placed",
+    note: "Scheduled order activated for restaurant review (15m window reached)",
+  });
+  await order.save();
+
+  // Now trigger the actual notifications
+  await notifyRestaurantNewOrder(order);
+  
+  const sellerOrders = order.orderType === "quick" || order.orderType === "mixed" 
+    ? await upsertSellerOrdersForParent(order)
+    : [];
+  if (sellerOrders.length > 0) {
+    await notifySellerNewOrders(order, sellerOrders);
+  }
+
   return { success: true };
 }
 
@@ -1818,8 +1808,8 @@ export async function createOrder(userId, dto) {
   }
 
   const riderEarning =
-    orderType === "food" || (orderType === "mixed" && dispatchStrategy === "single")
-      ? await getRiderEarning(distanceKm)
+    orderType === "food" || orderType === "quick" || orderType === "mixed"
+      ? await foodTransactionService.getRiderEarning(distanceKm)
       : 0;
 
   const activeFeeSettings =
@@ -1919,7 +1909,7 @@ export async function createOrder(userId, dto) {
     ...(deliveryAddress ? { deliveryAddress } : {}),
     pricing: normalizedPricing,
     payment,
-    orderStatus: "created",
+    orderStatus: dto.scheduledAt ? "scheduled" : "created",
     ...(orderType === "food" || orderType === "mixed"
       ? { dispatch: { modeAtCreation: dispatchMode, status: "unassigned" } }
       : {}),
@@ -2028,6 +2018,21 @@ export async function createOrder(userId, dto) {
     if (hasQuickItems) {
       await notifySellerNewOrders(order, sellerOrders);
     }
+
+    // Schedule delayed notification if it's a scheduled order
+    if (order.orderStatus === "scheduled" && order.scheduledAt) {
+      const now = Date.now();
+      const scheduledTime = new Date(order.scheduledAt).getTime();
+      const notificationTime = scheduledTime - 15 * 60 * 1000;
+      const delay = Math.max(0, notificationTime - now);
+
+      enqueueOrderEvent("NOTIFY_SCHEDULED_ORDER", {
+        orderId: order.orderId,
+        orderMongoId: order._id.toString(),
+      }, { delay });
+      
+      logger.info(`Scheduled notification for order ${order.orderId} with delay of ${delay}ms`);
+    }
   } catch {
     // Don't block order placement on socket failures.
   }
@@ -2093,7 +2098,7 @@ export async function verifyPayment(userId, dto) {
     byRole: "USER",
     byId: userId,
     from: order.orderStatus,
-    to: "created",
+    to: order.orderStatus === "scheduled" ? "scheduled" : "created",
     note: "Payment verified",
   });
   await order.save();
@@ -2113,6 +2118,21 @@ export async function verifyPayment(userId, dto) {
   if (order.orderType === "quick" || order.orderType === "mixed") {
     const sellerOrders = await upsertSellerOrdersForParent(order);
     await notifySellerNewOrders(order, sellerOrders);
+  }
+
+  // Schedule delayed notification if it's a scheduled order and payment is now verified
+  if (order.orderStatus === "scheduled" && order.scheduledAt) {
+    const now = Date.now();
+    const scheduledTime = new Date(order.scheduledAt).getTime();
+    const notificationTime = scheduledTime - 15 * 60 * 1000;
+    const delay = Math.max(0, notificationTime - now);
+
+    enqueueOrderEvent("NOTIFY_SCHEDULED_ORDER", {
+      orderId: order.orderId,
+      orderMongoId: order._id.toString(),
+    }, { delay });
+    
+    logger.info(`Scheduled notification for verified order ${order.orderId} with delay of ${delay}ms`);
   }
 
   // Notify Customer about payment success
@@ -2438,6 +2458,9 @@ export async function cancelOrder(orderId, userId, reason, refundTo) {
       reason: reason || "",
       processedAt: null,
     };
+  } else if (!["paid", "refunded"].includes(order.payment.status)) {
+    // For COD or unpaid online orders, mark payment as cancelled
+    order.payment.status = "cancelled";
   }
 
   // User-cancelled online refunds are handled from admin so the 30-second policy can be enforced.
@@ -2706,6 +2729,11 @@ export async function updateOrderStatusRestaurant(
       
       title = "Order Cancelled ❌";
       body = `Unfortunately, your order has been cancelled by the restaurant.${refundDetail}`;
+      
+      // Update payment status for cancellation
+      if (!isOnlinePaid) {
+        order.payment.status = "cancelled";
+      }
     }
 
     const notifyList = [
@@ -2982,8 +3010,12 @@ export async function resendDeliveryNotificationRestaurant(orderId, restaurantId
         await notifySplitDispatchOffers(order);
     } else {
         // Trigger smart dispatch logic immediately
-        const { tryAutoAssign } = await import('./order.service.js');
-        await tryAutoAssign(order._id);
+        const { tryAutoAssign } = await import('./order-dispatch.service.js');
+        const dispatchRes = await tryAutoAssign(order._id, { attempt: 3 });
+        return { 
+          success: true, 
+          notifiedCount: dispatchRes?.notifiedCount || 0 
+        };
     }
 
     return { success: true };
@@ -3626,14 +3658,13 @@ export async function completeDelivery(orderId, deliveryPartnerId, body = {}) {
     throw new ForbiddenError("Not your order");
   }
 
-  const { otp, ratings } = body;
+  const { otp, ratings, paymentMode } = body;
 
-  // Inline verification if OTP is passed in body but not yet verified in DB
-  if (otp && order.deliveryVerification?.dropOtp?.required && !order.deliveryVerification?.dropOtp?.verified) {
-     // We can refetch with secret to verify, but for robustness against racing calls, 
-     // we assume the prior verify-otp call did its job. 
-     // If we really want security, we'd verify here too.
-     // For now, let's just proceed if 'verified' is false but OTP provided.
+  // Dynamically update payment method based on delivery partner selection
+  if (paymentMode === 'cash') {
+    order.payment.method = 'cash';
+  } else if (paymentMode === 'qr') {
+    order.payment.method = 'razorpay_qr';
   }
 
   if (
@@ -3981,24 +4012,22 @@ export async function getPaymentStatus(orderId, deliveryPartnerId) {
 export async function listOrdersAdmin(query) {
   const { page, limit, skip } = buildPaginationOptions(query);
   const filter = {
+    orderType: { $in: ["food", "mixed"] },
     $or: [
       { "payment.method": { $in: ["cash", "wallet"] } },
       { "payment.status": { $in: ["paid", "authorized", "captured", "settled", "refunded"] } },
     ],
   };
 
-  const rawStatus =
-    typeof query.status === "string" ? query.status.trim().toLowerCase() : "";
-  const cancelledBy =
-    typeof query.cancelledBy === "string"
-      ? query.cancelledBy.trim().toLowerCase()
-      : "";
-  const restaurantIdRaw =
-    typeof query.restaurantId === "string" ? query.restaurantId.trim() : "";
-  const startDateRaw =
-    typeof query.startDate === "string" ? query.startDate.trim() : "";
-  const endDateRaw =
-    typeof query.endDate === "string" ? query.endDate.trim() : "";
+  // Extract raw query params
+  const rawStatus = typeof query.status === "string" ? query.status.trim().toLowerCase() : "";
+  const cancelledBy = typeof query.cancelledBy === "string" ? query.cancelledBy.trim().toLowerCase() : "";
+  const restaurantIdRaw = typeof query.restaurantId === "string" ? query.restaurantId.trim() : "";
+  const zoneIdRaw = typeof query.zoneId === "string" ? query.zoneId.trim() : "";
+  const userIdRaw = typeof query.userId === "string" ? query.userId.trim() : "";
+  const startDateRaw = typeof query.startDate === "string" ? query.startDate.trim() : "";
+  const endDateRaw = typeof query.endDate === "string" ? query.endDate.trim() : "";
+  const search = typeof query.search === "string" ? query.search.trim() : "";
 
   if (rawStatus && rawStatus !== "all") {
     switch (rawStatus) {
@@ -4020,11 +4049,7 @@ export async function listOrdersAdmin(query) {
       case "canceled":
       case "cancelled":
         filter.orderStatus = {
-          $in: [
-            "cancelled_by_user",
-            "cancelled_by_restaurant",
-            "cancelled_by_admin",
-          ],
+          $in: ["cancelled_by_user", "cancelled_by_restaurant", "cancelled_by_admin"],
         };
         break;
       case "restaurant-cancelled":
@@ -4043,8 +4068,6 @@ export async function listOrdersAdmin(query) {
       case "scheduled":
         filter.scheduledAt = { $ne: null };
         break;
-      default:
-        break;
     }
   }
 
@@ -4056,10 +4079,18 @@ export async function listOrdersAdmin(query) {
     }
   }
 
+  // ID based filters
   if (restaurantIdRaw && mongoose.Types.ObjectId.isValid(restaurantIdRaw)) {
     filter.restaurantId = new mongoose.Types.ObjectId(restaurantIdRaw);
   }
+  if (zoneIdRaw && mongoose.Types.ObjectId.isValid(zoneIdRaw)) {
+    filter.zoneId = new mongoose.Types.ObjectId(zoneIdRaw);
+  }
+  if (userIdRaw && mongoose.Types.ObjectId.isValid(userIdRaw)) {
+    filter.userId = new mongoose.Types.ObjectId(userIdRaw);
+  }
 
+  // Date filters
   if (startDateRaw || endDateRaw) {
     const createdAt = {};
     const start = startDateRaw ? new Date(startDateRaw) : null;
@@ -4068,11 +4099,47 @@ export async function listOrdersAdmin(query) {
       createdAt.$gte = start;
     }
     if (end && !Number.isNaN(end.getTime())) {
+      // Set to end of day
+      end.setHours(23, 59, 59, 999);
       createdAt.$lte = end;
     }
     if (Object.keys(createdAt).length > 0) {
       filter.createdAt = createdAt;
     }
+  }
+
+  // Search logic
+  if (search) {
+    // Search by Order ID (exact or partial regex)
+    const searchConditions = [
+      { orderId: { $regex: search, $options: "i" } }
+    ];
+
+    // If search looks like a name, we need to find matching users and restaurants first
+    const [matchingUsers, matchingRestaurants] = await Promise.all([
+      FoodUser.find({ name: { $regex: search, $options: "i" } }).select('_id').lean(),
+      FoodRestaurant.find({ restaurantName: { $regex: search, $options: "i" } }).select('_id').lean()
+    ]);
+
+    if (matchingUsers.length > 0) {
+      searchConditions.push({ userId: { $in: matchingUsers.map(u => u._id) } });
+    }
+    if (matchingRestaurants.length > 0) {
+      searchConditions.push({ restaurantId: { $in: matchingRestaurants.map(r => r._id) } });
+    }
+
+    // Combine base filter with search conditions
+    // We use $and to ensure both the visibility/status filters AND the search conditions are met
+    const originalFilter = { ...filter };
+    delete filter.$or; // We'll reconstruct it
+
+    filter.$and = [
+      { $or: originalFilter.$or }, // Visibility filters
+      { $or: searchConditions }   // Search conditions
+    ];
+    
+    // Copy other specific filters into $and if needed, but since they are already in `filter` object, 
+    // we should be careful. Actually, it's better to just keep them as they are and let Mongo handle it.
   }
 
   const [docs, total] = await Promise.all([
@@ -4086,6 +4153,7 @@ export async function listOrdersAdmin(query) {
       .lean(),
     FoodOrder.countDocuments(filter),
   ]);
+
   const paginated = buildPaginatedResult({ docs, total, page, limit });
   return { ...paginated, orders: paginated.data };
 }
@@ -4248,6 +4316,48 @@ export async function recoverStuckOrders() {
     logger.error(`Watchdog Error during recovery: ${err.message}`);
   }
 }
+
+/**
+ * 🆕 Resync State Helper:
+ * - When a client reconnects, they call this to get their active order state.
+ * - For Delivery Partners: returns the current trip details.
+ * - For Users: returns the most recent active order being prepared or delivered.
+ */
+export async function resyncState(userId, role) {
+  if (!userId || !role) return { activeOrder: null };
+
+  let activeOrder = null;
+
+  try {
+    const roleUpper = String(role).toUpperCase();
+    
+    if (roleUpper === 'DELIVERY_PARTNER') {
+      activeOrder = await getCurrentTripDelivery(userId);
+    } else if (roleUpper === 'USER') {
+      const order = await FoodOrder.findOne({
+        userId: new mongoose.Types.ObjectId(userId),
+        orderStatus: {
+          $in: ["placed", "created", "confirmed", "preparing", "ready_for_pickup", "picked_up", "reached_pickup", "reached_drop"]
+        }
+      })
+      .populate({ path: "restaurantId", select: "restaurantName name phone location addressLine1 area city state profileImage" })
+      .sort({ createdAt: -1 })
+      .lean();
+
+      if (order) {
+        activeOrder = normalizeOrderForClient(order);
+        if (order.deliveryVerification?.dropOtp?.required && !order.deliveryVerification?.dropOtp?.verified) {
+          activeOrder.handoverOtp = order.deliveryOtp;
+        }
+      }
+    }
+  } catch (err) {
+    logger.error(`resyncState failed for ${role}:${userId} — ${err.message}`);
+  }
+
+  return { activeOrder };
+}
+
 
 
 

@@ -251,6 +251,34 @@ export default function QuickSharedCart() {
 
           throw new Error("Payment verification failed");
         },
+        onClose: async () => {
+          try {
+            const cancelId = order?._id || order?.id || order?.orderId;
+            if (cancelId) {
+              await orderAPI.cancelOrder(cancelId, {
+                reason: "Payment Cancelled",
+                note: "User closed payment modal in Quick Cart",
+              });
+            }
+          } catch (err) {
+            console.error("Failed to cancel quick order after close", err);
+          }
+          setIsPlacingOrder(false);
+        },
+        onError: async (error) => {
+          try {
+            const cancelId = order?._id || order?.id || order?.orderId;
+            if (cancelId) {
+              await orderAPI.cancelOrder(cancelId, {
+                reason: "Payment Failed",
+                note: error?.message || "Payment failed in Quick Cart",
+              });
+            }
+          } catch (err) {
+            console.error("Failed to cancel quick order after error", err);
+          }
+          setIsPlacingOrder(false);
+        },
       });
     } catch (error) {
       console.error("Quick shared order failed", error);

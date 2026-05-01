@@ -1,11 +1,41 @@
-import { useState, useEffect } from "react"
-import { Phone, Save, Loader2, AlertCircle, CheckCircle2 } from "lucide-react"
+import { useState, useEffect, useMemo } from "react"
+import { Phone, Save, Loader2, AlertCircle, CheckCircle2, Ambulance, ShieldAlert, Siren, HeartPulse } from "lucide-react"
 import { adminAPI } from "@food/api"
 import { toast } from "sonner"
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
 
+/* ── Per-field validation rules ── */
+const FIELD_RULES = {
+  medicalEmergency: {
+    validate: (v) => /^\d{3}$/.test(v),
+    maxLen: 3,
+    errorMsg: "Must be exactly 3 digits (e.g. 108)",
+  },
+  accidentHelpline: {
+    validate: (v) => /^\d{3,4}$/.test(v),
+    maxLen: 4,
+    errorMsg: "Must be 3 or 4 digits (e.g. 112, 1073)",
+  },
+  contactPolice: {
+    validate: (v) => /^\d{3}$/.test(v),
+    maxLen: 3,
+    errorMsg: "Must be exactly 3 digits (e.g. 100)",
+  },
+  insurance: {
+    validate: (v) => /^\d{10}$/.test(v) || /^1800\d{7,8}$/.test(v),
+    maxLen: 12,
+    errorMsg: "Must be 10-digit mobile or toll-free (1800xxxxxxx)",
+  },
+}
+
+function validateField(fieldId, value) {
+  if (!value) return "" // empty is allowed (optional)
+  const rule = FIELD_RULES[fieldId]
+  if (!rule) return ""
+  return rule.validate(value) ? "" : rule.errorMsg
+}
 
 export default function DeliveryEmergencyHelp() {
   const [loading, setLoading] = useState(true)
@@ -47,40 +77,43 @@ export default function DeliveryEmergencyHelp() {
 
   const validateForm = () => {
     const errors = {}
-    const phoneRegex = /^\d{3,15}$/
-    const normalizeDigits = (value) => String(value || "").replace(/[^\d]/g, "")
-
-    if (formData.medicalEmergency && !phoneRegex.test(normalizeDigits(formData.medicalEmergency))) {
-      errors.medicalEmergency = "Phone number must be 3 to 15 digits"
+    for (const fieldId of Object.keys(FIELD_RULES)) {
+      const msg = validateField(fieldId, formData[fieldId])
+      if (msg) errors[fieldId] = msg
     }
-    if (formData.accidentHelpline && !phoneRegex.test(normalizeDigits(formData.accidentHelpline))) {
-      errors.accidentHelpline = "Phone number must be 3 to 15 digits"
-    }
-    if (formData.contactPolice && !phoneRegex.test(normalizeDigits(formData.contactPolice))) {
-      errors.contactPolice = "Phone number must be 3 to 15 digits"
-    }
-    if (formData.insurance && !phoneRegex.test(normalizeDigits(formData.insurance))) {
-      errors.insurance = "Phone number must be 3 to 15 digits"
-    }
-
     setFormErrors(errors)
     return Object.keys(errors).length === 0
   }
 
+  /* Derived: is form currently valid? Used to disable button. */
+  const isFormValid = useMemo(() => {
+    for (const fieldId of Object.keys(FIELD_RULES)) {
+      const val = formData[fieldId]
+      if (val && !FIELD_RULES[fieldId].validate(val)) return false
+    }
+    return true
+  }, [formData])
+
   const handleInputChange = (field, value) => {
-    const sanitizedValue = String(value || "").replace(/[^\d]/g, "").slice(0, 15)
+    const rule = FIELD_RULES[field]
+    const maxLen = rule ? rule.maxLen : 12
+    const sanitizedValue = String(value || "").replace(/[^\d]/g, "").slice(0, maxLen)
+
     setFormData(prev => ({
       ...prev,
       [field]: sanitizedValue
     }))
-    // Clear error for this field when user starts typing
-    if (formErrors[field]) {
-      setFormErrors(prev => {
-        const newErrors = { ...prev }
-        delete newErrors[field]
-        return newErrors
-      })
-    }
+
+    // Live inline validation
+    const msg = validateField(field, sanitizedValue)
+    setFormErrors(prev => {
+      if (!msg) {
+        const next = { ...prev }
+        delete next[field]
+        return next
+      }
+      return { ...prev, [field]: msg }
+    })
   }
 
   const handleSubmit = async (e) => {
@@ -119,30 +152,34 @@ export default function DeliveryEmergencyHelp() {
     {
       id: "medicalEmergency",
       label: "Medical Emergency",
-      placeholder: "Enter medical emergency phone number",
-      icon: "??",
-      description: "Phone number for medical emergencies (e.g., 108, +91-XXX-XXX-XXXX)"
+      placeholder: "108",
+      icon: HeartPulse,
+      iconColor: "text-red-500",
+      description: "Emergency ambulance number — exactly 3 digits"
     },
     {
       id: "accidentHelpline",
       label: "Accident Helpline",
-      placeholder: "Enter accident helpline phone number",
-      icon: "??",
-      description: "Phone number for accident helpline"
+      placeholder: "112 or 1073",
+      icon: Ambulance,
+      iconColor: "text-orange-500",
+      description: "Road accident helpline — 3 or 4 digits"
     },
     {
       id: "contactPolice",
       label: "Contact Police",
-      placeholder: "Enter police emergency phone number",
-      icon: "??",
-      description: "Phone number for police emergency (e.g., 100)"
+      placeholder: "100",
+      icon: Siren,
+      iconColor: "text-blue-500",
+      description: "Police emergency number — exactly 3 digits"
     },
     {
       id: "insurance",
       label: "Insurance",
-      placeholder: "Enter insurance helpline phone number",
-      icon: "???",
-      description: "Phone number for insurance claims and policy help"
+      placeholder: "9876543210 or 18001234567",
+      icon: ShieldAlert,
+      iconColor: "text-emerald-500",
+      description: "10-digit mobile or toll-free number starting with 1800"
     }
   ]
 
@@ -191,42 +228,51 @@ export default function DeliveryEmergencyHelp() {
 
           {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-6">
-            {emergencyFields.map((field) => (
-              <div key={field.id} className="space-y-2">
-                <label className="block text-sm font-semibold text-slate-900">
-                  <span className="mr-2">{field.icon}</span>
-                  {field.label}
-                </label>
-                <p className="text-xs text-slate-600 mb-2">{field.description}</p>
-                <div className="relative">
-                  <input
-                    type="text"
-                    value={formData[field.id]}
-                    onChange={(e) => handleInputChange(field.id, e.target.value)}
-                    placeholder={field.placeholder}
-                    inputMode="numeric"
-                    maxLength={15}
-                    className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                      formErrors[field.id]
-                        ? "border-red-300 focus:ring-red-500"
-                        : "border-slate-300"
-                    }`}
-                  />
+            {emergencyFields.map((field) => {
+              const IconComp = field.icon
+              return (
+                <div key={field.id} className="space-y-2">
+                  <label className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                    <IconComp className={`w-4 h-4 ${field.iconColor}`} />
+                    {field.label}
+                  </label>
+                  <p className="text-xs text-slate-500">{field.description}</p>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={formData[field.id]}
+                      onChange={(e) => handleInputChange(field.id, e.target.value)}
+                      placeholder={field.placeholder}
+                      inputMode="numeric"
+                      maxLength={FIELD_RULES[field.id]?.maxLen || 12}
+                      className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 transition-colors ${
+                        formErrors[field.id]
+                          ? "border-red-300 focus:ring-red-400 bg-red-50/40"
+                          : formData[field.id] && !validateField(field.id, formData[field.id])
+                          ? "border-green-300 focus:ring-green-400"
+                          : "border-slate-300 focus:ring-blue-500"
+                      }`}
+                    />
+                    {/* Green tick for valid filled field */}
+                    {formData[field.id] && !formErrors[field.id] && (
+                      <CheckCircle2 className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-green-500" />
+                    )}
+                  </div>
                   {formErrors[field.id] && (
-                    <p className="mt-1 text-sm text-red-600 flex items-center gap-1">
-                      <AlertCircle className="w-4 h-4" />
+                    <p className="text-sm text-red-600 flex items-center gap-1">
+                      <AlertCircle className="w-4 h-4 shrink-0" />
                       {formErrors[field.id]}
                     </p>
                   )}
                 </div>
-              </div>
-            ))}
+              )
+            })}
 
             {/* Submit Button */}
             <div className="pt-4 border-t border-slate-200">
               <button
                 type="submit"
-                disabled={saving}
+                disabled={saving || !isFormValid}
                 className="w-full sm:w-auto px-6 py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
                 {saving ? (

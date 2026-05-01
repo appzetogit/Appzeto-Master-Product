@@ -68,9 +68,9 @@ import {
   useLocationSelector,
 } from "@food/components/user/UserLayout";
 
-const debugLog = (...args) => {};
-const debugWarn = (...args) => {};
-const debugError = (...args) => {};
+const debugLog = (...args) => { };
+const debugWarn = (...args) => { };
+const debugError = (...args) => { };
 
 // Import shared food images - prevents duplication
 import { foodImages } from "@food/constants/images";
@@ -86,6 +86,8 @@ import { useLocation } from "@food/hooks/useLocation";
 import { useZone } from "@food/hooks/useZone";
 
 import offerImage from "@food/assets/offerimage.png";
+import bannerEatingFood from "../../../../assets/eading_food_2_image-removebg-preview.png";
+import bannerEatingBoy from "../../../../assets/eating_boy_image-removebg-preview.png";
 import api, { publicGetOnce, restaurantAPI, adminAPI } from "@food/api";
 import { API_BASE_URL } from "@food/api/config";
 import OptimizedImage from "@food/components/OptimizedImage";
@@ -133,6 +135,18 @@ const getStoredDeliveryAddressMode = () => {
   return window.localStorage.getItem("deliveryAddressMode") || "saved";
 };
 
+const defaultBannersImages = [
+  bannerEatingBoy,
+  bannerEatingFood,
+  bannerEatingBoy
+];
+
+const defaultBannersData = [
+  { isFallback: true, title: "A SIX IS HIT! 🏏", subtitle: "66% OFF FOR 10 MIN!", action: "Order Now" },
+  { isFallback: true, title: "MATCH DAY SPECIAL", subtitle: "Free Delivery on Pizza", action: "Explore" },
+  { isFallback: true, title: "CRAVINGS SATISFIED", subtitle: "Flat ₹150 Off", action: "Claim Offer" }
+];
+
 export default function Home() {
   const HERO_BANNER_AUTO_SLIDE_MS = 3500;
   const BACKEND_ORIGIN = API_BASE_URL.replace(/\/api\/?$/, "");
@@ -147,7 +161,7 @@ export default function Home() {
     () => cart.some((item) => (item?.orderType || "food") !== "quick"),
     [cart],
   );
-  
+
   const [prevVegMode, setPrevVegMode] = useState(vegMode);
   const [showVegModePopup, setShowVegModePopup] = useState(false);
   const [showSwitchOffPopup, setShowSwitchOffPopup] = useState(false);
@@ -212,6 +226,25 @@ export default function Home() {
     return () => clearInterval(interval);
   }, [activeTab]);
 
+  const activeBannerImages = useMemo(() => {
+    // Override API images with the custom transparent PNGs requested by the user
+    if (banners?.data?.length > 0) {
+      return banners.data.map((_, i) => defaultBannersImages[i % defaultBannersImages.length]);
+    }
+    return defaultBannersImages;
+  }, [banners?.data]);
+
+  const activeBannerData = useMemo(() => banners?.data?.length > 0 ? banners.data : defaultBannersData, [banners?.data]);
+
+  // Auto-slide banners
+  useEffect(() => {
+    if (!activeBannerImages.length) return;
+    const interval = setInterval(() => {
+      setCurrentBannerIndex((prev) => (prev + 1) % activeBannerImages.length);
+    }, HERO_BANNER_AUTO_SLIDE_MS);
+    return () => clearInterval(interval);
+  }, [activeBannerImages.length]);
+
   // Sync activeTab with URL
   useEffect(() => {
     const isQuick = routerLocation.pathname.endsWith("/quick");
@@ -251,11 +284,11 @@ export default function Home() {
       <div className="md:hidden relative overflow-x-clip z-[50]">
         {!state.isBootstrapped ? (
           <div className="px-4 pt-6 pb-4">
-             <div className="h-10 w-48 bg-slate-100 animate-pulse rounded-xl mb-6" />
-             <div className="h-14 w-full bg-slate-100 animate-pulse rounded-2xl" />
+            <div className="h-10 w-48 bg-slate-100 animate-pulse rounded-xl mb-6" />
+            <div className="h-14 w-full bg-slate-100 animate-pulse rounded-2xl" />
           </div>
         ) : (
-          <HomeHeader 
+          <HomeHeader
             activeTab={activeTab}
             setActiveTab={handleTabChange}
             location={location}
@@ -268,6 +301,21 @@ export default function Home() {
             onVegModeChange={handleVegModeChange}
             headerVideoUrl={landing.videoUrl}
             quickThemeColor={quickThemeColor}
+            bannerComponent={
+              <Suspense fallback={<HeroBannerSkeleton className="h-[130px] w-full" />}>
+                <div className="h-[130px] sm:h-36 md:h-44 mt-3 relative z-10 w-full">
+                  <BannerSection
+                    showBannerSkeleton={banners.loading}
+                    heroBannerImages={activeBannerImages}
+                    heroBannersData={activeBannerData}
+                    currentBannerIndex={currentBannerIndex}
+                    setCurrentBannerIndex={setCurrentBannerIndex}
+                    heroShellRef={heroShellRef}
+                    navigate={navigate}
+                  />
+                </div>
+              </Suspense>
+            }
           />
         )}
       </div>
@@ -283,7 +331,7 @@ export default function Home() {
             className="bg-white dark:bg-[#0a0a0a]"
           >
             <Suspense fallback={<CategoryChipRowSkeleton className="py-1" />}>
-              <CategoryRail 
+              <CategoryRail
                 displayCategories={categories.display}
                 showCategorySkeleton={categories.loading}
                 navigate={navigate}
@@ -296,10 +344,11 @@ export default function Home() {
               <RecommendedSection recommendedForYouRestaurants={meta.recommended} />
             </Suspense>
 
+
             <Suspense fallback={<HeroBannerSkeleton className="h-full w-full px-4 mt-3" />}>
               <section className="content-auto px-4 pt-3 sm:pt-4 lg:pt-5">
                 <div className="overflow-hidden rounded-[22px] border border-slate-100 bg-white shadow-[0_18px_40px_-24px_rgba(15,23,42,0.3)] h-48 sm:h-56 md:h-64 lg:h-72">
-                  <BannerSection 
+                  <BannerSection
                     showBannerSkeleton={banners.loading}
                     heroBannerImages={banners.images}
                     heroBannersData={banners.data}
@@ -314,15 +363,15 @@ export default function Home() {
             </Suspense>
 
             <Suspense fallback={null}>
-               <SortFilterSection 
+              <SortFilterSection
                 activeFilters={state.activeFilters}
                 toggleFilter={actions.toggleFilter}
-                setIsFilterOpen={(val) => {}} // Hook handles internal apply
+                setIsFilterOpen={(val) => { }} // Hook handles internal apply
               />
             </Suspense>
 
             <Suspense fallback={null}>
-              <ExploreMoreSection 
+              <ExploreMoreSection
                 exploreMoreHeading={landing.heading}
                 showExploreSkeleton={landing.loading}
                 finalExploreItems={landing.exploreMore}
@@ -331,7 +380,7 @@ export default function Home() {
             </Suspense>
 
             <Suspense fallback={<RestaurantGridSkeleton count={3} />}>
-              <RestaurantGrid 
+              <RestaurantGrid
                 filteredRestaurants={restaurants.visible}
                 visibleRestaurants={restaurants.visible}
                 showRestaurantSkeleton={restaurants.loading}
@@ -369,11 +418,11 @@ export default function Home() {
                   <QuickCartAnimationProvider>
                     <QuickProductDetailProvider>
                       <Suspense fallback={<div className="h-screen w-full bg-white dark:bg-[#0a0a0a]" />}>
-                         <QuickCommerceHomePage 
+                        <QuickCommerceHomePage
                           embedded
                           onThemeChange={({ color }) => color && setQuickThemeColor(color)}
                           embeddedHeaderColor={quickThemeColor}
-                         />
+                        />
                       </Suspense>
                     </QuickProductDetailProvider>
                   </QuickCartAnimationProvider>
@@ -421,7 +470,7 @@ export default function Home() {
           </div>
         )}
       </AnimatePresence>
-      
+
       {hasFoodCartItems && <Suspense fallback={null}><MiniCart /></Suspense>}
       <Suspense fallback={null}><OrderTrackingCard hasBottomNav /></Suspense>
     </div>

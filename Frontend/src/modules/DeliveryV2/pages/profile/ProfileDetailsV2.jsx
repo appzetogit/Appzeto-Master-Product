@@ -378,6 +378,9 @@ export const ProfileDetailsV2 = () => {
 
       if (upiQrFile) {
         formData.append("upiQrCode", upiQrFile)
+      } else if (bankDetails.upiQrCode === null) {
+        // Explicitly tell backend to remove the existing QR code
+        formData.append("removeUpiQrCode", "true")
       }
 
       await deliveryAPI.updateBankDetailsMultipart(formData)
@@ -835,7 +838,7 @@ export const ProfileDetailsV2 = () => {
           <div className="grid gap-4">
              {[
                { label: "Account Holder", key: "accountHolderName", icon: User, maxLength: 60 },
-               { label: "Account Number", key: "accountNumber", icon: Banknote, maxLength: 20, isNumeric: true },
+               { label: "Account Number", key: "accountNumber", icon: Banknote, maxLength: 18, isNumeric: true },
                { label: "IFSC Code", key: "ifscCode", icon: Shield, format: (v) => v.toUpperCase(), maxLength: 11 },
                { label: "Bank Name", key: "bankName", icon: MapPin, maxLength: 60 },
                { label: "PAN Number", key: "panNumber", icon: FileText, format: (v) => v.toUpperCase(), maxLength: 10 },
@@ -869,7 +872,12 @@ export const ProfileDetailsV2 = () => {
                   <div className="relative">
                     <img src={upiQrPreview || bankDetails.upiQrCode} alt="QR Preview" className="w-32 h-32 rounded-xl object-cover border-4 border-white shadow-xl" />
                     <button 
-                      onClick={() => { setUpiQrFile(null); setUpiQrPreview(null); }}
+                      type="button"
+                      onClick={() => { 
+                        setUpiQrFile(null); 
+                        setUpiQrPreview(null); 
+                        setBankDetails(prev => ({ ...prev, upiQrCode: null }));
+                      }}
                       className="absolute -top-3 -right-3 bg-red-500 text-white p-1.5 rounded-full shadow-lg"
                     >
                        <X className="w-3.5 h-3.5" />
@@ -911,27 +919,23 @@ export const ProfileDetailsV2 = () => {
 
 
 
-      {/* Fullscreen Document Viewer */}
-      <AnimatePresence>
-        {showDocumentModal && selectedDocument && (
-          <motion.div 
-             initial={{ opacity: 0 }}
-             animate={{ opacity: 1 }}
-             exit={{ opacity: 0 }}
-             className="fixed inset-0 z-[1000] bg-black/95 backdrop-blur-xl flex flex-col items-center p-6"
-          >
-             <div className="w-full flex justify-between items-center mb-10 pt-safe">
-                <h3 className="text-white text-lg font-black uppercase tracking-widest">{selectedDocument.name}</h3>
-                <button onClick={() => setShowDocumentModal(false)} className="bg-white/10 text-white p-3 rounded-2xl hover:bg-white/20 transition-all active:scale-90">
-                   <X className="w-6 h-6" />
-                </button>
-             </div>
-             <div className="flex-1 w-full flex items-center justify-center">
-                <img src={selectedDocument.url} alt="Doc" className="max-w-full max-h-full object-contain rounded-3xl shadow-2xl" />
-             </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* Document Viewer Popup */}
+      <BottomPopup 
+        isOpen={showDocumentModal} 
+        onClose={() => setShowDocumentModal(false)} 
+        title={selectedDocument?.name || "Document"}
+        maxHeight="95vh"
+        showCloseButton={false}
+        closeOnHandleClick={true}
+      >
+         <div className="flex items-center justify-center py-4">
+            <img 
+               src={selectedDocument?.url} 
+               alt="Document" 
+               className="max-w-full max-h-[70vh] object-contain rounded-2xl shadow-lg" 
+            />
+         </div>
+      </BottomPopup>
     </div>
   )
 }

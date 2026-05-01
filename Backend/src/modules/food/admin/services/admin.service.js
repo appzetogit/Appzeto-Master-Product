@@ -28,12 +28,21 @@ import { FoodRestaurantSupportTicket } from '../../restaurant/models/supportTick
 import { FoodOrder } from '../../orders/models/order.model.js';
 import { FoodTransaction } from '../../orders/models/foodTransaction.model.js';
 import { FoodRestaurantWithdrawal } from '../../restaurant/models/foodRestaurantWithdrawal.model.js';
+import { 
+    creditWallet, 
+    debitWallet
+} from '../../../../core/payments/wallet.service.js';
+import { 
+    getBalance,
+    getTransactionsByEntity
+} from '../../../../core/payments/transaction.service.js';
 import { FoodDeliveryWithdrawal } from '../../delivery/models/foodDeliveryWithdrawal.model.js';
 import { FoodDeliveryWallet } from '../../delivery/models/deliveryWallet.model.js';
 import { FoodDeliveryCashDeposit } from '../../delivery/models/foodDeliveryCashDeposit.model.js';
 import { initiateRazorpayRefund } from '../../orders/helpers/razorpay.helper.js';
 import { refundWalletBalance } from '../../user/services/userWallet.service.js';
 import * as foodTransactionService from '../../orders/services/foodTransaction.service.js';
+import { getDeliveryPartnerWalletEnhanced } from '../../delivery/services/deliveryFinance.service.js';
 import {
     backfillLegacyCategoryWorkflow,
     categoryAllowsFoodType,
@@ -97,6 +106,52 @@ const normalizeRestaurantTime = (value) => {
     }
 
     return '';
+};
+
+const isPointInPolygon = (lat, lng, polygon) => {
+    if (!Array.isArray(polygon) || polygon.length < 3) return false;
+    let inside = false;
+    for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+        const xi = polygon[i].longitude;
+        const yi = polygon[i].latitude;
+        const xj = polygon[j].longitude;
+        const yj = polygon[j].latitude;
+        const intersect =
+            yi > lat !== yj > lat &&
+            lng < ((xj - xi) * (lat - yi)) / (yj - yi + 0.0) + xi;
+        if (intersect) inside = !inside;
+    }
+    return inside;
+};
+
+const detectZoneFromPartner = (partner, zones) => {
+    let detectedZone = null;
+    if (partner.lastLat && partner.lastLng) {
+        const match = zones.find(z => isPointInPolygon(partner.lastLat, partner.lastLng, z.coordinates));
+        if (match) detectedZone = match.zoneName || match.name;
+    }
+    
+    if (!detectedZone) {
+        const city = (partner.city || '').trim().toLowerCase();
+        const state = (partner.state || '').trim().toLowerCase();
+        const address = (partner.address || '').trim().toLowerCase();
+        const locStr = `${city} ${state} ${address}`;
+
+        const match = zones.find(z => {
+            const zName = (z.name || '').toLowerCase();
+            const zZoneName = (z.zoneName || '').toLowerCase();
+            const zLoc = (z.serviceLocation || '').toLowerCase();
+            
+            if (city && (zName === city || zZoneName === city || zLoc === city)) return true;
+            if (zName && locStr.includes(zName)) return true;
+            if (zZoneName && locStr.includes(zZoneName)) return true;
+            if (zLoc && locStr.includes(zLoc)) return true;
+            return false;
+        });
+        
+        if (match) detectedZone = match.zoneName || match.name;
+    }
+    return detectedZone;
 };
 
 const timeToMinutes = (value) => {
@@ -301,7 +356,8 @@ export async function getRestaurants(query) {
 }
 
 const CANCELLED_ORDER_STATUSES = ['cancelled_by_user', 'cancelled_by_restaurant', 'cancelled_by_admin'];
-const PENDING_ORDER_STATUSES = ['created', 'confirmed', 'preparing', 'ready_for_pickup', 'picked_up'];
+const PENDING_ORDER_STATUSES = ['placed', 'created'];
+const PROCESSING_ORDER_STATUSES = ['confirmed', 'preparing', 'ready_for_pickup', 'picked_up'];
 
 const getDateRangeByPeriod = (periodRaw) => {
     const period = String(periodRaw || 'overall').trim().toLowerCase();
@@ -404,9 +460,14 @@ export async function getDashboardStats(query = {}) {
                             $cond: [{ $in: ['$orderStatus', CANCELLED_ORDER_STATUSES] }, 1, 0]
                         }
                     },
-                    pending: {
+                    pendingOnly: {
                         $sum: {
                             $cond: [{ $in: ['$orderStatus', PENDING_ORDER_STATUSES] }, 1, 0]
+                        }
+                    },
+                    processing: {
+                        $sum: {
+                            $cond: [{ $in: ['$orderStatus', PROCESSING_ORDER_STATUSES] }, 1, 0]
                         }
                     },
                     revenueTotal: { 
@@ -421,12 +482,20 @@ export async function getDashboardStats(query = {}) {
                     },
                     platformFeeTotal: { 
                         $sum: { 
-                            $cond: [{ $eq: ['$orderStatus', 'delivered'] }, { $ifNull: ['$pricing.platformFee', 0] }, 0] 
+                            $cond: [
+                                { $nin: ['$orderStatus', [...CANCELLED_ORDER_STATUSES, 'refunded']] }, 
+                                { $ifNull: ['$pricing.platformFee', 0] }, 
+                                0
+                            ] 
                         } 
                     },
                     deliveryFeeTotal: { 
                         $sum: { 
-                            $cond: [{ $eq: ['$orderStatus', 'delivered'] }, { $ifNull: ['$pricing.deliveryFee', 0] }, 0] 
+                            $cond: [
+                                { $nin: ['$orderStatus', [...CANCELLED_ORDER_STATUSES, 'refunded']] }, 
+                                { $ifNull: ['$pricing.deliveryFee', 0] }, 
+                                0
+                            ] 
                         } 
                     },
                     gstTotal: { 
@@ -490,7 +559,7 @@ export async function getDashboardStats(query = {}) {
         FoodDeliveryPartner.find({ status: 'pending' }).sort({ createdAt: -1 }).limit(5).select('name createdAt').lean(),
         FoodOrder.find({ 
             ...orderMatch,
-            orderStatus: { $in: PENDING_ORDER_STATUSES },
+            orderStatus: { $in: [...PENDING_ORDER_STATUSES, ...PROCESSING_ORDER_STATUSES] },
         }).sort({ createdAt: -1 }).limit(5).select('orderId createdAt').lean(),
         FoodOrder.find({ ...orderMatch, orderStatus: 'delivered' }).sort({ updatedAt: -1 }).limit(5).select('orderId updatedAt').lean(),
         FoodOrder.find({ 
@@ -626,7 +695,8 @@ export async function getDashboardStats(query = {}) {
             byStatus: {
                 delivered: Number(totals.delivered || 0),
                 cancelled: Number(totals.cancelled || 0),
-                pending: Number(totals.pending || 0)
+                pending: Number(totals.pendingOnly || 0),
+                processing: Number(totals.processing || 0)
             }
         },
         revenue: { total: Number(totals.revenueTotal || 0) },
@@ -648,7 +718,8 @@ export async function getDashboardStats(query = {}) {
         addons: { total: Number(addonsTotal || 0) },
         customers: { total: Number(customersTotal || 0) },
         orderStats: {
-            pending: Number(totals.pending || 0),
+            pending: Number(totals.pendingOnly || 0),
+            processing: Number(totals.processing || 0),
             completed: Number(totals.delivered || 0)
         },
         monthlyData,
@@ -3232,10 +3303,12 @@ export async function approveRestaurant(id) {
         {
             $set: {
                 status: 'approved',
+                isActive: true,
                 approvedAt: new Date(),
                 rejectedAt: undefined,
                 rejectionReason: undefined
-            }
+            },
+            $unset: { reVerification: "" }
         },
         { new: true, runValidators: false }
     ).lean();
@@ -3309,17 +3382,25 @@ export async function getAllOffers(_query = {}) {
 
     const offers = list.map((o, index) => {
         const now = Date.now();
+        const startTs = o.startDate ? new Date(o.startDate).getTime() : null;
         const endTs = o.endDate ? new Date(o.endDate).getTime() : null;
+        
+        const isScheduled = Boolean(startTs && now < startTs);
         const isExpired = Boolean(endTs && now >= endTs);
+
         const restaurantName =
             o.restaurantScope === 'selected'
                 ? (o.restaurantId?.restaurantName || 'Selected Restaurant')
                 : 'All Restaurants';
 
         const discountPercentage = o.discountType === 'percentage' ? Number(o.discountValue) : 0;
-
         const originalPrice = o.discountType === 'flat-price' ? Number(o.discountValue) : 0;
         const discountedPrice = 0;
+
+        let status = isExpired ? 'inactive' : (o.status || 'active');
+        if (status === 'active' && isScheduled) {
+            status = 'scheduled';
+        }
 
         return {
             sl: index + 1,
@@ -3333,7 +3414,7 @@ export async function getAllOffers(_query = {}) {
             discountPercentage,
             originalPrice,
             discountedPrice,
-            status: isExpired ? 'inactive' : (o.status || 'active'),
+            status,
             showInCart: o.showInCart !== false,
             endDate: o.endDate || null,
             // Additional info for admin UI (backward compatible)
@@ -3436,20 +3517,14 @@ export async function getDeliveryJoinRequests(query) {
         andParts.push({
             $or: [
                 { name: { $regex: term, $options: 'i' } },
-                { phone: { $regex: term, $options: 'i' } }
+                { phone: { $regex: term, $options: 'i' } },
+                { email: { $regex: term, $options: 'i' } }
             ]
         });
     }
-    if (zone && zone.trim()) {
-        const z = zone.trim();
-        andParts.push({
-            $or: [
-                { city: { $regex: z, $options: 'i' } },
-                { state: { $regex: z, $options: 'i' } },
-                { address: { $regex: z, $options: 'i' } }
-            ]
-        });
-    }
+    
+    // We will do zone filtering in memory since we need to match against polygon zones
+    // but we can still apply other filters in DB
     if (andParts.length) filter.$and = andParts;
     if (vehicleType && vehicleType.trim()) {
         filter.vehicleType = { $regex: vehicleType.trim(), $options: 'i' };
@@ -3460,18 +3535,36 @@ export async function getDeliveryJoinRequests(query) {
 
     const list = await FoodDeliveryPartner.find(filter)
         .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limitNum)
         .lean();
 
-    const requests = list.map((doc, index) => ({
+    // Fetch all active zones for detection
+    const zones = await FoodZone.find({ isActive: true }).lean();
+
+    let requests = list.map((doc) => {
+        const detectedZone = detectZoneFromPartner(doc, zones);
+        
+        return {
+            ...doc,
+            detectedZoneName: detectedZone || doc.city || doc.state || 'N/A'
+        };
+    });
+
+    // Apply zone filter if present
+    if (zone && zone.trim()) {
+        const zTerm = zone.trim().toLowerCase();
+        requests = requests.filter(r => r.detectedZoneName.toLowerCase().includes(zTerm));
+    }
+
+    // Pagination
+    const totalCount = requests.length;
+    const paginatedRequests = requests.slice(skip, skip + limitNum).map((doc, index) => ({
         _id: doc._id,
         sl: skip + index + 1,
         name: doc.name || '',
         email: doc.email || '',
         phone: doc.phone || '',
-        zone: doc.city || doc.state || doc.address || '',
-        jobType: doc.jobType || '',
+        city: doc.city || '',
+        zone: doc.detectedZoneName,
         vehicleType: doc.vehicleType || '',
         status: doc.status === 'rejected' ? 'denied' : doc.status,
         rejectionReason: doc.rejectionReason || undefined,
@@ -3479,7 +3572,7 @@ export async function getDeliveryJoinRequests(query) {
         profileImage: doc.profilePhoto ? { url: doc.profilePhoto } : null
     }));
 
-    return { requests };
+    return { requests: paginatedRequests, total: totalCount };
 }
 
 export function getDeliveryWalletsStub() {
@@ -3609,19 +3702,40 @@ export async function getDeliveryPartners(query) {
         FoodDeliveryPartner.countDocuments(filter)
     ]);
 
-    const deliveryPartners = list.map((doc, index) => ({
-        _id: doc._id,
-        sl: skip + index + 1,
-        name: doc.name || '',
-        email: doc.email || '',
-        phone: doc.phone || '',
-        deliveryId: doc._id ? `DP-${doc._id.toString().slice(-8).toUpperCase()}` : null,
-        zone: doc.city || doc.state || doc.address || '',
-        vehicleType: doc.vehicleType || '',
-        status: doc.status,
-        profilePhoto: doc.profilePhoto || null,
-        profileImage: doc.profilePhoto ? { url: doc.profilePhoto } : null
-    }));
+    const partnerIds = list.map(p => p._id);
+    const orderCountsAgg = await FoodOrder.aggregate([
+        { 
+            $match: { 
+                'dispatch.deliveryPartnerId': { $in: partnerIds },
+                orderStatus: 'delivered'
+            } 
+        },
+        { $group: { _id: '$dispatch.deliveryPartnerId', totalOrders: { $sum: 1 } } }
+    ]);
+
+    const countsMap = new Map(orderCountsAgg.map(item => [item._id.toString(), item.totalOrders]));
+
+    // Fetch zones for detection
+    const zones = await FoodZone.find({ isActive: true }).lean();
+
+    const deliveryPartners = list.map((doc, index) => {
+        const detectedZone = detectZoneFromPartner(doc, zones);
+        return {
+            _id: doc._id,
+            sl: skip + index + 1,
+            name: doc.name || '',
+            email: doc.email || '',
+            phone: doc.phone || '',
+            city: doc.city || '',
+            deliveryId: doc._id ? `DP-${doc._id.toString().slice(-8).toUpperCase()}` : null,
+            zone: detectedZone || doc.city || doc.state || doc.address || 'N/A',
+            vehicleType: doc.vehicleType || '',
+            status: doc.status,
+            profilePhoto: doc.profilePhoto || null,
+            profileImage: doc.profilePhoto ? { url: doc.profilePhoto } : null,
+            totalOrders: countsMap.get(doc._id.toString()) || 0
+        };
+    });
 
     return {
         deliveryPartners,
@@ -3925,11 +4039,16 @@ export async function getEarningAddons() {
         const end = a.endDate ? new Date(a.endDate).getTime() : 0;
         const isValid = Boolean(a.status === 'active' && start && end && now >= start && now <= end);
         const isExpired = Boolean(end && now > end);
+        const isUpcoming = Boolean(start && now < start);
+
+        let status = a.status || 'inactive';
+        if (isExpired) status = 'expired';
+        else if (isUpcoming && a.status === 'active') status = 'upcoming';
 
         return {
             ...a,
             isValid,
-            status: isExpired ? 'expired' : (a.status || 'inactive')
+            status
         };
     });
 
@@ -4205,11 +4324,16 @@ export async function checkEarningAddonCompletions(deliveryPartnerId, _force = f
 export async function getDeliveryPartnerById(id) {
     const partner = await FoodDeliveryPartner.findById(id).lean();
     if (!partner) return null;
+
+    const zones = await FoodZone.find({ isActive: true }).lean();
+    const detectedZone = detectZoneFromPartner(partner, zones);
+
     const deliveryId = partner._id ? `DP-${partner._id.toString().slice(-8).toUpperCase()}` : null;
     return {
         ...partner,
         email: partner.email || null,
         deliveryId,
+        detectedZone: detectedZone || partner.city || partner.state || 'N/A',
         status: partner.status === 'rejected' ? 'blocked' : partner.status,
         profileImage: partner.profilePhoto ? { url: partner.profilePhoto } : null,
         documents: {
@@ -4603,7 +4727,7 @@ export async function getDeliveryWithdrawals(query = {}) {
         id: w._id,
         deliveryName: w.deliveryPartnerId?.name || 'N/A',
         deliveryPhone: w.deliveryPartnerId?.phone || 'N/A',
-        deliveryIdString: w.deliveryPartnerId?.profilePartnerId || 'N/A',
+        deliveryIdString: w.deliveryPartnerId?.profilePartnerId || w.deliveryPartnerId?.phone || 'N/A',
         status: w.status.charAt(0).toUpperCase() + w.status.slice(1)
     }));
 
@@ -4621,27 +4745,28 @@ export async function updateDeliveryWithdrawalStatus(id, { status, adminNote, re
         processedAt: new Date()
     };
 
+    const existing = await FoodDeliveryWithdrawal.findById(id).lean();
+    if (!existing) throw new ValidationError('Withdrawal request not found');
+    if (existing.status !== 'pending') throw new ValidationError(`Withdrawal is already ${existing.status}`);
+
     const updated = await FoodDeliveryWithdrawal.findByIdAndUpdate(
         id,
         { $set: update },
         { new: true }
     ).populate('deliveryPartnerId', 'name phone profilePartnerId').lean();
 
-    if (!updated) throw new ValidationError('Withdrawal request not found');
-
-    // If approved, deduct from wallet balance
+    // If approved, deduct from wallet balance using central transaction service
     if (status.toLowerCase() === 'approved' || status.toLowerCase() === 'processed') {
         const amount = Number(updated.amount || 0);
         if (amount > 0) {
-            await FoodDeliveryWallet.findOneAndUpdate(
-                { deliveryPartnerId: updated.deliveryPartnerId?._id || updated.deliveryPartnerId },
-                { 
-                    $inc: { 
-                        balance: -amount,
-                        totalSettled: amount 
-                    } 
-                }
-            );
+            await debitWallet({
+                entityType: 'deliveryBoy',
+                entityId: updated.deliveryPartnerId?._id || updated.deliveryPartnerId,
+                amount: amount,
+                description: `Withdrawal Approved - ${updated.orderId || updated.id}`,
+                category: 'settlement_payout',
+                metadata: { withdrawalId: updated._id, transactionId }
+            });
         }
     }
 
@@ -4677,19 +4802,20 @@ export async function getDeliveryWallets(query = {}) {
     const globalLimit = Number(cashLimitSettings?.deliveryCashLimit || 0);
 
     const wallets = await Promise.all(partners.map(async (p) => {
-        const wallet = await FoodDeliveryWallet.findOne({ deliveryPartnerId: p._id }).lean();
+        const wallet = await getDeliveryPartnerWalletEnhanced(p._id);
         
         return {
             walletId: wallet?._id,
             deliveryId: p._id,
             name: p.name,
-            deliveryIdString: p.phone, // Placeholder or sequential ID if available
-            pocketBalance: Number(wallet?.balance || 0),
-            remainingCashLimit: Math.max(0, globalLimit - Number(wallet?.cashInHand || 0)),
+            deliveryIdString: p.phone,
+            pocketBalance: Number(wallet?.pocketBalance || 0),
+            remainingCashLimit: Number(wallet?.availableCashLimit || 0),
             cashCollected: Number(wallet?.cashInHand || 0),
-            totalEarning: Number(wallet?.totalEarnings || 0),
+            totalEarning: Number(wallet?.totalEarned || 0),
             bonus: Number(wallet?.totalBonus || 0),
-            totalWithdrawn: Number(wallet?.totalSettled || 0)
+            totalWithdrawn: Number(wallet?.totalWithdrawn || 0),
+            totalDeliveries: Number(wallet?.totalDeliveries || 0)
         };
     }));
 
@@ -4701,6 +4827,44 @@ export async function getDeliveryWallets(query = {}) {
             limit, 
             pages: Math.ceil(total / limit) || 1 
         } 
+    };
+}
+
+export async function updateDeliveryBoyWallet(dto) {
+    const { deliveryId, pocketBalance, cashInHand } = dto;
+    const wallet = await getDeliveryPartnerWalletEnhanced(deliveryId);
+    
+    // Adjust Pocket Balance via Bonus/Adjustment
+    const pocketDiff = Number(pocketBalance) - wallet.pocketBalance;
+    if (Math.abs(pocketDiff) > 0.01) {
+        await DeliveryBonusTransaction.create({
+            deliveryPartnerId: deliveryId,
+            amount: pocketDiff,
+            reason: 'Admin manual adjustment',
+            transactionId: generateBonusTransactionId()
+        });
+    }
+    
+    // Adjust Cash In Hand via Deposit/Adjustment (Deposit reduces cashInHand)
+    const cashDiff = wallet.cashInHand - Number(cashInHand);
+    if (Math.abs(cashDiff) > 0.01) {
+        await FoodDeliveryCashDeposit.create({
+            deliveryPartnerId: deliveryId,
+            amount: cashDiff,
+            status: 'Completed',
+            paymentMethod: 'cash',
+            razorpayOrderId: 'manual_adj_' + Date.now()
+        });
+    }
+    
+    const updated = await getDeliveryPartnerWalletEnhanced(deliveryId);
+    return {
+        walletId: updated?._id,
+        deliveryId: deliveryId,
+        pocketBalance: updated.pocketBalance,
+        cashInHand: updated.cashInHand,
+        remainingCashLimit: updated.availableCashLimit,
+        availableCashLimit: updated.availableCashLimit
     };
 }
 
@@ -4774,8 +4938,8 @@ export async function getSidebarBadges() {
             FoodDeliveryPartner.countDocuments({ status: 'pending' }),
             FoodItem.countDocuments({ status: 'pending' }),
             FoodAddon.countDocuments({ status: 'pending' }),
-            FoodOrder.countDocuments({ orderStatus: 'pending' }),
-            FoodOrder.countDocuments({ paymentMethod: 'offline_payment', orderStatus: 'pending' }),
+            FoodOrder.countDocuments({ orderStatus: { $in: ['created', 'placed'] } }),
+            FoodOrder.countDocuments({ paymentMethod: 'offline_payment', orderStatus: { $in: ['created', 'placed'] } }),
             FoodRestaurantWithdrawal.countDocuments({ status: 'pending' }),
             FoodDeliveryWithdrawal.countDocuments({ status: 'pending' }),
             FoodSupportTicket.countDocuments({ status: 'open', userId: { $exists: true }, restaurantId: { $exists: false } }),

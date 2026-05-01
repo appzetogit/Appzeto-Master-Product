@@ -35,7 +35,7 @@ export default function BottomPopup({
   collapsedContent = null, // Content to show when collapsed (e.g., Reached pickup button)
   showBackdrop = true, // Show backdrop overlay
   backdropBlocksInteraction = true, // Whether backdrop blocks pointer events
-  closeOnHandleClick = false // Close instead of collapse when handle is clicked
+  closeOnHandleClick = true // Default to true to prevent accidental collapse
 }) {
   const popupRef = useRef(null)
   const handleRef = useRef(null)
@@ -128,7 +128,7 @@ export default function BottomPopup({
     e.stopPropagation()
 
     const deltaY = swipeStartY.current - e.changedTouches[0].clientY
-    const threshold = 100 // Minimum swipe distance to close
+    const threshold = 70 // Minimum swipe distance to close
 
     // If swiped down enough, close the popup
     if (deltaY < -threshold) {
@@ -142,6 +142,19 @@ export default function BottomPopup({
     isSwiping.current = false
     swipeStartY.current = 0
   }
+
+  // Handle hardware/browser back button to close popup
+  useEffect(() => {
+    if (isOpen) {
+      window.history.pushState({ popup: true }, "");
+      const handlePopState = () => handleClose();
+      window.addEventListener("popstate", handlePopState);
+      return () => {
+        window.removeEventListener("popstate", handlePopState);
+        if (window.history.state?.popup) window.history.back();
+      };
+    }
+  }, [isOpen]);
 
   // Handle mouse events for desktop drag support
   const handleMouseDown = (e) => {
@@ -307,7 +320,6 @@ export default function BottomPopup({
                 type="button"
                 className="flex flex-col items-center pt-3 pb-2 cursor-pointer select-none bg-white sticky top-0 z-10 w-full border-0 outline-none p-0"
                 onClick={(e) => {
-                  debugLog('??? Handle clicked, current collapsed:', isCollapsed)
                   e.stopPropagation()
                   e.preventDefault()
                   if (closeOnHandleClick) {
@@ -321,11 +333,13 @@ export default function BottomPopup({
                   e.stopPropagation()
                 }}
                 onTouchEnd={(e) => {
-                  // Handle touch end for mobile collapse toggle
-                  debugLog('?? Handle touched, current collapsed:', isCollapsed)
                   e.stopPropagation()
                   e.preventDefault()
-                  handleCollapseToggle(e)
+                  if (closeOnHandleClick) {
+                    handleClose()
+                  } else {
+                    handleCollapseToggle(e)
+                  }
                 }}
                 onMouseDown={(e) => {
                   // Prevent drag when clicking handle
@@ -339,9 +353,6 @@ export default function BottomPopup({
                   background: 'transparent'
                 }}
               >
-                <ChevronDown
-                  className="w-6 h-6 text-gray-400 mb-1 pointer-events-none"
-                />
                 <div
                   className="w-12 h-1.5 bg-gray-300 rounded-full pointer-events-none"
                 />
@@ -362,7 +373,7 @@ export default function BottomPopup({
                     className="ml-auto p-2 rounded-full hover:bg-gray-100 transition-colors"
                     aria-label="Close"
                   >
-                    <ChevronDown className="w-6 h-6 text-gray-600" />
+                    <X className="w-6 h-6 text-gray-600" />
                   </button>
                 )}
               </div>

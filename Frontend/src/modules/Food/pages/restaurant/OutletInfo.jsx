@@ -14,6 +14,7 @@ import {
   ChevronRight,
   X,
   Trash2,
+  AlertCircle,
 } from "lucide-react"
 import {
   Dialog,
@@ -45,18 +46,25 @@ export default function OutletInfo() {
   const [restaurantData, setRestaurantData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [restaurantName, setRestaurantName] = useState("")
+  const [isPureVeg, setIsPureVeg] = useState(false)
   const [cuisineTags, setCuisineTags] = useState("")
   const [address, setAddress] = useState("")
-  const [mainImage, setMainImage] = useState("https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=800&h=400&fit=crop")
-  const [thumbnailImage, setThumbnailImage] = useState("https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?w=200&h=200&fit=crop")
-  const [coverImages, setCoverImages] = useState([]) // Array of cover images (separate from menu images)
+  const [primaryPhone, setPrimaryPhone] = useState("")
+  const [ownerInfo, setOwnerInfo] = useState({ name: "", phone: "", email: "" })
+  const [legalInfo, setLegalInfo] = useState({ fssai: "", gst: "", pan: "" })
+  const [bankInfo, setBankInfo] = useState({ account: "", type: "", holder: "", ifsc: "" })
+  const [mainImage, setMainImage] = useState("")
+  const [thumbnailImage, setThumbnailImage] = useState("")
+  const [coverImages, setCoverImages] = useState([])
   const [showEditNameDialog, setShowEditNameDialog] = useState(false)
   const [editNameValue, setEditNameValue] = useState("")
   const [restaurantId, setRestaurantId] = useState("")
   const [restaurantMongoId, setRestaurantMongoId] = useState("")
   const [uploadingImage, setUploadingImage] = useState(false)
-  const [imageType, setImageType] = useState(null) // 'profile' or 'menu'
-  const [uploadingCount, setUploadingCount] = useState(0) // Track how many images are being uploaded
+  const [imageType, setImageType] = useState(null)
+  const [uploadingCount, setUploadingCount] = useState(0)
+  const [showExpiryAlert, setShowExpiryAlert] = useState(false)
+  const [daysToExpiry, setDaysToExpiry] = useState(null)
   
   const profileImageInputRef = useRef(null)
   const menuImageInputRef = useRef(null)
@@ -66,18 +74,36 @@ export default function OutletInfo() {
   const formatAddress = (location) => {
     if (!location) return ""
     
+    // Priority 1: Full formatted address
+    if (location.formattedAddress && location.formattedAddress.trim() !== "" && location.formattedAddress !== "Select location") {
+      return location.formattedAddress.trim()
+    }
+
+    if (location.address && location.address.trim() !== "") {
+      return location.address.trim()
+    }
+
+    // Priority 2: Structured address parts
     const parts = []
     if (location.addressLine1) parts.push(location.addressLine1.trim())
     if (location.addressLine2) parts.push(location.addressLine2.trim())
     if (location.area) parts.push(location.area.trim())
+    if (location.landmark) parts.push(location.landmark.trim())
     if (location.city) {
       const city = location.city.trim()
-      // Only add city if it's not already included in area
-      if (!location.area || !location.area.includes(city)) {
+      if (!parts.some(p => p.includes(city))) {
         parts.push(city)
       }
     }
-    if (location.landmark) parts.push(location.landmark.trim())
+    if (location.state) {
+      const state = location.state.trim()
+      if (!parts.some(p => p.includes(state))) {
+        parts.push(state)
+      }
+    }
+    if (location.pincode || location.zipCode) {
+      parts.push(String(location.pincode || location.zipCode).trim())
+    }
     
     return parts.join(", ") || ""
   }
@@ -93,40 +119,61 @@ export default function OutletInfo() {
           setRestaurantData(data)
           
           // Set restaurant name
-          setRestaurantName(data.name || "")
+          setRestaurantName(data.restaurantName || data.name || "")
+          setIsPureVeg(data.pureVegRestaurant || false)
           
           // Set restaurant ID
           setRestaurantId(data.restaurantId || data.id || "")
-          // Set MongoDB _id for last 5 digits display
           const mongoId = String(data.id || data._id || "")
           setRestaurantMongoId(mongoId)
           
           // Format and set address
-          const formattedAddress = formatAddress(data.location)
+          const formattedAddress = formatAddress(data.location || data)
           setAddress(formattedAddress)
+          setPrimaryPhone(data.primaryContactNumber || data.ownerPhone || "")
+          
+          // Set Owner Info
+          setOwnerInfo({
+            name: data.ownerName || "",
+            phone: data.ownerPhone || "",
+            email: data.ownerEmail || ""
+          })
+
+          // Set Legal Info
+          setLegalInfo({
+            fssai: data.fssaiNumber || "",
+            gst: data.gstNumber || "",
+            pan: data.panNumber || ""
+          })
+
+          // Set Bank Info
+          setBankInfo({
+            account: data.accountNumber || "",
+            type: data.accountType || "",
+            holder: data.accountHolderName || "",
+            ifsc: data.ifscCode || ""
+          })
           
           // Format cuisines
-          if (data.cuisines && Array.isArray(data.cuisines) && data.cuisines.length > 0) {
+          if (data.cuisines && Array.isArray(data.cuisines)) {
             setCuisineTags(data.cuisines.join(", "))
           }
           
           // Set images
           if (data.profileImage?.url) {
             setThumbnailImage(data.profileImage.url)
+          } else if (typeof data.profileImage === 'string') {
+            setThumbnailImage(data.profileImage)
           }
-          // Use coverImages if available, otherwise fallback to menuImages for backward compatibility
+
           if (data.coverImages && Array.isArray(data.coverImages) && data.coverImages.length > 0) {
-            setCoverImages(data.coverImages.map(img => ({
-              url: img.url || img,
-              publicId: img.publicId
-            })))
-            setMainImage(data.coverImages[0].url || data.coverImages[0])
+            const formattedCovers = data.coverImages.map(img => typeof img === 'string' ? { url: img } : img)
+            setCoverImages(formattedCovers)
+            setMainImage(formattedCovers[0].url)
           } else if (data.menuImages && Array.isArray(data.menuImages) && data.menuImages.length > 0) {
-            setCoverImages(data.menuImages.map(img => ({
-              url: img.url,
-              publicId: img.publicId
-            })))
-            setMainImage(data.menuImages[0].url)
+            const formattedMenus = data.menuImages.map(img => typeof img === 'string' ? { url: img } : img)
+            setCoverImages(formattedMenus)
+            setMainImage(formattedMenus[0].url)
           } else {
             setCoverImages([])
           }
@@ -136,6 +183,18 @@ export default function OutletInfo() {
           debugError("Error fetching restaurant data:", error)
         }
       } finally {
+        if (restaurantData?.fssaiExpiry) {
+          const expiry = new Date(restaurantData.fssaiExpiry)
+          const today = new Date()
+          today.setHours(0, 0, 0, 0)
+          const diffTime = expiry - today
+          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+          setDaysToExpiry(diffDays)
+          
+          if (diffDays <= 4) {
+            setShowExpiryAlert(true)
+          }
+        }
         setLoading(false)
       }
     }
@@ -412,57 +471,222 @@ export default function OutletInfo() {
             </div>
           )}
 
-          {/* Thumbnail Section */}
-          <div className="absolute bottom-0 left-4 -mb-[45px] flex flex-col gap-2 shrink-0 z-10">
-            <div className="relative w-[70px] h-[70px] rounded overflow-hidden">
-              <img src={thumbnailImage} alt="Restaurant thumbnail" className="w-full h-full rounded-xl object-cover" />
-            </div>
-            <button
-              onClick={() => handleImageClick('profile', profileImageInputRef, "Update Profile Photo")}
-              disabled={uploadingImage}
-              className="text-blue-600 text-sm font-semibold hover:text-blue-700 transition-colors text-left"
-            >
-              {uploadingImage && imageType === 'profile' ? 'Uploading...' : 'Edit photo'}
-            </button>
-            <input
-              ref={profileImageInputRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={(e) => handleProfileImageReplace(e.target.files?.[0])}
-            />
-          </div>
         </div>
 
-        {/* Info Section */}
-        <div className="px-4 pt-[50px] pb-4 bg-white">
-          <div className="flex items-start gap-4">
-            <div className="flex flex-col gap-2">
-              <button onClick={() => navigate("/restaurant/ratings-reviews")} className="flex items-center gap-2 text-left w-full">
-                <div className="bg-green-700 px-2.5 py-1.5 rounded flex items-center gap-1 shrink-0">
-                  <span className="text-white text-sm font-bold">{restaurantData?.rating?.toFixed(1) || "0.0"}</span>
-                  <Star className="w-3.5 h-3.5 text-white fill-white" />
-                </div>
-                <span className="text-gray-800 text-sm font-normal">{restaurantData?.totalRatings || 0} DELIVERY REVIEWS</span>
-                <ChevronRight className="w-4 h-4 text-gray-400 shrink-0 ml-auto" />
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <div className="px-4 py-4"><h2 className="text-base font-bold text-gray-900 text-center">Restaurant Information</h2></div>
-
-        <div className="px-4 pb-6 space-y-3">
-          <div className="bg-blue-100/50 rounded-lg p-4 border border-blue-300">
-            <div className="flex items-start justify-between">
-              <div className="flex-1 min-w-0">
-                <p className="text-xs text-gray-500 font-normal mb-1">Restaurant's name</p>
-                <p className="text-base font-semibold text-gray-900">{loading ? "Loading..." : (restaurantName || "N/A")}</p>
+        {/* Restaurant Header Info */}
+        <div className="px-4 -mt-12 mb-8 relative z-30">
+          <div className="flex items-end gap-4">
+            <div className="relative group">
+              <div className="w-24 h-24 rounded-2xl border-4 border-white bg-white shadow-lg overflow-hidden">
+                <img 
+                  src={thumbnailImage} 
+                  alt="Restaurant thumbnail" 
+                  className="w-full h-full object-cover" 
+                />
+                {uploadingImage && imageType === 'profile' && (
+                  <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                    <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  </div>
+                )}
               </div>
-              <button onClick={handleOpenEditDialog} className="text-blue-600 text-sm font-normal">Edit</button>
+              <button
+                onClick={() => handleImageClick('profile', profileImageInputRef, "Update Profile Photo")}
+                disabled={uploadingImage}
+                className="absolute -bottom-1 -right-1 bg-white p-2 rounded-full shadow-md hover:bg-gray-50 transition-colors border border-gray-100"
+                title="Edit photo"
+              >
+                <Pencil className="w-4 h-4 text-blue-600" />
+              </button>
+              <input
+                ref={profileImageInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => handleProfileImageReplace(e.target.files?.[0])}
+              />
+            </div>
+            
+            <div className="pb-6 flex-1 min-w-0">
+              <h2 className="text-2xl font-black text-gray-900 uppercase tracking-tight truncate">
+                {restaurantName || "Restaurant Name"}
+              </h2>
+              <div className="flex items-center gap-2 mt-1">
+                <div className="h-1 w-8 bg-blue-600 rounded-full" />
+                <p className="text-xs font-bold text-gray-500 uppercase tracking-widest">
+                  Information
+                </p>
+              </div>
             </div>
           </div>
-          {/* ... other info cards ... */}
+        </div>
+
+        {/* Info Sections */}
+        <div className="px-4 pb-20 space-y-8">
+          {/* Basic Information */}
+          <section className="space-y-4">
+            <div className="flex items-center gap-2 ml-1">
+               <div className="w-1 h-4 bg-gray-300 rounded-full" />
+               <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider">Details</h3>
+            </div>
+            <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm">
+              <div className="p-4 border-b border-gray-100 flex justify-between items-start">
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs text-gray-400 font-medium mb-1">Restaurant Name</p>
+                  <p className="text-base font-bold text-gray-900">{restaurantName || "N/A"}</p>
+                </div>
+                <button onClick={handleOpenEditDialog} className="p-2 hover:bg-gray-50 rounded-full transition-colors">
+                  <Pencil className="w-4 h-4 text-blue-600" />
+                </button>
+              </div>
+              
+              <div className="p-4 flex justify-between items-center">
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs text-gray-400 font-medium mb-1">Food Type</p>
+                  <div className="flex items-center gap-2">
+                    <div className={`w-3 h-3 border-2 ${isPureVeg ? "border-green-600" : "border-red-600"} flex items-center justify-center p-0.5`}>
+                      <div className={`w-full h-full rounded-full ${isPureVeg ? "bg-green-600" : "bg-red-600"}`} />
+                    </div>
+                    <span className="text-sm font-semibold text-gray-800">{isPureVeg ? "Pure Veg" : "Veg & Non-Veg"}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* Location & Contact */}
+          <section className="space-y-3">
+            <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider ml-1">Location & Contact</h3>
+            <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm">
+              <div className="p-4 border-b border-gray-100 flex justify-between items-start">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <MapPin className="w-3.5 h-3.5 text-gray-400" />
+                    <p className="text-xs text-gray-400 font-medium">Outlet Address</p>
+                  </div>
+                  <p className="text-sm font-semibold text-gray-800 leading-relaxed">{address || "Address not set"}</p>
+                </div>
+                <button onClick={() => navigate("/food/restaurant/edit-address")} className="p-2 hover:bg-gray-50 rounded-full transition-colors">
+                  <Pencil className="w-4 h-4 text-blue-600" />
+                </button>
+              </div>
+
+              <div className="p-4 flex justify-between items-center">
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs text-gray-400 font-medium mb-1">Primary Phone</p>
+                  <p className="text-sm font-bold text-gray-800">{restaurantData?.primaryContactNumber || restaurantData?.ownerPhone || "Not provided"}</p>
+                </div>
+                <button onClick={() => navigate("/food/restaurant/phone")} className="p-2 hover:bg-gray-50 rounded-full transition-colors">
+                  <Pencil className="w-4 h-4 text-blue-600" />
+                </button>
+              </div>
+            </div>
+          </section>
+
+          {/* Owner Details */}
+          <section className="space-y-3">
+            <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider ml-1">Owner Details</h3>
+            <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm">
+              <div className="p-4 border-b border-gray-100 flex justify-between items-start">
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs text-gray-400 font-medium mb-1">Owner Name</p>
+                  <p className="text-sm font-bold text-gray-800">{restaurantData?.ownerName || "Not provided"}</p>
+                </div>
+                <button onClick={() => navigate("/food/restaurant/edit-owner")} className="p-2 hover:bg-gray-50 rounded-full transition-colors">
+                  <Pencil className="w-4 h-4 text-blue-600" />
+                </button>
+              </div>
+              
+              <div className="p-4 border-b border-gray-100">
+                <p className="text-xs text-gray-400 font-medium mb-1">Owner Phone</p>
+                <p className="text-sm font-semibold text-gray-800">{ownerInfo.phone || "N/A"}</p>
+              </div>
+
+              <div className="p-4">
+                <p className="text-xs text-gray-400 font-medium mb-1">Owner Email</p>
+                <p className="text-sm font-bold text-gray-800">{restaurantData?.ownerEmail || "Not provided"}</p>
+              </div>
+            </div>
+          </section>
+
+          {/* Legal & Compliance */}
+          <section className="space-y-3">
+            <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider ml-1">Legal & Compliance</h3>
+            <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm">
+              <div className="p-4 border-b border-gray-100 flex justify-between items-start">
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs text-gray-400 font-medium mb-1">FSSAI License</p>
+                  <p className="text-sm font-bold text-gray-800">{restaurantData?.fssaiNumber || "Not provided"}</p>
+                </div>
+                <button onClick={() => navigate("/food/restaurant/fssai")} className="p-2 hover:bg-gray-50 rounded-full transition-colors">
+                  <Pencil className="w-4 h-4 text-blue-600" />
+                </button>
+              </div>
+
+              <div className="p-4 border-b border-gray-100">
+                  <p className="text-xs text-gray-400 font-medium mb-1">GST Number</p>
+                  <p className="text-sm font-bold text-gray-800">{restaurantData?.gstNumber || "Not provided"}</p>
+              </div>
+
+              <div className="p-4">
+                  <p className="text-xs text-gray-400 font-medium mb-1">PAN Number</p>
+                  <p className="text-sm font-bold text-gray-800">{restaurantData?.panNumber || "Not provided"}</p>
+              </div>
+            </div>
+          </section>
+
+          {/* Operational Settings */}
+          <section className="space-y-3">
+            <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider ml-1">Operational</h3>
+            <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm">
+              <div className="p-4 border-b border-gray-100 flex justify-between items-center">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Clock className="w-3.5 h-3.5 text-gray-400" />
+                    <p className="text-xs text-gray-400 font-medium">Outlet Timings</p>
+                  </div>
+                  <p className="text-sm font-semibold text-gray-800">
+                    {restaurantData?.openingTime && restaurantData?.closingTime 
+                      ? `${restaurantData.openingTime} - ${restaurantData.closingTime}` 
+                      : "Timings not set"}
+                  </p>
+                </div>
+                <button onClick={() => navigate("/food/restaurant/outlet-timings")} className="p-2 hover:bg-gray-50 rounded-full transition-colors">
+                  <Pencil className="w-4 h-4 text-blue-600" />
+                </button>
+              </div>
+
+              <div className="p-4">
+                <p className="text-xs text-gray-400 font-medium mb-1">Service Zone</p>
+                <p className="text-sm font-semibold text-gray-800">{restaurantData?.zoneName || "Not assigned"}</p>
+              </div>
+            </div>
+          </section>
+
+          {/* Bank Account */}
+          <section className="space-y-3">
+            <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider ml-1">Bank Account</h3>
+            <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm">
+              <div className="p-4 border-b border-gray-100 flex justify-between items-start">
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs text-gray-400 font-medium mb-1">Account Number</p>
+                  <p className="text-sm font-bold text-gray-800">{restaurantData?.accountNumber || "Not provided"}</p>
+                </div>
+                <button onClick={() => navigate("/food/restaurant/update-bank-details")} className="p-2 hover:bg-gray-50 rounded-full transition-colors">
+                  <Pencil className="w-4 h-4 text-blue-600" />
+                </button>
+              </div>
+
+              <div className="p-4 border-b border-gray-100">
+                <p className="text-xs text-gray-400 font-medium mb-1">Account Holder Name</p>
+                <p className="text-sm font-bold text-gray-800">{restaurantData?.accountHolderName || "Not provided"}</p>
+              </div>
+
+              <div className="p-4">
+                  <p className="text-xs text-gray-400 font-medium mb-1">IFSC Code</p>
+                  <p className="text-sm font-bold text-gray-800">{restaurantData?.ifscCode || "Not provided"}</p>
+              </div>
+            </div>
+          </section>
         </div>
       </div>
 
@@ -492,6 +716,43 @@ export default function OutletInfo() {
         fileNamePrefix={`outlet-${activePicker?.type}`}
         galleryInputRef={activePicker?.ref}
       />
+
+      {/* FSSAI Expiry Alert Modal */}
+      <Dialog open={showExpiryAlert} onOpenChange={setShowExpiryAlert}>
+        <DialogContent className="sm:max-w-md bg-white rounded-3xl p-0 overflow-hidden border-none shadow-2xl">
+          <div className="bg-[#fff4f4] p-6 flex flex-col items-center text-center">
+            <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mb-4">
+              <AlertCircle className="w-8 h-8 text-red-600" />
+            </div>
+            <DialogTitle className="text-xl font-bold text-gray-900 mb-2">
+              FSSAI License Expiring
+            </DialogTitle>
+            <DialogDescription className="text-sm text-gray-600 px-4">
+              {daysToExpiry <= 0 
+                ? "Your FSSAI license has expired. Please update it immediately to continue your business operations."
+                : `Your FSSAI license is expiring in ${daysToExpiry} days. Please update it now to avoid any interruption in service.`}
+            </DialogDescription>
+          </div>
+          <DialogFooter className="p-4 bg-white flex flex-col gap-2 sm:flex-col">
+            <Button 
+              className="w-full bg-black hover:bg-gray-800 text-white rounded-full py-6 text-base font-semibold"
+              onClick={() => {
+                setShowExpiryAlert(false)
+                navigate("/food/restaurant/fssai/update")
+              }}
+            >
+              Update License Now
+            </Button>
+            <Button 
+              variant="ghost"
+              className="w-full text-gray-500 rounded-full hover:bg-gray-100"
+              onClick={() => setShowExpiryAlert(false)}
+            >
+              Remind me later
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   )
 }

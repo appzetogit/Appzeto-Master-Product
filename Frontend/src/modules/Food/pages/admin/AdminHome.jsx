@@ -103,8 +103,8 @@ export default function AdminHome() {
     const byStatus = dashboardData.orders.byStatus
     return [
       { label: "Delivered", value: byStatus.delivered || 0, color: "#0ea5e9" },
+      { label: "Processing", value: byStatus.processing || 0, color: "#a855f7" },
       { label: "Cancelled", value: byStatus.cancelled || 0, color: "#ef4444" },
-      { label: "Refunded", value: 0, color: "#f59e0b" }, // Refunded not tracked separately
       { label: "Pending", value: byStatus.pending || 0, color: "#10b981" },
     ]
   }
@@ -147,8 +147,9 @@ export default function AdminHome() {
   const totalAddons = dashboardData?.addons?.total || 0
   const totalCustomers = dashboardData?.customers?.total || 0
   const pendingOrders = dashboardData?.orderStats?.pending || 0
+  const processingOrders = dashboardData?.orderStats?.processing || 0
   const completedOrders = dashboardData?.orderStats?.completed || 0
-  const activeOrdersTotal = pendingOrders
+  const activeOrdersTotal = processingOrders
 
   const pieData = orderStats.map((item) => ({
     name: item.label,
@@ -454,8 +455,8 @@ export default function AdminHome() {
                     onClick={() => {
                         const routes = {
                           'Delivered': '/admin/food/orders/delivered',
+                          'Processing': '/admin/food/orders/processing',
                           'Cancelled': '/admin/food/orders/canceled',
-                          'Refunded': '/admin/food/orders/refunded',
                           'Pending': '/admin/food/orders/pending'
                         }
                         navigate(routes[item.label] || '/admin/food/orders/all')
@@ -584,8 +585,8 @@ export default function AdminHome() {
                     onClick={() => {
                       const routes = {
                         'Delivered': '/admin/food/orders/delivered',
+                        'Processing': '/admin/food/orders/processing',
                         'Cancelled': '/admin/food/orders/canceled',
-                        'Refunded': '/admin/food/orders/refunded',
                         'Pending': '/admin/food/orders/pending'
                       }
                       navigate(routes[item.label] || '/admin/food/orders/all')

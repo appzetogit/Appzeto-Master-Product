@@ -201,6 +201,13 @@ apiClient.interceptors.response.use(
       if (newAccessToken) {
         try {
           localStorage.setItem(`${module}_accessToken`, newAccessToken);
+          
+          // Also sync legacy and global keys for consistency across the app
+          if (module === "admin") {
+            localStorage.setItem("adminToken", newAccessToken);
+          }
+          localStorage.setItem("accessToken", newAccessToken);
+
           // Dispatch a custom event specifically for the module that refreshed
           window.dispatchEvent(new CustomEvent("authRefreshed", { 
             detail: { module, token: newAccessToken } 
