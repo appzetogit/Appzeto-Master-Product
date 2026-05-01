@@ -6,6 +6,7 @@ import { ImageSourcePicker } from "@food/components/ImageSourcePicker"
 import { isFlutterBridgeAvailable } from "@food/utils/imageUploadUtils"
 import { toast } from "sonner"
 import { restaurantAPI } from "@food/api"
+import { clearModuleAuth } from "@food/utils/auth"
 
 export default function FssaiUpdate() {
   const navigate = useNavigate()
@@ -108,11 +109,22 @@ export default function FssaiUpdate() {
       }
 
       // 2. Update profile
-      await restaurantAPI.updateProfile({
+      const response = await restaurantAPI.updateProfile({
         fssaiNumber: fssaiNumber.trim(),
         fssaiExpiry: fssaiExpiry,
         fssaiImage: imageUrl
       })
+
+      const result = response?.data?.data || response?.data
+
+      if (result?.requireLogout) {
+        toast.success("FSSAI details updated. Account sent for re-verification.")
+        setTimeout(() => {
+          clearModuleAuth()
+          window.location.href = "/food/restaurant/login"
+        }, 2000)
+        return
+      }
 
       toast.success("FSSAI details updated successfully")
       navigate("/food/restaurant/fssai")

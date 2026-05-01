@@ -6,6 +6,10 @@ import mongoose from 'mongoose';
 import { FoodZone } from '../../admin/models/zone.model.js';
 import { FoodOffer } from '../../admin/models/offer.model.js';
 import { getRestaurantDiningSnapshot, submitRestaurantDiningRequest } from '../../dining/services/dining.service.js';
+import { 
+    notifyAdminsSafely, 
+    notifyOwnerSafely 
+} from '../../../../core/notifications/firebase.service.js';
 
 const normalizeName = (value) =>
     String(value || '')
@@ -586,7 +590,7 @@ export const updateRestaurantProfile = async (restaurantId, body = {}) => {
     }
 
     const currentRestaurant = await FoodRestaurant.findById(restaurantId)
-        .select('restaurantName restaurantNameNormalized ownerPhone ownerPhoneDigits ownerPhoneLast10 primaryContactNumber status')
+        .select('restaurantName restaurantNameNormalized ownerPhone ownerPhoneDigits ownerPhoneLast10 primaryContactNumber status fssaiNumber fssaiImage')
         .lean();
 
     if (!currentRestaurant) {
@@ -859,6 +863,24 @@ export const updateRestaurantProfile = async (restaurantId, body = {}) => {
     if (body.gstImage !== undefined) {
         update.gstImage = toUrl(body.gstImage) || '';
     }
+
+    // FSSAI Re-verification Flow
+    let fssaiChanged = false;
+    if (body.fssaiNumber !== undefined && String(body.fssaiNumber || '').trim() !== String(currentRestaurant.fssaiNumber || '').trim()) {
+        fssaiChanged = true;
+    }
+    if (body.fssaiImage !== undefined && String(body.fssaiImage || '').trim() !== String(currentRestaurant.fssaiImage || '').trim()) {
+        fssaiChanged = true;
+    }
+
+    if (fssaiChanged) {
+        update.status = 'pending';
+        update.reVerification = {
+            ...currentRestaurant.reVerification,
+            reVerificationReason: 'FSSAI License Update'
+        };
+    }
+
     if (body.fssaiNumber !== undefined) {
         update.fssaiNumber = String(body.fssaiNumber || '').trim();
     }
@@ -968,13 +990,39 @@ export const updateRestaurantProfile = async (restaurantId, body = {}) => {
             }
         ).lean();
 
-        if (currentRestaurant.status !== 'pending') {
+        if (fssaiChanged) {
+            // Notify Admin
+            void notifyAdminsSafely({
+                title: 'FSSAI License Update',
+                body: `Restaurant "${doc.restaurantName}" has updated their FSSAI license and is pending re-verification.`,
+                data: {
+                    type: 'RE_VERIFICATION',
+                    subType: 'FSSAI_UPDATE',
+                    restaurantId: String(restaurantId)
+                }
+            });
+            // Notify Owner (Mobile/Web Push)
+            void notifyOwnerSafely({
+                ownerType: 'RESTAURANT',
+                ownerId: String(restaurantId),
+                payload: {
+                    title: 'FSSAI Updated',
+                    body: 'Your FSSAI license has been updated. Your account is now pending re-verification and you have been logged out for security.',
+                    data: { type: 'FSSAI_UPDATE' }
+                }
+            });
+        } else if (currentRestaurant.status !== 'pending') {
             const restaurantNameForNotification =
                 update.restaurantName || currentRestaurant.restaurantName || doc?.restaurantName;
             void notifyAdminsAboutRestaurantProfileReview(restaurantId, restaurantNameForNotification);
         }
 
-        return toRestaurantProfile(doc);
+        const profile = toRestaurantProfile(doc);
+        if (fssaiChanged) {
+            profile.requireLogout = true;
+            profile.logoutReason = 'fssai_update';
+        }
+        return profile;
     } catch (err) {
         if (err && err.code === 11000) {
             throw new ValidationError('A restaurant with this name and phone already exists');
@@ -992,7 +1040,6 @@ export const uploadRestaurantProfileImage = async (restaurantId, file) => {
         .lean();
     if (!currentRestaurant) throw new ValidationError('Restaurant not found');
 
-    const url = await uploadImageBuffer(file.buffer, 'food/restaurants/profile');
     const doc = await FoodRestaurant.findByIdAndUpdate(
         restaurantId,
         {

@@ -14,6 +14,7 @@ import {
   ChevronRight,
   X,
   Trash2,
+  AlertCircle,
 } from "lucide-react"
 import {
   Dialog,
@@ -62,6 +63,8 @@ export default function OutletInfo() {
   const [uploadingImage, setUploadingImage] = useState(false)
   const [imageType, setImageType] = useState(null)
   const [uploadingCount, setUploadingCount] = useState(0)
+  const [showExpiryAlert, setShowExpiryAlert] = useState(false)
+  const [daysToExpiry, setDaysToExpiry] = useState(null)
   
   const profileImageInputRef = useRef(null)
   const menuImageInputRef = useRef(null)
@@ -180,6 +183,18 @@ export default function OutletInfo() {
           debugError("Error fetching restaurant data:", error)
         }
       } finally {
+        if (restaurantData?.fssaiExpiry) {
+          const expiry = new Date(restaurantData.fssaiExpiry)
+          const today = new Date()
+          today.setHours(0, 0, 0, 0)
+          const diffTime = expiry - today
+          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+          setDaysToExpiry(diffDays)
+          
+          if (diffDays <= 4) {
+            setShowExpiryAlert(true)
+          }
+        }
         setLoading(false)
       }
     }
@@ -491,7 +506,7 @@ export default function OutletInfo() {
               />
             </div>
             
-            <div className="pb-1 flex-1 min-w-0">
+            <div className="pb-6 flex-1 min-w-0">
               <h2 className="text-2xl font-black text-gray-900 uppercase tracking-tight truncate">
                 {restaurantName || "Restaurant Name"}
               </h2>
@@ -701,6 +716,43 @@ export default function OutletInfo() {
         fileNamePrefix={`outlet-${activePicker?.type}`}
         galleryInputRef={activePicker?.ref}
       />
+
+      {/* FSSAI Expiry Alert Modal */}
+      <Dialog open={showExpiryAlert} onOpenChange={setShowExpiryAlert}>
+        <DialogContent className="sm:max-w-md bg-white rounded-3xl p-0 overflow-hidden border-none shadow-2xl">
+          <div className="bg-[#fff4f4] p-6 flex flex-col items-center text-center">
+            <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mb-4">
+              <AlertCircle className="w-8 h-8 text-red-600" />
+            </div>
+            <DialogTitle className="text-xl font-bold text-gray-900 mb-2">
+              FSSAI License Expiring
+            </DialogTitle>
+            <DialogDescription className="text-sm text-gray-600 px-4">
+              {daysToExpiry <= 0 
+                ? "Your FSSAI license has expired. Please update it immediately to continue your business operations."
+                : `Your FSSAI license is expiring in ${daysToExpiry} days. Please update it now to avoid any interruption in service.`}
+            </DialogDescription>
+          </div>
+          <DialogFooter className="p-4 bg-white flex flex-col gap-2 sm:flex-col">
+            <Button 
+              className="w-full bg-black hover:bg-gray-800 text-white rounded-full py-6 text-base font-semibold"
+              onClick={() => {
+                setShowExpiryAlert(false)
+                navigate("/food/restaurant/fssai/update")
+              }}
+            >
+              Update License Now
+            </Button>
+            <Button 
+              variant="ghost"
+              className="w-full text-gray-500 rounded-full hover:bg-gray-100"
+              onClick={() => setShowExpiryAlert(false)}
+            >
+              Remind me later
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   )
 }

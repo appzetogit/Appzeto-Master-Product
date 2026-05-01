@@ -4,10 +4,15 @@ import useRestaurantBackNavigation from "@food/hooks/useRestaurantBackNavigation
 import Lenis from "lenis"
 import { ArrowLeft, ChevronDown } from "lucide-react"
 import BottomPopup from "@delivery/components/BottomPopup"
-import { restaurantAPI } from "@food/api"
-const debugLog = (...args) => {}
-const debugWarn = (...args) => {}
-const debugError = (...args) => {}
+import { restaurantAPI, zoneAPI } from "@food/api"
+import { getGoogleMapsApiKey } from "@food/utils/googleMapsApiKey"
+import { loadGoogleMaps as loadGoogleMapsSdk } from "@core/services/googleMapsLoader"
+import { toast } from "react-hot-toast"
+import { useRef } from "react"
+
+const debugLog = (...args) => console.log(...args)
+const debugWarn = (...args) => console.warn(...args)
+const debugError = (...args) => console.error(...args)
 
 
 const ADDRESS_STORAGE_KEY = "restaurant_address"
@@ -27,6 +32,14 @@ export default function EditRestaurantAddress() {
   const [selectedOption, setSelectedOption] = useState("minor_correction") // "update_address" or "minor_correction"
   const [lat, setLat] = useState(DEFAULT_LAT)
   const [lng, setLng] = useState(DEFAULT_LNG)
+  const [currentZone, setCurrentZone] = useState(null)
+  const [mapLoading, setMapLoading] = useState(true)
+
+  const mapRef = useRef(null)
+  const mapInstanceRef = useRef(null)
+  const markerRef = useRef(null)
+  const polygonRef = useRef(null)
+  const isMapInitializedRef = useRef(false)
 
   // Format address from location object
   const formatAddress = (loc) => {
@@ -45,70 +58,199 @@ export default function EditRestaurantAddress() {
     return parts.join(", ") || ""
   }
 
-  // Fetch restaurant data from backend
+  // Fetch restaurant and zone data
   useEffect(() => {
-    const fetchRestaurantData = async () => {
+    const initPage = async () => {
       try {
         setLoading(true)
+        setMapLoading(true)
         const response = await restaurantAPI.getCurrentRestaurant()
         const data = response?.data?.data?.restaurant || response?.data?.restaurant
+        let zoneObj = null
+        
         if (data) {
-          setRestaurantName(data.name || "")
+          setRestaurantName(data.restaurantName || data.name || "")
+          setRestaurantData(data)
           if (data.location) {
             setLocation(data.location)
             const formatted = formatAddress(data.location)
             setAddress(formatted)
-            // Set coordinates if available
             if (data.location.latitude && data.location.longitude) {
               setLat(data.location.latitude)
               setLng(data.location.longitude)
             }
-          } else {
-            // Fallback to localStorage
-            try {
-              const savedAddress = localStorage.getItem(ADDRESS_STORAGE_KEY)
-              if (savedAddress) {
-                setAddress(savedAddress)
-              }
-            } catch (error) {
-              debugError("Error loading address from storage:", error)
+          }
+
+          // Fetch zone data
+          if (data.zoneId) {
+            const zonesRes = await zoneAPI.getPublicZones()
+            const allZones = zonesRes?.data?.data?.zones || zonesRes?.data?.zones || []
+            zoneObj = allZones.find(z => String(z._id || z.id) === String(data.zoneId))
+            if (zoneObj) {
+              setCurrentZone(zoneObj)
             }
           }
         }
+
+        // Load Map - Same logic as ZoneSetup
+        const apiKey = await getGoogleMapsApiKey()
+        if (!apiKey) {
+          debugError("? Google Maps API key not found")
+          setMapLoading(false)
+          return
+        }
+
+        // Wait for mapRef to be available
+        let refRetries = 0
+        const maxRefRetries = 50 
+        while (!mapRef.current && refRetries < maxRefRetries) {
+          await new Promise(resolve => setTimeout(resolve, 100))
+          refRetries++
+        }
+
+        if (!mapRef.current) {
+          debugError("? mapRef.current is still null after waiting")
+          setMapLoading(false)
+          return
+        }
+
+        debugLog("?? Loading Google Maps SDK...")
+        const maps = await loadGoogleMapsSdk(apiKey)
+        if (!maps || !window.google?.maps) {
+          throw new Error("Google Maps SDK did not finish loading")
+        }
+
+        debugLog("? Google Maps loaded, initializing map...")
+        if (!isMapInitializedRef.current) {
+          const startLat = data?.location?.latitude || lat || DEFAULT_LAT
+          const startLng = data?.location?.longitude || lng || DEFAULT_LNG
+          initializeMap(window.google, zoneObj, startLat, startLng)
+        }
       } catch (error) {
-        // Only log error if it's not a network/timeout error (backend might be down/slow)
-        if (error.code !== 'ERR_NETWORK' && error.code !== 'ECONNABORTED' && !error.message?.includes('timeout')) {
-          debugError("Error fetching restaurant data:", error)
-        }
-        // Fallback to localStorage
-        try {
-          const savedAddress = localStorage.getItem(ADDRESS_STORAGE_KEY)
-          if (savedAddress) {
-            setAddress(savedAddress)
-          }
-          // Try to get restaurant name from localStorage, but prefer empty string over hardcoded value
-          const savedName = localStorage.getItem("restaurant_name") || 
-                           localStorage.getItem("restaurantName") ||
-                           ""
-          setRestaurantName(savedName)
-        } catch (e) {
-          debugError("Error loading from localStorage:", e)
-        }
+        debugError("Error initializing page:", error)
+        toast.error("Failed to load map data")
       } finally {
         setLoading(false)
+        setMapLoading(false)
       }
     }
 
-    fetchRestaurantData()
+    initPage()
+  }, [])
 
-    // Listen for address updates
-    const handleAddressUpdate = () => {
-      fetchRestaurantData()
+  const initializeMap = (google, zone, startLat, startLng) => {
+    if (isMapInitializedRef.current || !mapRef.current) return
+    isMapInitializedRef.current = true
+
+    const centerLat = Number(startLat) || Number(lat) || DEFAULT_LAT
+    const centerLng = Number(startLng) || Number(lng) || DEFAULT_LNG
+    
+    debugLog("?? Creating map instance at:", centerLat, centerLng)
+
+    try {
+      const map = new google.maps.Map(mapRef.current, {
+        center: { lat: centerLat, lng: centerLng },
+        zoom: 17,
+        mapTypeControl: true,
+        zoomControl: true,
+        streetViewControl: false,
+        fullscreenControl: true,
+        gestureHandling: 'greedy',
+      })
+      mapInstanceRef.current = map
+
+      // Draw Zone Polygon if available
+      const activeZone = zone || currentZone
+      if (activeZone?.coordinates) {
+        const path = activeZone.coordinates.map(c => ({
+          lat: Number(c.latitude || c.lat),
+          lng: Number(c.longitude || c.lng)
+        }))
+
+        const polygon = new google.maps.Polygon({
+          paths: path,
+          strokeColor: "#3b82f6",
+          strokeOpacity: 0.6,
+          strokeWeight: 2,
+          fillColor: "#3b82f6",
+          fillOpacity: 0.15,
+          map: map
+        })
+        polygonRef.current = polygon
+
+        // Only allow clicks inside polygon to set marker
+        polygon.addListener('click', (event) => {
+          updateMarker(event.latLng.lat(), event.latLng.lng())
+        })
+
+        // Adjust map bounds to show polygon
+        const bounds = new google.maps.LatLngBounds()
+        path.forEach(p => bounds.extend(p))
+        map.fitBounds(bounds)
+      }
+
+      // Initial Marker
+      updateMarker(centerLat, centerLng)
+      setMapLoading(false)
+    } catch (e) {
+      debugError("? Error creating map:", e)
+      isMapInitializedRef.current = false
+    }
+  }
+
+  const updateMarker = (newLat, newLng) => {
+    const google = window.google
+    if (!google || !mapInstanceRef.current) return
+
+    // Validation: Check if point is inside currentZone polygon
+    if (polygonRef.current && !google.maps.geometry.poly.containsLocation(new google.maps.LatLng(newLat, newLng), polygonRef.current)) {
+      toast.error("Address must be inside your assigned zone")
+      return
     }
 
-    window.addEventListener("addressUpdated", handleAddressUpdate)
-    return () => window.removeEventListener("addressUpdated", handleAddressUpdate)
-  }, [])
+    if (markerRef.current) {
+      markerRef.current.setPosition({ lat: newLat, lng: newLng })
+    } else {
+      markerRef.current = new google.maps.Marker({
+        position: { lat: newLat, lng: newLng },
+        map: mapInstanceRef.current,
+        draggable: true,
+        animation: google.maps.Animation.DROP
+      })
+
+      markerRef.current.addListener('dragend', (event) => {
+        const dragLat = event.latLng.lat()
+        const dragLng = event.latLng.lng()
+        
+        // Validate drag position
+        if (polygonRef.current && !google.maps.geometry.poly.containsLocation(new google.maps.LatLng(dragLat, dragLng), polygonRef.current)) {
+          toast.error("Address must be inside your assigned zone")
+          // Snap back to previous position
+          markerRef.current.setPosition({ lat, lng })
+        } else {
+          setLat(dragLat)
+          setLng(dragLng)
+          getAddressFromCoords(dragLat, dragLng)
+        }
+      })
+    }
+
+    setLat(newLat)
+    setLng(newLng)
+    getAddressFromCoords(newLat, newLng)
+  }
+
+  const getAddressFromCoords = (lat, lng) => {
+    if (!window.google?.maps?.Geocoder) return
+    const geocoder = new window.google.maps.Geocoder()
+    geocoder.geocode({ location: { lat, lng } }, (results, status) => {
+      if (status === "OK" && results[0]) {
+        setAddress(results[0].formatted_address)
+      }
+    })
+  }
+
+  const [restaurantData, setRestaurantData] = useState(null)
 
   // Lenis smooth scrolling
   useEffect(() => {
@@ -223,37 +365,29 @@ export default function EditRestaurantAddress() {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1">
             <h1 className="text-base font-bold text-gray-900 truncate">{restaurantName}</h1>
-            <ChevronDown className="w-4 h-4 text-gray-900 shrink-0" />
           </div>
           <p className="text-xs text-gray-600 truncate">{simplifiedAddress}</p>
         </div>
       </div>
 
       {/* Map Section - Takes remaining space */}
-      <div className="relative flex-1 min-h-0 overflow-hidden">
-        {/* Google Maps Embed */}
-        <iframe
-          src={`https://www.google.com/maps?q=${lat},${lng}&hl=en&z=15&output=embed`}
-          width="100%"
-          height="100%"
-          style={{ border: 0 }}
-          allowFullScreen
-          loading="lazy"
-          referrerPolicy="no-referrer-when-downgrade"
-          className="absolute inset-0"
+      <div className="flex-1 relative overflow-hidden bg-gray-50 min-h-[400px]">
+        {/* Google Maps Div */}
+        <div 
+          ref={mapRef}
+          className="w-full h-full"
+          style={{ minHeight: '400px', height: '100%' }}
         />
         
-        {/* Custom Marker Tooltip Overlay */}
-        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 pointer-events-none z-10">
-          {/* Tooltip */}
-          <div className="bg-black text-white px-3 py-2 rounded-lg mb-2 whitespace-nowrap shadow-lg">
-            <p className="text-xs font-semibold">Your outlet location</p>
-            <p className="text-[10px] text-gray-300">Orders will be picked up from here</p>
+        {mapLoading && (
+          <div className="absolute inset-0 bg-gray-100 flex items-center justify-center z-[100]">
+            <div className="flex flex-col items-center">
+              <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-2"></div>
+              <p className="text-sm text-gray-500 font-medium">Initializing Map...</p>
+            </div>
           </div>
-          {/* Marker Pin */}
-          <div className="w-6 h-6 bg-black rounded-full border-2 border-white shadow-lg mx-auto"></div>
-        </div>
-
+        )}
+        
         {/* Address Details Section - Overlays map at bottom */}
         <div className="absolute bottom-0 left-0 right-0 bg-white rounded-t-3xl z-20 px-4 pt-6">
           <h2 className="text-xl font-bold text-gray-900 text-center mb-3">Outlet address</h2>
@@ -261,7 +395,7 @@ export default function EditRestaurantAddress() {
           {/* Informational Banner */}
           <div className="bg-blue-100 rounded-lg px-4 py-3 mb-4">
             <p className="text-sm text-gray-900">
-              Customers and Zomato delivery partners will use this to locate your outlet.
+              Customers and Appzeto delivery partners will use this to locate your outlet.
             </p>
           </div>
 
