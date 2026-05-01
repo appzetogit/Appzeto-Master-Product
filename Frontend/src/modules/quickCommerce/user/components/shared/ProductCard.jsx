@@ -202,34 +202,14 @@ const ProductCard = React.memo(
                   product.image ||
                   product.mainImage
                 }
+                srcSet={getCloudinarySrcSet(product.image || product.mainImage)}
+                sizes="(max-width: 768px) 150px, (max-width: 1024px) 200px, 250px"
                 alt={product.name}
                 className="w-full h-full object-contain mix-blend-multiply transition-opacity duration-300"
                 loading="lazy"
               />
             </div>
           </div>
-          <div
-            className={cn(
-              "w-full h-full overflow-hidden flex items-center justify-center p-2 min-[380px]:p-3 md:p-4 transition-transform duration-700 group-hover:scale-110",
-                compact || neutralBg
-                ? "rounded-xl bg-slate-50/50"
-                : "rounded-xl bg-white/60",
-            )}>
-            <img
-              ref={imageRef}
-              src={
-                resolveQuickImageUrl(product.image || product.mainImage) ||
-                product.image ||
-                product.mainImage
-              }
-              srcSet={getCloudinarySrcSet(product.image || product.mainImage)}
-              sizes="(max-width: 768px) 150px, (max-width: 1024px) 200px, 250px"
-              alt={product.name}
-              className="w-full h-full object-contain mix-blend-multiply transition-opacity duration-300"
-              loading="lazy"
-            />
-          </div>
-        </div>
 
           {/* Info Section */}
           <div
