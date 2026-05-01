@@ -142,6 +142,25 @@ export function isModuleAuthenticated(module) {
 }
 
 /**
+ * Check if user has a session (even if token is expired, but refresh token exists)
+ * This helps ProtectedRoute allow the page to load and let axios handle background refresh.
+ * @param {string} module - Module name
+ * @returns {boolean} - True if session exists
+ */
+export function hasModuleSession(module) {
+  const token = getModuleToken(module);
+  const refreshToken = localStorage.getItem(`${module}_refreshToken`);
+  
+  // If we have a token that's NOT expired, we're definitely authenticated.
+  if (!!token && !isTokenExpired(token)) return true;
+  
+  // If we have a refresh token, we might be able to recover the session.
+  if (!!refreshToken) return true;
+  
+  return false;
+}
+
+/**
  * Clear authentication data for a specific module
  * @param {string} module - Module name (admin, restaurant, delivery, user)
  */
@@ -280,6 +299,10 @@ export function setAuthData(module, token, user, refreshToken = null) {
     }
 
     localStorage.setItem(tokenKey, token);
+    
+    // Always set global accessToken for any module login
+    localStorage.setItem("accessToken", token);
+
     if (module === "admin") {
       localStorage.setItem("auth_admin", token);
       localStorage.setItem("adminToken", token);
@@ -289,7 +312,6 @@ export function setAuthData(module, token, user, refreshToken = null) {
     }
     if (module === "user") {
       localStorage.setItem("auth_customer", token);
-      localStorage.setItem("accessToken", token);
       localStorage.setItem("token", token);
     }
     if (refreshToken && typeof refreshToken === "string") {

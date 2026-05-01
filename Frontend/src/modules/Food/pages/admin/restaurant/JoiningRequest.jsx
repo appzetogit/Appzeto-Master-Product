@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from "react"
+import { toast } from "react-hot-toast"
 import { 
   Search, Filter, Eye, Check, X, UtensilsCrossed, ArrowUpDown, Loader2,
   FileText, Image as ImageIcon, ExternalLink, CreditCard, Calendar, Star, Building2, User, Phone, Mail, MapPin, Clock
@@ -262,21 +263,19 @@ export default function JoiningRequest() {
   const hasActiveFilters = filters.zone || filters.dateFrom || filters.dateTo
 
   const handleApprove = async (request) => {
-    if (window.confirm(`Are you sure you want to approve "${request.restaurantName}" restaurant request?`)) {
-      try {
-        setProcessing(true)
-        await adminAPI.approveRestaurant(request._id)
-        
-        // Refresh the list
-        await fetchRequests()
-        
-        alert(`Successfully approved ${request.restaurantName}'s join request!`)
-      } catch (err) {
-        debugError("Error approving request:", err)
-        alert(err.response?.data?.message || "Failed to approve request. Please try again.")
-      } finally {
-        setProcessing(false)
-      }
+    try {
+      setProcessing(true)
+      await adminAPI.approveRestaurant(request._id)
+      
+      // Refresh the list
+      await fetchRequests()
+      
+      toast.success(`Successfully approved ${request.restaurantName}'s join request!`)
+    } catch (err) {
+      debugError("Error approving request:", err)
+      toast.error(err.response?.data?.message || "Failed to approve request. Please try again.")
+    } finally {
+      setProcessing(false)
     }
   }
 

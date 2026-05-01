@@ -57,7 +57,6 @@ const resolveRestaurantBackPath = ({ pathname, state }) => {
 
   if (
     normalizedPath === "/edit-owner" ||
-    normalizedPath === "/edit-cuisines" ||
     normalizedPath === "/edit-address" ||
     normalizedPath === "/phone" ||
     normalizedPath === "/manage-outlets" ||

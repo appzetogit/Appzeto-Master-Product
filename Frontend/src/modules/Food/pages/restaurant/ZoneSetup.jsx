@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react"
 import { useNavigate } from "react-router-dom"
 import { MapPin, Search, Save, Loader2, ArrowLeft, AlertTriangle, X } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
+import { toast } from "react-hot-toast"
 import RestaurantNavbar from "@food/components/restaurant/RestaurantNavbar"
 import { restaurantAPI, zoneAPI } from "@food/api"
 import { getGoogleMapsApiKey } from "@food/utils/googleMapsApiKey"
@@ -71,6 +72,7 @@ export default function ZoneSetup() {
   const [zones, setZones] = useState([])
   const [showConfirmModal, setShowConfirmModal] = useState(false)
   const [isSuccess, setIsSuccess] = useState(false)
+  const [reVerificationData, setReVerificationData] = useState(null)
 
   useEffect(() => {
     fetchRestaurantData()
@@ -481,11 +483,10 @@ export default function ZoneSetup() {
       alert("Please select a location on the map first")
       return
     }
-    setShowConfirmModal(true)
+    proceedSave()
   }
 
   const proceedSave = async () => {
-    setShowConfirmModal(false)
     try {
       setSaving(true)
       
@@ -558,16 +559,27 @@ export default function ZoneSetup() {
         }
       }
 
+      setReVerificationData(payload.reVerification)
       const response = await restaurantAPI.updateProfile(payload)
 
       if (response?.data?.success) {
-        setIsSuccess(true)
+        toast.success("Location updated! Logging out for re-verification...")
+        
+        // Delay logout slightly to let user see the toast
+        const phone = restaurantData?.ownerPhone || ""
+        setTimeout(() => {
+          clearAuthData("restaurant")
+          navigate("/food/restaurant/pending-verification", { 
+            replace: true,
+            state: { phone } 
+          });
+        }, 1500)
       } else {
         throw new Error("Failed to submit location update")
       }
     } catch (error) {
       debugError("Error saving location:", error)
-      alert(error.response?.data?.message || "Failed to save location. Please try again.")
+      toast.error(error.response?.data?.message || "Failed to save location. Please try again.")
     } finally {
       setSaving(false)
     }
@@ -669,119 +681,16 @@ export default function ZoneSetup() {
         </div>
       </div>
 
-      {/* Confirmation Modal */}
-      <AnimatePresence>
-        {showConfirmModal && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setShowConfirmModal(false)}
-              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
-            />
-            <motion.div
-              initial={{ opacity: 0, scale: 0.9, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden"
-            >
-              <div className="p-6">
-                {!isSuccess ? (
-                  <>
-                    <div className="flex items-center justify-between mb-6">
-                      <div className="w-12 h-12 rounded-full bg-amber-100 flex items-center justify-center">
-                        <AlertTriangle className="w-6 h-6 text-amber-600" />
-                      </div>
-                      <button
-                        onClick={() => setShowConfirmModal(false)}
-                        className="p-2 hover:bg-slate-100 rounded-full transition-colors"
-                      >
-                        <X className="w-5 h-5 text-slate-400" />
-                      </button>
-                    </div>
-
-                    <h3 className="text-xl font-bold text-slate-900 mb-2">
-                      Confirm Location Change?
-                    </h3>
-                    <p className="text-slate-600 mb-6 leading-relaxed">
-                      Changing your location will put your restaurant in <span className="font-semibold text-amber-600">"Pending"</span> status for re-verification. 
-                      You will be logged out and can only access your dashboard once the admin approves your new location.
-                    </p>
-
-                    <div className="flex flex-col gap-3">
-                      <button
-                        onClick={proceedSave}
-                        disabled={saving}
-                        className="w-full py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl shadow-lg shadow-red-200 transition-all flex items-center justify-center gap-2 disabled:bg-gray-400 disabled:shadow-none disabled:cursor-not-allowed"
-                      >
-                        {saving ? (
-                          <>
-                            <Loader2 className="w-5 h-5 animate-spin" />
-                            <span>Updating...</span>
-                          </>
-                        ) : (
-                          <>
-                            <Save className="w-5 h-5" />
-                            <span>Confirm & Update Location</span>
-                          </>
-                        )}
-                      </button>
-                      <button
-                        onClick={() => setShowConfirmModal(false)}
-                        className="w-full py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-xl transition-all"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </>
-                ) : (
-                  <div className="text-center py-4">
-                    <div className="w-20 h-20 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-6">
-                      <motion.div
-                        initial={{ scale: 0 }}
-                        animate={{ scale: 1 }}
-                        transition={{ type: "spring", stiffness: 200, damping: 10 }}
-                      >
-                        <Save className="w-10 h-10 text-green-600" />
-                      </motion.div>
-                    </div>
-                    <h3 className="text-2xl font-bold text-slate-900 mb-2">
-                      Request Submitted!
-                    </h3>
-                    <p className="text-slate-600 mb-8">
-                      Your restaurant is now under re-verification. Please log in again once the admin approves your new location.
-                    </p>
-                    <button
-                      onClick={() => {
-                        const phone = restaurantData?.ownerPhone || "";
-                        navigate("/food/restaurant/pending-verification", { 
-                          replace: true,
-                          state: { phone } 
-                        });
-                        // Short delay to ensure navigation is initiated before clearing auth
-                        setTimeout(() => clearAuthData("restaurant"), 100);
-                      }}
-                      className="w-full py-4 bg-slate-900 text-white font-bold rounded-xl hover:bg-black transition-all shadow-xl"
-                    >
-                      Logout from Dashboard
-                    </button>
-                  </div>
-                )}
-              </div>
-              
-              {!isSuccess && (
-                <div className="bg-slate-50 px-6 py-4 border-t border-slate-100">
-                  <p className="text-xs text-slate-500 text-center">
-                    This action helps maintain the accuracy of our delivery zones.
-                  </p>
-                </div>
-              )}
-            </motion.div>
+      {/* Loading Overlay */}
+      {saving && (
+        <div className="fixed inset-0 bg-black/50 z-[9999] flex items-center justify-center backdrop-blur-sm">
+          <div className="bg-white p-8 rounded-2xl shadow-2xl flex flex-col items-center">
+            <Loader2 className="w-12 h-12 text-red-500 animate-spin mb-4" />
+            <p className="text-gray-900 font-bold text-lg">Saving Location...</p>
+            <p className="text-gray-500 text-sm">Please wait while we update your details</p>
           </div>
-        )}
-      </AnimatePresence>
+        </div>
+      )}
     </div>
   )
 }
-

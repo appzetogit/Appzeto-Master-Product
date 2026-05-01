@@ -1,9 +1,9 @@
 import { Navigate, useLocation } from "react-router-dom"
-import { isModuleAuthenticated } from "@food/utils/auth"
+import { hasModuleSession } from "@food/utils/auth"
 
 export default function ProtectedRoute({ children }) {
   const location = useLocation()
-  const isAuthenticated = isModuleAuthenticated("admin")
+  const isAuthenticated = hasModuleSession("admin")
 
   if (!isAuthenticated) {
     return <Navigate to="/admin/login" state={{ from: location.pathname }} replace />

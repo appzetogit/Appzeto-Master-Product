@@ -35,18 +35,22 @@ const normalizeAboutForResponse = (about) => {
     };
 };
 
-export const getPublicPageByKey = async (key) => {
+export const getPublicPageByKey = async (key, role = 'user') => {
     const k = normalizeKey(key);
-    const doc = await FoodPageContent.findOne({ key: k }).lean();
-    if (!doc) return { key: k, data: null };
-    if (k === 'about') return { key: k, data: normalizeAboutForResponse(doc.about || null) };
-    return { key: k, data: normalizeLegalForResponse(doc.legal || null) };
+    const r = String(role || 'user').toLowerCase();
+    
+    const doc = await FoodPageContent.findOne({ key: k, role: r }).lean();
+    if (!doc) return { key: k, role: r, data: null };
+    if (k === 'about') return { key: k, role: r, data: normalizeAboutForResponse(doc.about || null) };
+    return { key: k, role: r, data: normalizeLegalForResponse(doc.legal || null) };
 };
 
-export const getAdminPageByKey = async (key) => getPublicPageByKey(key);
+export const getAdminPageByKey = async (key, role = 'user') => getPublicPageByKey(key, role);
 
-export const upsertLegalPage = async (key, payload, updatedBy) => {
+export const upsertLegalPage = async (key, payload, updatedBy, role = 'user') => {
     const k = normalizeKey(key);
+    const r = String(role || 'user').toLowerCase();
+    
     if (!['terms', 'privacy', 'refund', 'shipping', 'cancellation'].includes(k)) {
         throw new ValidationError('Invalid page key');
     }
@@ -54,10 +58,11 @@ export const upsertLegalPage = async (key, payload, updatedBy) => {
     const content = decodeHtmlEntities(String(payload?.content || '')).trim();
 
     const doc = await FoodPageContent.findOneAndUpdate(
-        { key: k },
+        { key: k, role: r },
         {
             $set: {
                 key: k,
+                role: r,
                 legal: { title, content },
                 about: undefined,
                 updatedBy: updatedBy || null,
@@ -67,7 +72,7 @@ export const upsertLegalPage = async (key, payload, updatedBy) => {
         { upsert: true, new: true }
     ).lean();
 
-    return { key: k, data: normalizeLegalForResponse(doc?.legal || null) };
+    return { key: k, role: r, data: normalizeLegalForResponse(doc?.legal || null) };
 };
 
 export const upsertAboutPage = async (payload, updatedBy) => {
@@ -88,10 +93,11 @@ export const upsertAboutPage = async (payload, updatedBy) => {
     }));
 
     const doc = await FoodPageContent.findOneAndUpdate(
-        { key: 'about' },
+        { key: 'about', role: 'all' },
         {
             $set: {
                 key: 'about',
+                role: 'all',
                 about: { appName, version, description, logo, features: normalizedFeatures, stats },
                 legal: undefined,
                 updatedBy: updatedBy || null,
@@ -101,6 +107,6 @@ export const upsertAboutPage = async (payload, updatedBy) => {
         { upsert: true, new: true }
     ).lean();
 
-    return { key: 'about', data: normalizeAboutForResponse(doc?.about || null) };
+    return { key: 'about', role: 'all', data: normalizeAboutForResponse(doc?.about || null) };
 };
 

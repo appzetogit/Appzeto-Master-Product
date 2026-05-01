@@ -420,7 +420,11 @@ export default function AdminNavbar({ onMenuClick }) {
                     <div className="w-12 h-12 rounded-full bg-neutral-100 flex items-center justify-center overflow-hidden border border-neutral-300">
                       {adminData?.profileImage ? (
                         <img
-                          src={adminData.profileImage && adminData.profileImage.trim() ? adminData.profileImage : undefined}
+                          src={
+                            typeof adminData.profileImage === "string"
+                              ? adminData.profileImage.trim() || undefined
+                              : adminData.profileImage?.url || undefined
+                          }
                           alt={adminData.name || "Admin"}
                           className="w-full h-full object-cover"
                         />

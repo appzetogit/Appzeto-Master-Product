@@ -24,7 +24,7 @@ export default function Terms() {
   const fetchTermsData = async () => {
     try {
       setLoading(true)
-      const response = await api.get(API_ENDPOINTS.ADMIN.TERMS_PUBLIC)
+      const response = await api.get(`${API_ENDPOINTS.ADMIN.TERMS_PUBLIC}?role=user`)
       if (response.data.success) {
         setTermsData(response.data.data || { title: 'Terms of Service', content: '' })
       }

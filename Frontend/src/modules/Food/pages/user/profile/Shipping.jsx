@@ -24,7 +24,7 @@ export default function Shipping() {
   const fetchShippingData = async () => {
     try {
       setLoading(true)
-      const response = await api.get(API_ENDPOINTS.ADMIN.SHIPPING_PUBLIC)
+      const response = await api.get(`${API_ENDPOINTS.ADMIN.SHIPPING_PUBLIC}?role=user`)
       if (response.data.success) {
         setShippingData(response.data.data || { title: 'Shipping Policy', content: '' })
       }

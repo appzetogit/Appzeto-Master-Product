@@ -148,17 +148,17 @@ const toRestaurantProfile = (doc) => {
         ownerEmail: doc.ownerEmail || '',
         ownerPhone: doc.ownerPhone || '',
         primaryContactNumber: doc.primaryContactNumber || '',
-        panNumber: doc.panNumber || '',
+        panNumber: doc.panNumber || doc.pan || '',
         nameOnPan: doc.nameOnPan || '',
-        panImage: doc.panImage ? { url: doc.panImage } : null,
+        panImage: (doc.panImage || doc.pan_image) ? { url: (doc.panImage || doc.pan_image) } : null,
         gstRegistered: Boolean(doc.gstRegistered),
-        gstNumber: doc.gstNumber || '',
+        gstNumber: doc.gstNumber || doc.gst || '',
         gstLegalName: doc.gstLegalName || '',
         gstAddress: doc.gstAddress || '',
-        gstImage: doc.gstImage ? { url: doc.gstImage } : null,
-        fssaiNumber: doc.fssaiNumber || '',
-        fssaiExpiry: doc.fssaiExpiry || null,
-        fssaiImage: doc.fssaiImage ? { url: doc.fssaiImage } : null,
+        gstImage: (doc.gstImage || doc.gst_image) ? { url: (doc.gstImage || doc.gst_image) } : null,
+        fssaiNumber: doc.fssaiNumber || doc.fssai || '',
+        fssaiExpiry: doc.fssaiExpiry || doc.fssai_expiry || null,
+        fssaiImage: (doc.fssaiImage || doc.fssai_image) ? { url: (doc.fssaiImage || doc.fssai_image) } : null,
         accountNumber: doc.accountNumber || '',
         ifscCode: doc.ifscCode || '',
         accountHolderName: doc.accountHolderName || '',
@@ -494,6 +494,17 @@ export const getCurrentRestaurantProfile = async (restaurantId) => {
                 'diningSettings',
                 'isAcceptingOrders',
                 'status',
+                'fssaiNumber',
+                'fssaiExpiry',
+                'gstNumber',
+                'gstRegistered',
+                'gstLegalName',
+                'gstAddress',
+                'panNumber',
+                'nameOnPan',
+                'fssaiImage',
+                'gstImage',
+                'panImage',
                 'createdAt',
                 'updatedAt'
             ].join(' ')
@@ -889,7 +900,9 @@ export const updateRestaurantProfile = async (restaurantId, body = {}) => {
         return getCurrentRestaurantProfile(restaurantId);
     }
 
-    update.status = 'pending';
+    if (body.reVerification !== undefined) {
+        update.status = 'pending';
+    }
 
     try {
         const doc = await FoodRestaurant.findByIdAndUpdate(
