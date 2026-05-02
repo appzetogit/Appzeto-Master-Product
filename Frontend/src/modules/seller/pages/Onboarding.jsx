@@ -394,8 +394,8 @@ export default function SellerOnboarding() {
                 </div>
               </div>
               <div className="grid gap-4 md:grid-cols-2">
-                <input className="rounded-2xl border border-slate-200 px-4 py-3 font-semibold outline-none focus:border-slate-900" placeholder="Seller name" value={form.name} onChange={(e) => updateField("name", e.target.value)} />
-                <input className="rounded-2xl border border-slate-200 px-4 py-3 font-semibold outline-none focus:border-slate-900" placeholder="Shop name" value={form.shopName} onChange={(e) => updateField("shopName", e.target.value)} />
+                <input className="rounded-2xl border border-slate-200 px-4 py-3 font-semibold outline-none focus:border-slate-900" placeholder="Seller name" value={form.name} onChange={(e) => updateField("name", e.target.value.replace(/[^a-zA-Z\s]/g, ""))} />
+                <input className="rounded-2xl border border-slate-200 px-4 py-3 font-semibold outline-none focus:border-slate-900" placeholder="Shop name" value={form.shopName} onChange={(e) => updateField("shopName", e.target.value.replace(/[^a-zA-Z\s]/g, ""))} />
                 <input className="rounded-2xl border border-slate-200 px-4 py-3 font-semibold outline-none focus:border-slate-900" placeholder="Email" type="email" value={form.email} onChange={(e) => updateField("email", e.target.value)} />
                 <input className="rounded-2xl border border-slate-200 bg-slate-100 px-4 py-3 font-semibold text-slate-500 outline-none" placeholder="Primary phone" value={form.phone} readOnly title="Linked from the seller OTP login" />
                 <select className="rounded-2xl border border-slate-200 px-4 py-3 font-semibold outline-none focus:border-slate-900" value={form.businessType} onChange={(e) => updateField("businessType", e.target.value)}>
@@ -543,11 +543,11 @@ export default function SellerOnboarding() {
                 Banking and UPI
               </h2>
               <div className="grid gap-4 md:grid-cols-2">
-                <input className="rounded-2xl border border-slate-200 px-4 py-3 font-semibold outline-none focus:border-slate-900" placeholder="Bank name" value={form.bankName} onChange={(e) => updateField("bankName", e.target.value)} />
-                <input className="rounded-2xl border border-slate-200 px-4 py-3 font-semibold outline-none focus:border-slate-900" placeholder="Account holder name" value={form.accountHolderName} onChange={(e) => updateField("accountHolderName", e.target.value)} />
+                <input className="rounded-2xl border border-slate-200 px-4 py-3 font-semibold outline-none focus:border-slate-900" placeholder="Bank name" value={form.bankName} onChange={(e) => updateField("bankName", e.target.value.replace(/[^a-zA-Z\s]/g, ""))} />
+                <input className="rounded-2xl border border-slate-200 px-4 py-3 font-semibold outline-none focus:border-slate-900" placeholder="Account holder name" value={form.accountHolderName} onChange={(e) => updateField("accountHolderName", e.target.value.replace(/[^a-zA-Z\s]/g, ""))} />
                 <input className="rounded-2xl border border-slate-200 px-4 py-3 font-semibold outline-none focus:border-slate-900" placeholder="Account number" value={form.accountNumber} onChange={(e) => updateField("accountNumber", e.target.value)} />
                 <input className="rounded-2xl border border-slate-200 px-4 py-3 font-semibold uppercase outline-none focus:border-slate-900" placeholder="IFSC code" value={form.ifscCode} onChange={(e) => updateField("ifscCode", e.target.value.toUpperCase())} />
-                <input className="rounded-2xl border border-slate-200 px-4 py-3 font-semibold outline-none focus:border-slate-900" placeholder="Account type" value={form.accountType} onChange={(e) => updateField("accountType", e.target.value)} />
+                <input className="rounded-2xl border border-slate-200 px-4 py-3 font-semibold outline-none focus:border-slate-900" placeholder="Account type" value={form.accountType} onChange={(e) => updateField("accountType", e.target.value.replace(/[^a-zA-Z\s]/g, ""))} />
                 <input className="rounded-2xl border border-slate-200 px-4 py-3 font-semibold outline-none focus:border-slate-900" placeholder="UPI ID" value={form.upiId} onChange={(e) => updateField("upiId", e.target.value)} />
                 <label className="flex cursor-pointer items-center justify-between rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-3 text-sm font-bold text-slate-700 md:col-span-2">
                   <span>{qrFile?.name || "Upload UPI QR image"}</span>
@@ -571,7 +571,7 @@ export default function SellerOnboarding() {
                   GST registered
                 </label>
                 <input className="rounded-2xl border border-slate-200 px-4 py-3 font-semibold uppercase outline-none focus:border-slate-900" placeholder="GST number" value={form.gstNumber} onChange={(e) => updateField("gstNumber", e.target.value.toUpperCase())} />
-                <input className="rounded-2xl border border-slate-200 px-4 py-3 font-semibold outline-none focus:border-slate-900" placeholder="GST legal name" value={form.gstLegalName} onChange={(e) => updateField("gstLegalName", e.target.value)} />
+                <input className="rounded-2xl border border-slate-200 px-4 py-3 font-semibold outline-none focus:border-slate-900" placeholder="GST legal name" value={form.gstLegalName} onChange={(e) => updateField("gstLegalName", e.target.value.replace(/[^a-zA-Z\s]/g, ""))} />
                 <input className="rounded-2xl border border-slate-200 px-4 py-3 font-semibold outline-none focus:border-slate-900" placeholder="FSSAI number" value={form.fssaiNumber} onChange={(e) => updateField("fssaiNumber", e.target.value)} />
                 <input className="rounded-2xl border border-slate-200 px-4 py-3 font-semibold outline-none focus:border-slate-900" type="date" value={form.fssaiExpiry} onChange={(e) => updateField("fssaiExpiry", e.target.value)} />
                 <input className="rounded-2xl border border-slate-200 px-4 py-3 font-semibold outline-none focus:border-slate-900" placeholder="Shop license number" value={form.shopLicenseNumber} onChange={(e) => updateField("shopLicenseNumber", e.target.value)} />
