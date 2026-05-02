@@ -203,11 +203,13 @@ export default function Profile() {
     );
     const hasContact = hasPhone || hasValidEmail;
 
-    // Check profile image - must have URL string
+    // Check profile image - must have URL string or object with URL
     const hasImage = !!(
       userProfile.profileImage &&
-      typeof userProfile.profileImage === "string" &&
-      userProfile.profileImage.trim() !== "" &&
+      (typeof userProfile.profileImage === "string"
+        ? userProfile.profileImage.trim() !== ""
+        : typeof userProfile.profileImage?.url === "string" &&
+          userProfile.profileImage.url.trim() !== "") &&
       userProfile.profileImage !== "null" &&
       userProfile.profileImage !== "undefined"
     );
@@ -471,10 +473,9 @@ export default function Profile() {
                   {userProfile?.profileImage && (
                     <AvatarImage
                       src={
-                        userProfile.profileImage &&
-                          userProfile.profileImage.trim()
-                          ? userProfile.profileImage
-                          : undefined
+                        typeof userProfile.profileImage === "string"
+                          ? userProfile.profileImage.trim() || undefined
+                          : userProfile.profileImage?.url || undefined
                       }
                       alt={displayName}
                     />

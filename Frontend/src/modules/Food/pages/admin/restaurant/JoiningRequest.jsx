@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from "react"
+import { toast } from "react-hot-toast"
 import { 
   Search, Filter, Eye, Check, X, UtensilsCrossed, ArrowUpDown, Loader2,
   FileText, Image as ImageIcon, ExternalLink, CreditCard, Calendar, Star, Building2, User, Phone, Mail, MapPin, Clock
@@ -262,21 +263,19 @@ export default function JoiningRequest() {
   const hasActiveFilters = filters.zone || filters.dateFrom || filters.dateTo
 
   const handleApprove = async (request) => {
-    if (window.confirm(`Are you sure you want to approve "${request.restaurantName}" restaurant request?`)) {
-      try {
-        setProcessing(true)
-        await adminAPI.approveRestaurant(request._id)
-        
-        // Refresh the list
-        await fetchRequests()
-        
-        alert(`Successfully approved ${request.restaurantName}'s join request!`)
-      } catch (err) {
-        debugError("Error approving request:", err)
-        alert(err.response?.data?.message || "Failed to approve request. Please try again.")
-      } finally {
-        setProcessing(false)
-      }
+    try {
+      setProcessing(true)
+      await adminAPI.approveRestaurant(request._id)
+      
+      // Refresh the list
+      await fetchRequests()
+      
+      toast.success(`Successfully approved ${request.restaurantName}'s join request!`)
+    } catch (err) {
+      debugError("Error approving request:", err)
+      toast.error(err.response?.data?.message || "Failed to approve request. Please try again.")
+    } finally {
+      setProcessing(false)
     }
   }
 
@@ -581,10 +580,10 @@ export default function JoiningRequest() {
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className={`px-3 py-1 rounded-full text-xs font-medium ${
                           request.status === "Pending" || request.status === "pending"
-                            ? (request?.reVerification?.isZoneUpdate ? "bg-purple-100 text-purple-700" : "bg-blue-100 text-blue-700")
+                            ? (request?.reVerification?.isZoneUpdate || request?.reVerification?.reVerificationReason === 'FSSAI License Update' ? "bg-purple-100 text-purple-700" : "bg-blue-100 text-blue-700")
                             : "bg-red-100 text-red-700"
                         }`}>
-                          {request?.reVerification?.isZoneUpdate ? "Re-verification" : request.status}
+                          {request?.reVerification?.isZoneUpdate || request?.reVerification?.reVerificationReason === 'FSSAI License Update' ? "Re-verification" : request.status}
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-center">
@@ -871,9 +870,9 @@ export default function JoiningRequest() {
                           <span className="text-sm">{formatRestaurantId(r?.restaurantId || r?._id || "N/A")}</span>
                         </div>
                         <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-                          approvalStatus === "approved" ? "bg-green-100 text-green-700" : (approvalStatus === "rejected" || approvalStatus === "Rejected") ? "bg-red-100 text-red-700" : (r?.reVerification?.isZoneUpdate ? "bg-purple-100 text-purple-700" : "bg-amber-100 text-amber-700")
+                          approvalStatus === "approved" ? "bg-green-100 text-green-700" : (approvalStatus === "rejected" || approvalStatus === "Rejected") ? "bg-red-100 text-red-700" : (r?.reVerification?.isZoneUpdate || r?.reVerification?.reVerificationReason === 'FSSAI License Update' ? "bg-purple-100 text-purple-700" : "bg-amber-100 text-amber-700")
                         }`}>
-                          {approvalStatus === "approved" ? "Approved" : (approvalStatus === "rejected" || approvalStatus === "Rejected") ? "Rejected" : (r?.reVerification?.isZoneUpdate ? "Re-verification" : "Pending Approval")}
+                          {approvalStatus === "approved" ? "Approved" : (approvalStatus === "rejected" || approvalStatus === "Rejected") ? "Rejected" : (r?.reVerification?.isZoneUpdate || r?.reVerification?.reVerificationReason === 'FSSAI License Update' ? "Re-verification" : "Pending Approval")}
                         </span>
                       </div>
                     </div>
@@ -921,6 +920,31 @@ export default function JoiningRequest() {
                           <p className="text-xs text-purple-800">
                             The restaurant has updated their business location. Please review the changes below before approval.
                           </p>
+                          {r.reVerification.reVerificationReason && (
+                            <div className="mt-2 pt-2 border-t border-purple-200">
+                              <p className="text-xs font-bold text-purple-900">Reason for Re-verification:</p>
+                              <p className="text-xs text-purple-800">{r.reVerification.reVerificationReason}</p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* FSSAI Update Warning (if applicable) */}
+                    {!r?.reVerification?.isZoneUpdate && r?.reVerification?.reVerificationReason === 'FSSAI License Update' && (
+                      <div className="md:col-span-2">
+                        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-2">
+                          <h4 className="text-sm font-bold text-amber-900 mb-1 flex items-center gap-2">
+                            <FileText className="w-4 h-4" />
+                            FSSAI License Update Request
+                          </h4>
+                          <p className="text-xs text-amber-800">
+                            The restaurant has updated their FSSAI license details. Please review the new license number, expiry, and document before approval.
+                          </p>
+                          <div className="mt-2 pt-2 border-t border-amber-200">
+                            <p className="text-xs font-bold text-amber-900">Reason for Re-verification:</p>
+                            <p className="text-xs text-amber-800">FSSAI License Update</p>
+                          </div>
                         </div>
                       </div>
                     )}

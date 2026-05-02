@@ -14,6 +14,7 @@ import {
   ChevronRight,
   X,
   Trash2,
+  AlertCircle,
 } from "lucide-react"
 import {
   Dialog,
@@ -52,16 +53,20 @@ export default function OutletInfo() {
   const [ownerInfo, setOwnerInfo] = useState({ name: "", phone: "", email: "" })
   const [legalInfo, setLegalInfo] = useState({ fssai: "", gst: "", pan: "" })
   const [bankInfo, setBankInfo] = useState({ account: "", type: "", holder: "", ifsc: "" })
-  const [mainImage, setMainImage] = useState("https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=800&h=400&fit=crop")
-  const [thumbnailImage, setThumbnailImage] = useState("https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?w=200&h=200&fit=crop")
+  const [mainImage, setMainImage] = useState("")
+  const [thumbnailImage, setThumbnailImage] = useState("")
   const [coverImages, setCoverImages] = useState([])
   const [showEditNameDialog, setShowEditNameDialog] = useState(false)
   const [editNameValue, setEditNameValue] = useState("")
+  const [showEditPhoneDialog, setShowEditPhoneDialog] = useState(false)
+  const [editPhoneValue, setEditPhoneValue] = useState("")
   const [restaurantId, setRestaurantId] = useState("")
   const [restaurantMongoId, setRestaurantMongoId] = useState("")
   const [uploadingImage, setUploadingImage] = useState(false)
   const [imageType, setImageType] = useState(null)
   const [uploadingCount, setUploadingCount] = useState(0)
+  const [showExpiryAlert, setShowExpiryAlert] = useState(false)
+  const [daysToExpiry, setDaysToExpiry] = useState(null)
   
   const profileImageInputRef = useRef(null)
   const menuImageInputRef = useRef(null)
@@ -71,18 +76,36 @@ export default function OutletInfo() {
   const formatAddress = (location) => {
     if (!location) return ""
     
+    // Priority 1: Full formatted address
+    if (location.formattedAddress && location.formattedAddress.trim() !== "" && location.formattedAddress !== "Select location") {
+      return location.formattedAddress.trim()
+    }
+
+    if (location.address && location.address.trim() !== "") {
+      return location.address.trim()
+    }
+
+    // Priority 2: Structured address parts
     const parts = []
     if (location.addressLine1) parts.push(location.addressLine1.trim())
     if (location.addressLine2) parts.push(location.addressLine2.trim())
     if (location.area) parts.push(location.area.trim())
+    if (location.landmark) parts.push(location.landmark.trim())
     if (location.city) {
       const city = location.city.trim()
-      // Only add city if it's not already included in area
-      if (!location.area || !location.area.includes(city)) {
+      if (!parts.some(p => p.includes(city))) {
         parts.push(city)
       }
     }
-    if (location.landmark) parts.push(location.landmark.trim())
+    if (location.state) {
+      const state = location.state.trim()
+      if (!parts.some(p => p.includes(state))) {
+        parts.push(state)
+      }
+    }
+    if (location.pincode || location.zipCode) {
+      parts.push(String(location.pincode || location.zipCode).trim())
+    }
     
     return parts.join(", ") || ""
   }
@@ -162,6 +185,18 @@ export default function OutletInfo() {
           debugError("Error fetching restaurant data:", error)
         }
       } finally {
+        if (restaurantData?.fssaiExpiry) {
+          const expiry = new Date(restaurantData.fssaiExpiry)
+          const today = new Date()
+          today.setHours(0, 0, 0, 0)
+          const diffTime = expiry - today
+          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+          setDaysToExpiry(diffDays)
+          
+          if (diffDays <= 4) {
+            setShowExpiryAlert(true)
+          }
+        }
         setLoading(false)
       }
     }
@@ -363,6 +398,32 @@ export default function OutletInfo() {
     }
   }
 
+  // Handle edit phone dialog
+  const handleOpenPhoneDialog = () => {
+    setEditPhoneValue(primaryPhone)
+    setShowEditPhoneDialog(true)
+  }
+
+  const handleSavePhone = async () => {
+    const newPhone = editPhoneValue.trim()
+    if (!newPhone) return
+    
+    // Basic validation: Check if 10 digits
+    if (!/^\d{10}$/.test(newPhone)) {
+      toast.error("Please enter a valid 10-digit phone number")
+      return
+    }
+
+    try {
+      await restaurantAPI.updateProfile({ primaryContactNumber: newPhone })
+      setPrimaryPhone(newPhone)
+      setShowEditPhoneDialog(false)
+      toast.success("Phone number updated successfully")
+    } catch (error) {
+      toast.error("Failed to update phone number")
+    }
+  }
+
   return (
     <>
       <div className="min-h-screen bg-white overflow-x-hidden">
@@ -438,33 +499,63 @@ export default function OutletInfo() {
             </div>
           )}
 
-          {/* Thumbnail Section */}
-          <div className="absolute bottom-0 left-4 -mb-[45px] flex flex-col gap-2 shrink-0 z-10">
-            <div className="relative w-[70px] h-[70px] rounded overflow-hidden">
-              <img src={thumbnailImage} alt="Restaurant thumbnail" className="w-full h-full rounded-xl object-cover" />
+        </div>
+
+        {/* Restaurant Header Info */}
+        <div className="px-4 -mt-12 mb-8 relative z-30">
+          <div className="flex items-end gap-4">
+            <div className="relative group">
+              <div className="w-24 h-24 rounded-2xl border-4 border-white bg-white shadow-lg overflow-hidden">
+                <img 
+                  src={thumbnailImage} 
+                  alt="Restaurant thumbnail" 
+                  className="w-full h-full object-cover" 
+                />
+                {uploadingImage && imageType === 'profile' && (
+                  <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                    <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  </div>
+                )}
+              </div>
+              <button
+                onClick={() => handleImageClick('profile', profileImageInputRef, "Update Profile Photo")}
+                disabled={uploadingImage}
+                className="absolute -bottom-1 -right-1 bg-white p-2 rounded-full shadow-md hover:bg-gray-50 transition-colors border border-gray-100"
+                title="Edit photo"
+              >
+                <Pencil className="w-4 h-4 text-blue-600" />
+              </button>
+              <input
+                ref={profileImageInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => handleProfileImageReplace(e.target.files?.[0])}
+              />
             </div>
-            <button
-              onClick={() => handleImageClick('profile', profileImageInputRef, "Update Profile Photo")}
-              disabled={uploadingImage}
-              className="text-blue-600 text-sm font-semibold hover:text-blue-700 transition-colors text-left"
-            >
-              {uploadingImage && imageType === 'profile' ? 'Uploading...' : 'Edit photo'}
-            </button>
-            <input
-              ref={profileImageInputRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={(e) => handleProfileImageReplace(e.target.files?.[0])}
-            />
+            
+            <div className="pb-6 flex-1 min-w-0">
+              <h2 className="text-2xl font-black text-gray-900 uppercase tracking-tight truncate">
+                {restaurantName || "Restaurant Name"}
+              </h2>
+              <div className="flex items-center gap-2 mt-1">
+                <div className="h-1 w-8 bg-blue-600 rounded-full" />
+                <p className="text-xs font-bold text-gray-500 uppercase tracking-widest">
+                  Information
+                </p>
+              </div>
+            </div>
           </div>
         </div>
 
         {/* Info Sections */}
-        <div className="px-4 pb-20 space-y-6">
+        <div className="px-4 pb-20 space-y-8">
           {/* Basic Information */}
-          <section className="space-y-3">
-            <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider ml-1">Basic Information</h3>
+          <section className="space-y-4">
+            <div className="flex items-center gap-2 ml-1">
+               <div className="w-1 h-4 bg-gray-300 rounded-full" />
+               <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider">Details</h3>
+            </div>
             <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm">
               <div className="p-4 border-b border-gray-100 flex justify-between items-start">
                 <div className="flex-1 min-w-0">
@@ -476,16 +567,6 @@ export default function OutletInfo() {
                 </button>
               </div>
               
-              <div className="p-4 border-b border-gray-100 flex justify-between items-start">
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs text-gray-400 font-medium mb-1">Cuisines</p>
-                  <p className="text-sm font-semibold text-gray-800">{cuisineTags || "Not selected"}</p>
-                </div>
-                <button onClick={() => navigate("/food/restaurant/edit-cuisines")} className="p-2 hover:bg-gray-50 rounded-full transition-colors">
-                  <Pencil className="w-4 h-4 text-blue-600" />
-                </button>
-              </div>
-
               <div className="p-4 flex justify-between items-center">
                 <div className="flex-1 min-w-0">
                   <p className="text-xs text-gray-400 font-medium mb-1">Food Type</p>
@@ -519,10 +600,10 @@ export default function OutletInfo() {
 
               <div className="p-4 flex justify-between items-center">
                 <div className="flex-1 min-w-0">
-                  <p className="text-xs text-gray-400 font-medium mb-1">Primary Contact</p>
-                  <p className="text-sm font-bold text-gray-800">{primaryPhone || "N/A"}</p>
+                  <p className="text-xs text-gray-400 font-medium mb-1">Primary Phone</p>
+                  <p className="text-sm font-bold text-gray-800">{primaryPhone || "Not provided"}</p>
                 </div>
-                <button onClick={() => navigate("/food/restaurant/phone")} className="p-2 hover:bg-gray-50 rounded-full transition-colors">
+                <button onClick={handleOpenPhoneDialog} className="p-2 hover:bg-gray-50 rounded-full transition-colors">
                   <Pencil className="w-4 h-4 text-blue-600" />
                 </button>
               </div>
@@ -536,7 +617,7 @@ export default function OutletInfo() {
               <div className="p-4 border-b border-gray-100 flex justify-between items-start">
                 <div className="flex-1 min-w-0">
                   <p className="text-xs text-gray-400 font-medium mb-1">Owner Name</p>
-                  <p className="text-sm font-bold text-gray-800">{ownerInfo.name || "N/A"}</p>
+                  <p className="text-sm font-bold text-gray-800">{restaurantData?.ownerName || "Not provided"}</p>
                 </div>
                 <button onClick={() => navigate("/food/restaurant/edit-owner")} className="p-2 hover:bg-gray-50 rounded-full transition-colors">
                   <Pencil className="w-4 h-4 text-blue-600" />
@@ -550,7 +631,7 @@ export default function OutletInfo() {
 
               <div className="p-4">
                 <p className="text-xs text-gray-400 font-medium mb-1">Owner Email</p>
-                <p className="text-sm font-semibold text-gray-800">{ownerInfo.email || "N/A"}</p>
+                <p className="text-sm font-bold text-gray-800">{restaurantData?.ownerEmail || "Not provided"}</p>
               </div>
             </div>
           </section>
@@ -562,7 +643,7 @@ export default function OutletInfo() {
               <div className="p-4 border-b border-gray-100 flex justify-between items-start">
                 <div className="flex-1 min-w-0">
                   <p className="text-xs text-gray-400 font-medium mb-1">FSSAI License</p>
-                  <p className="text-sm font-bold text-gray-800">{legalInfo.fssai || "Not provided"}</p>
+                  <p className="text-sm font-bold text-gray-800">{restaurantData?.fssaiNumber || "Not provided"}</p>
                 </div>
                 <button onClick={() => navigate("/food/restaurant/fssai")} className="p-2 hover:bg-gray-50 rounded-full transition-colors">
                   <Pencil className="w-4 h-4 text-blue-600" />
@@ -570,13 +651,13 @@ export default function OutletInfo() {
               </div>
 
               <div className="p-4 border-b border-gray-100">
-                <p className="text-xs text-gray-400 font-medium mb-1">GST Number</p>
-                <p className="text-sm font-bold text-gray-800">{legalInfo.gst || "Not provided"}</p>
+                  <p className="text-xs text-gray-400 font-medium mb-1">GST Number</p>
+                  <p className="text-sm font-bold text-gray-800">{restaurantData?.gstNumber || "Not provided"}</p>
               </div>
 
               <div className="p-4">
-                <p className="text-xs text-gray-400 font-medium mb-1">PAN Number</p>
-                <p className="text-sm font-bold text-gray-800">{legalInfo.pan || "Not provided"}</p>
+                  <p className="text-xs text-gray-400 font-medium mb-1">PAN Number</p>
+                  <p className="text-sm font-bold text-gray-800">{restaurantData?.panNumber || "Not provided"}</p>
               </div>
             </div>
           </section>
@@ -604,7 +685,7 @@ export default function OutletInfo() {
 
               <div className="p-4">
                 <p className="text-xs text-gray-400 font-medium mb-1">Service Zone</p>
-                <p className="text-sm font-semibold text-gray-800">{restaurantData?.zoneId?.name || "Not assigned"}</p>
+                <p className="text-sm font-semibold text-gray-800">{restaurantData?.zoneName || "Not assigned"}</p>
               </div>
             </div>
           </section>
@@ -616,7 +697,7 @@ export default function OutletInfo() {
               <div className="p-4 border-b border-gray-100 flex justify-between items-start">
                 <div className="flex-1 min-w-0">
                   <p className="text-xs text-gray-400 font-medium mb-1">Account Number</p>
-                  <p className="text-sm font-bold text-gray-800">{bankInfo.account || "Not provided"}</p>
+                  <p className="text-sm font-bold text-gray-800">{restaurantData?.accountNumber || "Not provided"}</p>
                 </div>
                 <button onClick={() => navigate("/food/restaurant/update-bank-details")} className="p-2 hover:bg-gray-50 rounded-full transition-colors">
                   <Pencil className="w-4 h-4 text-blue-600" />
@@ -624,13 +705,13 @@ export default function OutletInfo() {
               </div>
 
               <div className="p-4 border-b border-gray-100">
-                <p className="text-xs text-gray-400 font-medium mb-1">Account Holder</p>
-                <p className="text-sm font-semibold text-gray-800">{bankInfo.holder || "N/A"}</p>
+                <p className="text-xs text-gray-400 font-medium mb-1">Account Holder Name</p>
+                <p className="text-sm font-bold text-gray-800">{restaurantData?.accountHolderName || "Not provided"}</p>
               </div>
 
               <div className="p-4">
-                <p className="text-xs text-gray-400 font-medium mb-1">IFSC Code</p>
-                <p className="text-sm font-bold text-gray-800 uppercase">{bankInfo.ifsc || "N/A"}</p>
+                  <p className="text-xs text-gray-400 font-medium mb-1">IFSC Code</p>
+                  <p className="text-sm font-bold text-gray-800">{restaurantData?.ifscCode || "Not provided"}</p>
               </div>
             </div>
           </section>
@@ -644,6 +725,34 @@ export default function OutletInfo() {
           <DialogFooter className="p-4 bg-gray-50 flex flex-row gap-3">
             <Button variant="outline" onClick={() => setShowEditNameDialog(false)}>Cancel</Button>
             <Button onClick={handleSaveName} disabled={!editNameValue.trim()} className="bg-blue-600 text-white">Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showEditPhoneDialog} onOpenChange={setShowEditPhoneDialog}>
+        <DialogContent className="sm:max-w-md p-0 overflow-hidden rounded-xl w-[90%]">
+          <DialogHeader className="p-4 border-b border-gray-100">
+            <DialogTitle className="text-lg font-bold">Edit primary phone</DialogTitle>
+          </DialogHeader>
+          <div className="p-4">
+            <Input 
+              value={editPhoneValue} 
+              onChange={(e) => setEditPhoneValue(e.target.value.replace(/\D/g, '').slice(0, 10))} 
+              placeholder="Enter 10-digit phone number" 
+              className="w-full"
+              type="tel"
+              maxLength={10}
+            />
+          </div>
+          <DialogFooter className="p-4 bg-gray-50 flex flex-row gap-3">
+            <Button variant="outline" onClick={() => setShowEditPhoneDialog(false)}>Cancel</Button>
+            <Button 
+              onClick={handleSavePhone} 
+              disabled={!editPhoneValue.trim() || editPhoneValue.length !== 10} 
+              className="bg-blue-600 text-white"
+            >
+              Save
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -663,6 +772,43 @@ export default function OutletInfo() {
         fileNamePrefix={`outlet-${activePicker?.type}`}
         galleryInputRef={activePicker?.ref}
       />
+
+      {/* FSSAI Expiry Alert Modal */}
+      <Dialog open={showExpiryAlert} onOpenChange={setShowExpiryAlert}>
+        <DialogContent className="sm:max-w-md bg-white rounded-3xl p-0 overflow-hidden border-none shadow-2xl">
+          <div className="bg-[#fff4f4] p-6 flex flex-col items-center text-center">
+            <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mb-4">
+              <AlertCircle className="w-8 h-8 text-red-600" />
+            </div>
+            <DialogTitle className="text-xl font-bold text-gray-900 mb-2">
+              FSSAI License Expiring
+            </DialogTitle>
+            <DialogDescription className="text-sm text-gray-600 px-4">
+              {daysToExpiry <= 0 
+                ? "Your FSSAI license has expired. Please update it immediately to continue your business operations."
+                : `Your FSSAI license is expiring in ${daysToExpiry} days. Please update it now to avoid any interruption in service.`}
+            </DialogDescription>
+          </div>
+          <DialogFooter className="p-4 bg-white flex flex-col gap-2 sm:flex-col">
+            <Button 
+              className="w-full bg-black hover:bg-gray-800 text-white rounded-full py-6 text-base font-semibold"
+              onClick={() => {
+                setShowExpiryAlert(false)
+                navigate("/food/restaurant/fssai/update")
+              }}
+            >
+              Update License Now
+            </Button>
+            <Button 
+              variant="ghost"
+              className="w-full text-gray-500 rounded-full hover:bg-gray-100"
+              onClick={() => setShowExpiryAlert(false)}
+            >
+              Remind me later
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   )
 }

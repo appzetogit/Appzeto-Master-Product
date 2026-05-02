@@ -12,7 +12,11 @@ const parseKeyFromParam = (req) => String(req.params?.key || '').trim().toLowerC
 export const getPublicPageController = async (req, res, next) => {
     try {
         const key = parseKeyFromParam(req);
-        const result = await getPublicPageByKey(key);
+        let role = req.query?.role;
+        if (!role) {
+            role = (key === 'about') ? 'all' : 'user';
+        }
+        const result = await getPublicPageByKey(key, role);
         return sendResponse(res, 200, 'Page fetched successfully', result.data);
     } catch (error) {
         next(error);
@@ -22,7 +26,11 @@ export const getPublicPageController = async (req, res, next) => {
 export const getAdminPageController = async (req, res, next) => {
     try {
         const key = parseKeyFromParam(req);
-        const result = await getAdminPageByKey(key);
+        let role = req.query?.role;
+        if (!role) {
+            role = (key === 'about') ? 'all' : 'user';
+        }
+        const result = await getAdminPageByKey(key, role);
         return sendResponse(res, 200, 'Page fetched successfully', result.data);
     } catch (error) {
         next(error);
@@ -32,6 +40,7 @@ export const getAdminPageController = async (req, res, next) => {
 export const upsertAdminPageController = async (req, res, next) => {
     try {
         const key = parseKeyFromParam(req);
+        const role = req.body?.role || 'user';
         const updatedBy = req.user?.userId || null;
 
         if (key === 'about') {
@@ -39,7 +48,7 @@ export const upsertAdminPageController = async (req, res, next) => {
             return sendResponse(res, 200, 'Page updated successfully', result.data);
         }
         if (['terms', 'privacy', 'refund', 'shipping', 'cancellation'].includes(key)) {
-            const result = await upsertLegalPage(key, req.body ?? {}, updatedBy);
+            const result = await upsertLegalPage(key, req.body ?? {}, updatedBy, role);
             return sendResponse(res, 200, 'Page updated successfully', result.data);
         }
         throw new ValidationError('Invalid page key');

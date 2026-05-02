@@ -14,7 +14,7 @@ export default function TermsAndConditionsPage() {
   useEffect(() => {
     const fetchTerms = async () => {
       try {
-        const response = await api.get(API_ENDPOINTS.ADMIN.TERMS_PUBLIC)
+        const response = await api.get(`${API_ENDPOINTS.ADMIN.TERMS_PUBLIC}?role=restaurant`)
         if (response?.data?.success) {
           const payload = response?.data?.data || {}
           setTermsData({

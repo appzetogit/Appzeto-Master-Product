@@ -37,9 +37,15 @@ const pageContentSchema = new mongoose.Schema(
         key: {
             type: String,
             required: true,
-            unique: true,
             index: true,
             enum: ['terms', 'privacy', 'refund', 'shipping', 'cancellation', 'about']
+        },
+        role: {
+            type: String,
+            required: true,
+            default: 'user',
+            enum: ['user', 'restaurant', 'delivery', 'all'],
+            index: true
         },
         legal: { type: legalPageSchema, default: undefined },
         about: { type: aboutPageSchema, default: undefined },
@@ -48,6 +54,9 @@ const pageContentSchema = new mongoose.Schema(
     },
     { collection: 'food_page_contents', timestamps: true }
 );
+
+// Composite unique index for key + role
+pageContentSchema.index({ key: 1, role: 1 }, { unique: true });
 
 export const FoodPageContent = mongoose.model('FoodPageContent', pageContentSchema, 'food_page_contents');
 

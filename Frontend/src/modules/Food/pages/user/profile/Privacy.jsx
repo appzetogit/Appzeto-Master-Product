@@ -24,7 +24,7 @@ export default function Privacy() {
   const fetchPrivacyData = async () => {
     try {
       setLoading(true)
-      const response = await api.get(API_ENDPOINTS.ADMIN.PRIVACY_PUBLIC)
+      const response = await api.get(`${API_ENDPOINTS.ADMIN.PRIVACY_PUBLIC}?role=user`)
       if (response.data.success) {
         setPrivacyData(response.data.data || { title: 'Privacy Policy', content: '' })
       }

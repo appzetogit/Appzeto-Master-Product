@@ -24,7 +24,7 @@ export default function Cancellation() {
   const fetchCancellationData = async () => {
     try {
       setLoading(true)
-      const response = await api.get(API_ENDPOINTS.ADMIN.CANCELLATION_PUBLIC)
+      const response = await api.get(`${API_ENDPOINTS.ADMIN.CANCELLATION_PUBLIC}?role=user`)
       if (response.data.success) {
         setCancellationData(response.data.data || { title: 'Cancellation Policy', content: '' })
       }

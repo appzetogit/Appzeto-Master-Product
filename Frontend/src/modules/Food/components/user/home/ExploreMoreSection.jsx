@@ -8,7 +8,8 @@ import discoveryBg from "@food/assets/food_discovery_bg.png";
 const ExploreMoreSection = memo(({
   exploreMoreHeading,
   showExploreSkeleton,
-  finalExploreItems
+  finalExploreItems,
+  backendOrigin = ""
 }) => {
   return (
     <section className="px-4 py-4">

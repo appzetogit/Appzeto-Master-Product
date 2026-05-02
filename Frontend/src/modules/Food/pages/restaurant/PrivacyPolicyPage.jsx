@@ -14,7 +14,7 @@ export default function PrivacyPolicyPage() {
   useEffect(() => {
     const fetchPrivacy = async () => {
       try {
-        const response = await api.get(API_ENDPOINTS.ADMIN.PRIVACY_PUBLIC)
+        const response = await api.get(`${API_ENDPOINTS.ADMIN.PRIVACY_PUBLIC}?role=restaurant`)
         if (response?.data?.success) {
           const payload = response?.data?.data || {}
           setPrivacyData({
