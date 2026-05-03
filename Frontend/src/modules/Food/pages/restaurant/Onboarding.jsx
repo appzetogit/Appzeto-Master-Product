@@ -52,7 +52,7 @@ const ACCOUNT_HOLDER_NAME_REGEX = /^[A-Za-z ]+$/
 const GST_LEGAL_NAME_REGEX = /^[A-Za-z ]+$/
 const FEATURED_DISH_NAME_REGEX = /^[A-Za-z ]+$/
 const NAME_REGEX = /^[A-Za-z ]+$/
-const OWNER_EMAIL_REGEX = /^[a-zA-Z0-9._%+\-]+@gmail\.com$/
+const OWNER_EMAIL_REGEX = /^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/
 const PHONE_NUMBER_REGEX = /^\d{10,12}$/
 const PRIMARY_PHONE_NUMBER_REGEX = /^\d{10}$/
 const PINCODE_REGEX = /^\d{6}$/
@@ -330,6 +330,25 @@ const parseLocalYMDDate = (value) => {
   if (parts.length !== 3 || parts.some(Number.isNaN)) return undefined
   const [year, month, day] = parts
   return new Date(year, month - 1, day)
+}
+
+/**
+ * Ray-casting point-in-polygon check for frontend validation.
+ */
+const isPointInPolygon = (lat, lng, polygon) => {
+  if (!Array.isArray(polygon) || polygon.length < 3) return false
+  let inside = false
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const xi = Number(polygon[i].longitude || polygon[i].lng)
+    const yi = Number(polygon[i].latitude || polygon[i].lat)
+    const xj = Number(polygon[j].longitude || polygon[j].lng)
+    const yj = Number(polygon[j].latitude || polygon[j].lat)
+    const intersect =
+      yi > lat !== yj > lat &&
+      lng < ((xj - xi) * (lat - yi)) / (yj - yi + 0.0) + xi
+    if (intersect) inside = !inside
+  }
+  return inside
 }
 
 function TimeSelector({ label, value, onChange }) {
@@ -911,6 +930,21 @@ export default function RestaurantOnboarding() {
       errors.push("Pincode must contain exactly 6 digits")
     }
 
+    // Geofencing Validation: Ensure coordinates are inside the selected zone
+    if (step1.zoneId && step1.location?.latitude && step1.location?.longitude) {
+      const selectedZone = zones.find((z) => String(z._id || z.id) === step1.zoneId)
+      if (selectedZone && Array.isArray(selectedZone.coordinates) && selectedZone.coordinates.length >= 3) {
+        const isInside = isPointInPolygon(
+          Number(step1.location.latitude),
+          Number(step1.location.longitude),
+          selectedZone.coordinates,
+        )
+        if (!isInside) {
+          errors.push("Selected address is outside the selected zone")
+        }
+      }
+    }
+
     return errors
   }
 
@@ -1263,7 +1297,10 @@ export default function RestaurantOnboarding() {
             <Label className="text-xs text-gray-700">Restaurant name*</Label>
             <Input
               value={step1.restaurantName || ""}
-              onChange={(e) => setStep1({ ...step1, restaurantName: e.target.value })}
+              onChange={(e) => {
+                const val = e.target.value.replace(/[^A-Za-z ]/g, "")
+                setStep1({ ...step1, restaurantName: val })
+              }}
               className="mt-1 bg-white text-sm text-black placeholder-black"
               placeholder="Customers will see this name"
               disabled={!isEditing}
@@ -1312,7 +1349,10 @@ export default function RestaurantOnboarding() {
             <Label className="text-xs text-gray-700">Full name*</Label>
             <Input
               value={step1.ownerName || ""}
-              onChange={(e) => setStep1({ ...step1, ownerName: e.target.value })}
+              onChange={(e) => {
+                const val = e.target.value.replace(/[^A-Za-z ]/g, "")
+                setStep1({ ...step1, ownerName: val })
+              }}
               className="mt-1 bg-white text-sm text-black placeholder-black"
               placeholder="Owner full name"
               disabled={!isEditing}
@@ -1613,20 +1653,48 @@ export default function RestaurantOnboarding() {
       placesAutocompleteRef.current.addListener("place_changed", () => {
         const place = placesAutocompleteRef.current.getPlace()
         const parsed = parsePlace(place)
-        setStep1((prev) => ({
-          ...prev,
-          location: {
-            ...prev.location,
-            formattedAddress: parsed.formattedAddress || prev.location.formattedAddress,
-            addressLine1: prev.location.addressLine1 || parsed.formattedAddress || "",
-            area: parsed.area || prev.location.area,
-            city: parsed.city || prev.location.city,
-            state: parsed.state || prev.location.state,
-            pincode: parsed.pincode || prev.location.pincode,
-            latitude: parsed.latitude !== "" ? parsed.latitude : prev.location.latitude,
-            longitude: parsed.longitude !== "" ? parsed.longitude : prev.location.longitude,
-          },
-        }))
+
+        // Immediate Geofencing Check
+        setStep1((prev) => {
+          if (prev.zoneId && parsed.latitude && parsed.longitude) {
+            // Access latest zones from state
+            const selectedZone = zones.find((z) => String(z._id || z.id) === prev.zoneId)
+            if (
+              selectedZone &&
+              Array.isArray(selectedZone.coordinates) &&
+              selectedZone.coordinates.length >= 3
+            ) {
+              const isInside = isPointInPolygon(
+                Number(parsed.latitude),
+                Number(parsed.longitude),
+                selectedZone.coordinates,
+              )
+              if (!isInside) {
+                toast.error("Selected address is outside the selected zone")
+                // Clear search input if outside
+                if (locationSearchInputRef.current) {
+                  locationSearchInputRef.current.value = ""
+                }
+                return prev
+              }
+            }
+          }
+
+          return {
+            ...prev,
+            location: {
+              ...prev.location,
+              formattedAddress: parsed.formattedAddress || prev.location.formattedAddress,
+              addressLine1: prev.location.addressLine1 || parsed.formattedAddress || "",
+              area: parsed.area || prev.location.area,
+              city: parsed.city || prev.location.city,
+              state: parsed.state || prev.location.state,
+              pincode: parsed.pincode || prev.location.pincode,
+              latitude: parsed.latitude !== "" ? parsed.latitude : prev.location.latitude,
+              longitude: parsed.longitude !== "" ? parsed.longitude : prev.location.longitude,
+            },
+          }
+        })
       })
     }
 
