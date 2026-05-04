@@ -175,7 +175,7 @@ function CategoryNavColumn({
         <span
           ref={labelRef}
           className={cn(
-            "relative z-10 mx-auto block max-w-[72px] truncate px-1 pb-0.5 text-center text-[8px] uppercase tracking-tight md:max-w-[88px] md:text-[10px]",
+            "relative z-10 mx-auto block max-w-[72px] truncate px-1 pb-1 text-center text-[9px] uppercase tracking-tight md:max-w-[88px] md:text-[11px]",
             isActive ? "font-black" : "font-semibold",
           )}
           style={{
@@ -609,21 +609,21 @@ const MainLocationHeader = ({
           {showCategories && categories.length > 0 && (
             <div className="relative z-10 space-y-1 pt-0">
               {/* Compact Search Bar integrated into Categories Section */}
-              <div className="px-3 md:px-0 md:max-w-2xl md:mx-auto">
+              <div className="px-4 md:px-0 md:max-w-2xl md:mx-auto py-2">
                   <motion.div
                     onClick={handleSearchClick}
                     whileHover={{ scale: 1.01 }}
                     whileTap={{ scale: 0.98 }}
-                    className="flex-1 rounded-[10px] md:rounded-full px-3 h-[36px] shadow-sm flex items-center bg-white border border-gray-100 cursor-pointer">
-                    <SearchIcon sx={{ color: "#F6881F", fontSize: 20 }} />
+                    className="flex-1 rounded-[12px] md:rounded-full px-4 h-[44px] shadow-md flex items-center bg-white border border-gray-100 cursor-pointer">
+                    <SearchIcon sx={{ color: "#F6881F", fontSize: 22 }} />
                     <input
                       type="text"
                       placeholder={searchPlaceholder || "Search Products..."}
                       readOnly
-                      className="flex-1 bg-transparent border-none outline-none pl-2 text-slate-800 font-bold placeholder:text-slate-300 text-[14px] cursor-pointer"
+                      className="flex-1 bg-transparent border-none outline-none pl-3 text-slate-800 font-bold placeholder:text-slate-300 text-[15px] cursor-pointer"
                     />
-                    <div className="flex items-center gap-2 border-l border-orange-100 pl-2">
-                      <MicIcon sx={{ color: "#F6881F", fontSize: 18 }} />
+                    <div className="flex items-center gap-2 border-l border-orange-100 pl-3">
+                      <MicIcon sx={{ color: "#F6881F", fontSize: 20 }} />
                     </div>
                   </motion.div>
                 </div>
@@ -646,8 +646,8 @@ const MainLocationHeader = ({
                   overflowY: "hidden",
                 }}
                 className={cn(
-                  "relative flex items-end md:justify-center gap-0 overflow-x-auto no-scrollbar -mx-2 px-2 md:mx-0 md:px-0 z-10 snap-x min-h-[56px] md:min-h-[64px] pb-0.5",
-                  embedded ? "pt-0" : "pt-0.5",
+                  "relative flex items-end md:justify-center gap-1 overflow-x-auto no-scrollbar -mx-2 px-2 md:mx-0 md:px-0 z-10 snap-x min-h-[64px] md:min-h-[72px] pb-1",
+                  embedded ? "pt-1" : "pt-2",
                 )}>
               {categories.slice(0, 10).map((cat) => {
                 const isActive = activeCategory?.id === cat.id;
