@@ -192,7 +192,7 @@ const useStandaloneQuickCart = (isBridged = false) => {
       productId: getProductId(item),
       itemId: getProductId(item),
       quantity: Number(item.quantity || 1),
-      image: item.image || item.mainImage || "",
+      image: item.mainImage || item.image || "",
       mainImage: item.mainImage || item.image || "",
       price: Number(item.price || 0),
       mrp: Number(item.mrp || item.price || 0),
@@ -218,13 +218,7 @@ const useStandaloneQuickCart = (isBridged = false) => {
         const response = await customerApi.getCart();
         const items = response.data?.result?.items || response.data?.items || [];
         const normalizedItems = normalizeBackendCart(items);
-        // `/quick` embedded mode writes the current quick cart snapshot to localStorage
-        // through the shared food-cart bridge. When standalone `/quick/cart` loads,
-        // backend quick-cart data can still be empty, so we fall back to that snapshot
-        // instead of showing an empty cart while the floating cart shows items.
-        setCart(
-          normalizedItems.length > 0 ? normalizedItems : readStoredQuickCart(),
-        );
+        setCart(normalizedItems);
       } catch (error) {
         console.error("Failed to fetch cart from backend", error);
       } finally {
@@ -246,6 +240,25 @@ const useStandaloneQuickCart = (isBridged = false) => {
     }
   }, [isAuthenticated]);
 
+  // Sync cart when localStorage changes (e.g., cleared from another tab or bridged mode)
+  useEffect(() => {
+    if (isBridged) return;
+    const handleStorage = (e) => {
+      if (e.key === QUICK_CART_STORAGE_KEY) {
+        if (!e.newValue) {
+          setCart([]);
+        } else {
+          try {
+            const parsed = JSON.parse(e.newValue);
+            if (Array.isArray(parsed)) setCart(parsed);
+          } catch {}
+        }
+      }
+    };
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
+  }, [isBridged]);
+
   useEffect(() => {
     if (!isBridged) {
       persistQuickCartSnapshot(cart);
@@ -258,6 +271,8 @@ const useStandaloneQuickCart = (isBridged = false) => {
     setCart((prev) => {
       const existingItem = prev.find((item) => getProductId(item) === id);
       if (existingItem) {
+        const stock = Number(existingItem.stock ?? product.stock ?? Infinity);
+        if (existingItem.quantity >= stock) return prev; // already at stock limit
         return prev.map((item) =>
           getProductId(item) === id ? { ...item, quantity: item.quantity + 1 } : item,
         );
@@ -320,7 +335,9 @@ const useStandaloneQuickCart = (isBridged = false) => {
     if (!resolvedProductId) return;
     const currentItem = cart.find((item) => getProductId(item) === resolvedProductId);
     if (!currentItem) return;
-    const newQty = Math.max(0, currentItem.quantity + delta);
+    const stock = Number(currentItem.stock ?? Infinity);
+    const newQty = Math.max(0, Math.min(currentItem.quantity + delta, stock));
+    if (newQty === currentItem.quantity && delta > 0) return; // already at stock limit
     if (newQty === 0) {
       removeFromCart(resolvedProductId);
       return;
@@ -358,15 +375,13 @@ const useStandaloneQuickCart = (isBridged = false) => {
   };
 
   const clearCart = async () => {
+    setCart([]); // optimistic clear immediately
     if (isAuthenticated) {
       try {
         await customerApi.clearCart();
-        setCart([]);
       } catch (error) {
         console.error("Error clearing cart on backend", error);
       }
-    } else {
-      setCart([]);
     }
   };
 

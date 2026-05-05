@@ -24,8 +24,9 @@ import LogoImage from "@/assets/Logo.png";
 import shoppingCartAnimation from "@/assets/lottie/shopping-cart.json";
 import { Sparkles } from "lucide-react";
 import { customerApi } from "../../services/customerApi";
+import ThemeToggle from "../layout/ThemeToggle";
 
-// MUI Icons (shared with Home.jsx)
+// MUI Icons
 import HomeIcon from "@mui/icons-material/Home";
 import DevicesIcon from "@mui/icons-material/Devices";
 import LocalGroceryStoreIcon from "@mui/icons-material/LocalGroceryStore";
@@ -48,6 +49,13 @@ import DiamondIcon from "@mui/icons-material/Diamond";
 import ColorLensIcon from "@mui/icons-material/ColorLens";
 import BuildIcon from "@mui/icons-material/Build";
 import LuggageIcon from "@mui/icons-material/Luggage";
+import AccessTimeIcon from "@mui/icons-material/AccessTime";
+import LocationOnIcon from "@mui/icons-material/LocationOn";
+import SearchIcon from "@mui/icons-material/Search";
+import MicIcon from "@mui/icons-material/Mic";
+import ChevronDownIcon from "@mui/icons-material/KeyboardArrowDown";
+import FavoriteBorderOutlinedIcon from "@mui/icons-material/FavoriteBorderOutlined";
+import ShoppingCartOutlinedIcon from "@mui/icons-material/ShoppingCartOutlined";
 
 const ICON_COMPONENTS = {
   electronics: DevicesIcon,
@@ -71,14 +79,12 @@ const ICON_COMPONENTS = {
   grocery: LocalGroceryStoreIcon,
 };
 
-// MUI Icons
-import AccessTimeIcon from "@mui/icons-material/AccessTime";
-import LocationOnIcon from "@mui/icons-material/LocationOn";
-import SearchIcon from "@mui/icons-material/Search";
-import MicIcon from "@mui/icons-material/Mic";
-import ChevronDownIcon from "@mui/icons-material/KeyboardArrowDown";
-import FavoriteBorderOutlinedIcon from "@mui/icons-material/FavoriteBorderOutlined";
-import ShoppingCartOutlinedIcon from "@mui/icons-material/ShoppingCartOutlined";
+const serviceTabs = [
+  { name: "Food" },
+  { name: "Quick" },
+  { name: "Instamart" },
+  { name: "Dineout" },
+];
 
 const lightenHex = (hex, amount = 0.18) => {
   const normalized = String(hex || "").replace("#", "");
@@ -99,7 +105,6 @@ const lightenHex = (hex, amount = 0.18) => {
 function buildActiveTabPath(l, r) {
   const y = 20;
   const mapX = (x) => l + ((x - 1.5) / (98.5 - 1.5)) * (r - l);
-  // Softer shoulders + flatter crown for a cleaner active tab curve.
   return `M 0 ${y} L ${l} ${y} L ${l} 12 C ${mapX(2.6)} 7 ${mapX(8.2)} 1.55 ${mapX(15)} 1.55 L ${mapX(85)} 1.55 C ${mapX(91.8)} 1.55 ${mapX(97.4)} 7 ${mapX(98.5)} 12 V ${y} L 100 ${y}`;
 }
 
@@ -257,7 +262,8 @@ const MainLocationHeader = ({
     }
   }, [showCategories, externalCategories.length]);
 
-  const categories = externalCategories.length > 0 ? externalCategories : internalCategories;
+  const categories = (externalCategories.length > 0 ? externalCategories : internalCategories)
+    .filter(cat => !serviceTabs.some(tab => tab.name.toLowerCase() === cat.name?.toLowerCase()));
 
   // Search Logic
   const handleSearchClick = () => {
@@ -363,7 +369,6 @@ const MainLocationHeader = ({
   const rawCartOpacity = useTransform(scrollY, [0, 110, 150], [1, 0.7, 0]);
   const rawCartScale = useTransform(scrollY, [0, 110, 150], [1, 0.9, 0.75]);
 
-  // Helper to hide elements completely when collapsed to prevent clicks
   const rawDisplayContent = useTransform(scrollY, (value) =>
     value > 160 ? "none" : "block",
   );
@@ -458,7 +463,7 @@ const MainLocationHeader = ({
           )}
 
           {/* Desktop/Tablet Header Layout (md and above) */}
-          {(showTopContent || showSearchBar) && (
+          {!embedded && (showTopContent || showSearchBar) && (
             <div className="hidden md:flex items-center justify-between relative z-20 px-2 lg:px-6 mb-4 mt-1">
               {/* Left Section: Logo + Location row */}
               <div className="flex items-center gap-4 lg:gap-8">
@@ -553,12 +558,15 @@ const MainLocationHeader = ({
                   )}
                 </motion.button>
 
+                <div className="flex items-center">
+                  <ThemeToggle />
+                </div>
               </div>
             </div>
           )}
 
           {/* Collapsible Delivery Info & Location (MOBILE ONLY) */}
-          {showTopContent && <div className="md:hidden">
+          {!embedded && showTopContent && <div className="md:hidden">
             <motion.div
               style={{
                 height: contentHeight,
@@ -610,23 +618,23 @@ const MainLocationHeader = ({
             <div className="relative z-10 space-y-1 pt-0">
               {/* Compact Search Bar integrated into Categories Section */}
               <div className="px-4 md:px-0 md:max-w-2xl md:mx-auto py-2">
-                  <motion.div
-                    onClick={handleSearchClick}
-                    whileHover={{ scale: 1.01 }}
-                    whileTap={{ scale: 0.98 }}
-                    className="flex-1 rounded-[12px] md:rounded-full px-4 h-[44px] shadow-md flex items-center bg-white border border-gray-100 cursor-pointer">
-                    <SearchIcon sx={{ color: "#F6881F", fontSize: 22 }} />
-                    <input
-                      type="text"
-                      placeholder={searchPlaceholder || "Search Products..."}
-                      readOnly
-                      className="flex-1 bg-transparent border-none outline-none pl-3 text-slate-800 font-bold placeholder:text-slate-300 text-[15px] cursor-pointer"
-                    />
-                    <div className="flex items-center gap-2 border-l border-orange-100 pl-3">
-                      <MicIcon sx={{ color: "#F6881F", fontSize: 20 }} />
-                    </div>
-                  </motion.div>
-                </div>
+                <motion.div
+                  onClick={handleSearchClick}
+                  whileHover={{ scale: 1.01 }}
+                  whileTap={{ scale: 0.98 }}
+                  className="flex-1 rounded-[12px] md:rounded-full px-4 h-[44px] shadow-md flex items-center bg-white border border-gray-100 cursor-pointer">
+                  <SearchIcon sx={{ color: "#F6881F", fontSize: 22 }} />
+                  <input
+                    type="text"
+                    placeholder={searchPlaceholder || "Search Products..."}
+                    readOnly
+                    className="flex-1 bg-transparent border-none outline-none pl-3 text-slate-800 font-bold placeholder:text-slate-300 text-[15px] cursor-pointer"
+                  />
+                  <div className="flex items-center gap-2 border-l border-orange-100 pl-3">
+                    <MicIcon sx={{ color: "#F6881F", fontSize: 20 }} />
+                  </div>
+                </motion.div>
+              </div>
 
               <motion.div
                 layout
@@ -649,18 +657,18 @@ const MainLocationHeader = ({
                   "relative flex items-end md:justify-center gap-1 overflow-x-auto no-scrollbar -mx-2 px-2 md:mx-0 md:px-0 z-10 snap-x min-h-[64px] md:min-h-[72px] pb-1",
                   embedded ? "pt-1" : "pt-2",
                 )}>
-              {categories.slice(0, 10).map((cat) => {
-                const isActive = activeCategory?.id === cat.id;
-                return (
-                  <CategoryNavColumn
-                    key={cat.id}
-                    cat={cat}
-                    isActive={isActive}
-                    categoryAccent={categoryAccent}
-                    onCategorySelect={onCategorySelect}
-                  />
-                );
-              })}
+                {categories.slice(0, 10).map((cat) => {
+                  const isActive = activeCategory?.id === cat.id;
+                  return (
+                    <CategoryNavColumn
+                      key={cat.id}
+                      cat={cat}
+                      isActive={isActive}
+                      categoryAccent={categoryAccent}
+                      onCategorySelect={onCategorySelect}
+                    />
+                  );
+                })}
               </motion.div>
             </div>
           )}

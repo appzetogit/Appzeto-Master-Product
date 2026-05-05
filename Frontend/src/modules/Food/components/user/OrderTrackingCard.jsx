@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback, memo } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { UtensilsCrossed, ChevronRight, X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -29,6 +29,41 @@ const CookingAnimation = memo(() => (
     <motion.div animate={{ opacity: [0.4, 0.8, 0.4], scaleX: [0.8, 1.2, 0.8] }} transition={{ duration: 0.6, repeat: Infinity, ease: "easeInOut" }} className="absolute bottom-0 w-full flex justify-center z-0">
       <div className="w-4 h-1 bg-orange-500 blur-[2px] rounded-full" />
     </motion.div>
+  </div>
+));
+
+const ShoppingAnimation = memo(() => (
+  <div className="relative w-12 h-12 flex items-center justify-center rounded-xl bg-blue-50 border border-blue-100 overflow-visible shadow-[0_4px_15px_rgba(59,130,246,0.15)] shrink-0">
+    <motion.div 
+      animate={{ 
+        y: [0, -4, 0],
+        rotate: [0, -5, 5, 0]
+      }} 
+      transition={{ 
+        duration: 2, 
+        repeat: Infinity, 
+        ease: "easeInOut" 
+      }} 
+      className="relative z-10"
+    >
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-blue-500 drop-shadow-sm">
+        <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z" />
+        <path d="M3 6h18" />
+        <path d="M16 10a4 4 0 0 1-8 0" />
+      </svg>
+    </motion.div>
+    <motion.div 
+      animate={{ 
+        scale: [1, 1.2, 1],
+        opacity: [0.3, 0.6, 0.3]
+      }} 
+      transition={{ 
+        duration: 2, 
+        repeat: Infinity, 
+        ease: "easeInOut" 
+      }} 
+      className="absolute inset-0 bg-blue-400/10 rounded-xl blur-md"
+    />
   </div>
 ));
 
@@ -112,6 +147,7 @@ function ordersFingerprint(orders) {
 
 function OrderTrackingCardInner({ hasBottomNav = true }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const { orders: contextOrders } = useOrders();
   const hasCustomerAuth = !!getCustomerToken();
   const [timeRemaining, setTimeRemaining] = useState(null);
@@ -333,23 +369,39 @@ function OrderTrackingCardInner({ hasBottomNav = true }) {
     return null;
   }
 
-  const restaurantName =
-    activeOrder.restaurant || activeOrder.restaurantName || "Restaurant";
+  const isQuickOrder = 
+    activeOrder.orderType === "quick" || 
+    activeOrder.module === "quick" || 
+    !!activeOrder.storeName || 
+    !!activeOrder.sellerName ||
+    location.pathname.includes("/quick");
+
+  const displayName =
+    activeOrder.storeName || 
+    activeOrder.sellerName || 
+    activeOrder.restaurant || 
+    activeOrder.restaurantName || 
+    (isQuickOrder ? "Store" : "Restaurant");
+
   const statusText = (() => {
     const s = String(orderStatus);
     const p = String(orderPhase);
 
     if (s === "scheduled") return "Your order is scheduled";
     if (s === "confirmed") return "Order confirmed";
-    if (s === "preparing" || s === "created" || s === "pending") return "Preparing your order";
+    if (s === "preparing" || s === "created" || s === "pending") {
+      return isQuickOrder ? "Packing your items" : "Preparing your order";
+    }
     if (s === "ready_for_pickup") return "Ready for pickup";
 
-    if (s === "reached_pickup" || p === "at_pickup") return "Delivery partner reached restaurant";
+    if (s === "reached_pickup" || p === "at_pickup") {
+      return isQuickOrder ? "Delivery partner reached store" : "Delivery partner reached restaurant";
+    }
     if (s === "picked_up" || p === "en_route_to_delivery") return "On the way";
     if (s === "reached_drop" || p === "at_drop") return "Arrived near you";
 
     if (s === "delivered" || p === "delivered" || p === "completed") return "Delivered";
-    return "Preparing your order";
+    return isQuickOrder ? "Packing your items" : "Preparing your order";
   })();
 
   return (
@@ -362,36 +414,36 @@ function OrderTrackingCardInner({ hasBottomNav = true }) {
         className={`fixed ${hasBottomNav ? "bottom-20" : "bottom-6"} left-4 right-4 z-[9999]`}
       >
         <div 
-          onClick={() =>
-            navigate(
-              `/food/user/orders/${activeOrder.id || activeOrder._id || activeOrder.orderId}`,
-            )
-          }
-          className="relative bg-white/95 backdrop-blur-xl rounded-[20px] p-4 shadow-[0_8px_30px_rgba(235,89,14,0.15)] border border-orange-100/60 overflow-visible cursor-pointer group"
+          onClick={() => {
+            const id = activeOrder.id || activeOrder._id || activeOrder.orderId;
+            const basePath = isQuickOrder ? "/quick/orders" : "/food/user/orders";
+            navigate(`${basePath}/${id}`);
+          }}
+          className={`relative bg-white/95 backdrop-blur-xl rounded-[20px] p-4 shadow-[0_8px_30px_${isQuickOrder ? 'rgba(59,130,246,0.15)' : 'rgba(235,89,14,0.15)'}] border ${isQuickOrder ? 'border-blue-100/60' : 'border-orange-100/60'} overflow-visible cursor-pointer group`}
         >
           {/* Subtle gradient background mesh */}
-          <div className="absolute inset-0 bg-gradient-to-r from-orange-50/50 via-white/40 to-white/80 opacity-60 pointer-events-none rounded-[20px]" />
+          <div className={`absolute inset-0 bg-gradient-to-r ${isQuickOrder ? 'from-blue-50/50' : 'from-orange-50/50'} via-white/40 to-white/80 opacity-60 pointer-events-none rounded-[20px]`} />
           
           <button 
              onClick={(e) => { e.stopPropagation(); setDismissedKey(currentOrderKey); }}
-             className="absolute top-2 right-2 p-1.5 rounded-full bg-orange-50/80 text-orange-400 hover:text-orange-600 hover:bg-orange-100/80 transition-colors z-20 shadow-sm"
+             className={`absolute top-2 right-2 p-1.5 rounded-full ${isQuickOrder ? 'bg-blue-50/80 text-blue-400 hover:text-blue-600 hover:bg-blue-100/80' : 'bg-orange-50/80 text-orange-400 hover:text-orange-600 hover:bg-orange-100/80'} transition-colors z-20 shadow-sm`}
           >
             <X className="w-3.5 h-3.5 pointer-events-none" />
           </button>
 
           <div className="flex items-center gap-4 relative z-10 w-full">
-            <CookingAnimation />
+            {isQuickOrder ? <ShoppingAnimation /> : <CookingAnimation />}
 
             <div className="flex-1 min-w-0 pr-4">
-              <p className="text-gray-900 font-bold text-base md:text-lg truncate tracking-tight">{restaurantName}</p>
+              <p className="text-gray-900 font-bold text-base md:text-lg truncate tracking-tight">{displayName}</p>
               <div className="flex items-center gap-1.5 mt-0.5">
                 <p className="text-gray-500 font-medium text-xs md:text-sm truncate">{statusText}</p>
-                <ChevronRight className="w-3.5 h-3.5 text-orange-500 shrink-0 group-hover:translate-x-1 transition-transform" />
+                <ChevronRight className={`w-3.5 h-3.5 ${isQuickOrder ? 'text-blue-500' : 'text-orange-500'} shrink-0 group-hover:translate-x-1 transition-transform`} />
               </div>
             </div>
 
-            <div className="bg-gradient-to-br from-[#EB590E] to-[#D94E0A] shadow-lg shadow-orange-500/20 rounded-xl px-4 py-2 shrink-0 flex flex-col items-center justify-center border border-orange-200">
-              <p className="text-orange-50 text-[10px] font-bold uppercase tracking-wider opacity-95 leading-tight mb-[2px]">
+            <div className={`bg-gradient-to-br ${isQuickOrder ? 'from-blue-500 to-blue-600 shadow-blue-500/20 border-blue-200' : 'from-[#EB590E] to-[#D94E0A] shadow-orange-500/20 border-orange-200'} shadow-lg rounded-xl px-4 py-2 shrink-0 flex flex-col items-center justify-center border`}>
+              <p className={`${isQuickOrder ? 'text-blue-50' : 'text-orange-50'} text-[10px] font-bold uppercase tracking-wider opacity-95 leading-tight mb-[2px]`}>
                 {orderStatus === "scheduled" ? "Scheduled" : "arriving in"}
               </p>
               <p className="text-white text-base md:text-[17px] font-black leading-tight drop-shadow-sm">

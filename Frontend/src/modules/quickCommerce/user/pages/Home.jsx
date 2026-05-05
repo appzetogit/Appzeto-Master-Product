@@ -60,7 +60,6 @@ import { useProductDetail } from "../context/ProductDetailContext";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@food/components/ui/skeleton";
 import CardBanner from "@/assets/CardBanner.jpg";
-import QuickCategoriesBg from "@/assets/Catagorysection_bg.png";
 import SectionRenderer from "../components/experience/SectionRenderer";
 import ExperienceBannerCarousel from "../components/experience/ExperienceBannerCarousel";
 import { useLocation } from "../context/LocationContext";
@@ -454,7 +453,7 @@ function QuickHomeLoadingState({ embedded }) {
       </div>
 
       <div className="px-4 pb-4 md:px-8 lg:px-[50px]">
-        <div className="rounded-[28px] border border-[#0c831f]/10 bg-white/80 p-4 shadow-[0_10px_30px_rgba(15,23,42,0.06)] md:p-6">
+        <div className="rounded-[28px] border border-[#0c831f]/10 bg-white/80 dark:bg-card/80 p-4 shadow-[0_10px_30px_rgba(15,23,42,0.06)] md:p-6">
           <div className="mb-5 flex items-center justify-between">
             <div className="space-y-2">
               <Skeleton className="h-4 w-28 rounded-full" />
@@ -493,6 +492,7 @@ const Home = ({ embedded = false, onThemeChange, embeddedHeaderColor = null }) =
     activeCategory,
     setActiveCategory,
     products,
+    categoryProducts,
     quickCategories,
     experienceSections,
     offerSections,
@@ -588,6 +588,26 @@ const Home = ({ embedded = false, onThemeChange, embeddedHeaderColor = null }) =
     return quickCategories;
   }, [heroConfig.categoryIds, categoryMap, quickCategories]);
 
+  // Filter products by active header category
+  // Prefer server-fetched categoryProducts when a specific category is active
+  const filteredProducts = useMemo(() => {
+    const activeCatId = activeCategory?._id || activeCategory?.id;
+    if (!activeCatId || activeCatId === "all") return products;
+
+    // Use server-fetched category products if available
+    if (categoryProducts !== null) return categoryProducts;
+
+    // Fallback: client-side filter by categoryId parentId
+    return products.filter((p) => {
+      const productCatId = p.categoryId?._id || p.categoryId || p.category?._id || p.category;
+      if (!productCatId) return false;
+      const cat = categoryMap[String(productCatId)];
+      if (!cat) return false;
+      const parentHeaderId = cat.parentId || cat.headerId || cat.parent?._id || cat.header?._id;
+      return String(parentHeaderId) === String(activeCatId) || String(productCatId) === String(activeCatId);
+    });
+  }, [products, categoryProducts, activeCategory, categoryMap]);
+
   const sectionsForRenderer = headerSections.length ? headerSections : experienceSections;
 
   const opacity = useTransform(scrollY, [0, 300], [1, 0.6]);
@@ -641,8 +661,8 @@ const Home = ({ embedded = false, onThemeChange, embeddedHeaderColor = null }) =
   return (
     <div
       className={cn(
-        "bg-[#F5F7F8]",
-        embedded ? "min-h-0 bg-white pt-0" : "min-h-screen pt-[216px] md:pt-[250px]",
+        "bg-[#F5F7F8] dark:bg-background",
+        embedded ? "min-h-0 bg-white dark:bg-card pt-0" : "min-h-screen pt-[176px] md:pt-[210px]",
       )}>
       {/* Top Dynamic Gradient Section */}
       <div
@@ -731,7 +751,7 @@ const Home = ({ embedded = false, onThemeChange, embeddedHeaderColor = null }) =
                         onClick={() => navigate("/categories")}
                         whileTap={{ scale: 0.96 }}
                         className="min-w-full">
-                        <div className="w-full h-[190px] bg-white relative overflow-hidden flex border-y border-gray-100 shadow-[0_4px_15px_rgba(0,0,0,0.05)] group">
+                        <div className="w-full h-[190px] bg-white dark:bg-card relative overflow-hidden flex border-y border-gray-100 dark:border-white/5 shadow-[0_4px_15px_rgba(0,0,0,0.05)] group">
                           <img
                             src={CardBanner}
                             alt="Promotion"
@@ -837,15 +857,9 @@ const Home = ({ embedded = false, onThemeChange, embeddedHeaderColor = null }) =
               )}>
               <div
                 className={cn(
-                  "relative overflow-hidden bg-white",
+                  "relative overflow-hidden bg-white dark:bg-card",
                   embedded ? "shadow-none" : "shadow-[0_14px_28px_rgba(15,23,42,0.09)]",
-                )}
-                style={{
-                  backgroundImage: `linear-gradient(180deg, rgba(255,255,255,0.78) 0%, rgba(255,255,255,0.65) 100%), url(${QuickCategoriesBg})`,
-                  backgroundSize: "cover",
-                  backgroundPosition: "center",
-                }}>
-                <div className="absolute inset-0 bg-white/10 pointer-events-none" />
+                )}>
 
                 <div className="relative z-10 px-4 pt-3 pb-1 md:px-8 md:pt-4">
                   <h2 className="text-center text-[18px] md:text-[20px] font-bold tracking-tight text-[#132018] leading-none">
@@ -987,9 +1001,11 @@ const Home = ({ embedded = false, onThemeChange, embeddedHeaderColor = null }) =
                       />
                     </div>
                   ))}
-                  {products.length === 0 && !isLoading && (
+                  {filteredProducts.length === 0 && !isLoading && (
                     <div className="w-full py-10 md:py-20 text-center text-slate-400 font-black italic md:text-xl">
-                      Curating the best deals for you...
+                      {activeCategory && activeCategory._id !== "all"
+                        ? `No products found in ${activeCategory.name}`
+                        : "Curating the best deals for you..."}
                     </div>
                   )}
                 </div>
@@ -1001,7 +1017,22 @@ const Home = ({ embedded = false, onThemeChange, embeddedHeaderColor = null }) =
           {offerSections.length > 0 && (
             <div className="w-full px-0 pt-0 pb-2 md:pb-4">
               {[...offerSections]
-                .filter(section => (section.title || '').trim().toLowerCase() !== 'best sellers')
+                .filter(section => {
+                  if ((section.title || '').trim().toLowerCase() === 'best sellers') return false;
+                  // If a specific category is active, only show sections that match it
+                  const activeCatId = activeCategory?._id || activeCategory?.id;
+                  if (!activeCatId || activeCatId === "all") return true;
+                  const sectionCatIds = (section.categoryIds || []).map(c =>
+                    typeof c === "object" ? String(c._id || c.id || "") : String(c)
+                  );
+                  if (sectionCatIds.length === 0) return true; // no category filter = show always
+                  return sectionCatIds.some(id => {
+                    if (id === String(activeCatId)) return true;
+                    const cat = categoryMap[id];
+                    const parentHeaderId = cat?.parentId || cat?.headerId || cat?.parent?._id || cat?.header?._id;
+                    return String(parentHeaderId) === String(activeCatId);
+                  });
+                })
                 .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
                 .map((section) => {
                   const bgColor = getBackgroundColorByValue(
@@ -1036,7 +1067,7 @@ const Home = ({ embedded = false, onThemeChange, embeddedHeaderColor = null }) =
                         section.title?.toLowerCase().includes('masala') ? "bg-[#FFF9E7]" : "bg-white"
                       )}>
                       <div
-                        className="relative flex items-center justify-between px-5 md:px-8 py-5 md:py-6 text-black"
+                        className="relative flex items-center justify-between px-5 md:px-8 py-5 md:py-6 text-black dark:text-white"
                         style={{
                           backgroundColor: bgColor,
                           backgroundImage: getBackgroundGradientByValue(
@@ -1048,7 +1079,7 @@ const Home = ({ embedded = false, onThemeChange, embeddedHeaderColor = null }) =
                           <div className="absolute -bottom-10 right-0 w-44 h-44 bg-white/10 rounded-full blur-3xl" />
                         </div>
                         <div className="flex-1 pr-4">
-                          <p className="text-[10px] md:text-[11px] font-black uppercase tracking-[0.25em] text-black/60 mb-1">
+                          <p className="text-[10px] md:text-[11px] font-black uppercase tracking-[0.25em] text-black/60 dark:text-white/60 mb-1">
                             Trending right now
                           </p>
                           <h3 className="text-2xl md:text-3xl font-black tracking-tight leading-tight drop-shadow-sm">
@@ -1061,7 +1092,7 @@ const Home = ({ embedded = false, onThemeChange, embeddedHeaderColor = null }) =
                             .filter(Boolean)
                             .join(", ") ||
                             section.categoryId?.name) && (
-                              <p className="text-xs md:text-sm font-semibold text-black/75 mt-1">
+                              <p className="text-xs md:text-sm font-semibold text-black/75 dark:text-white/75 mt-1">
                                 {(section.categoryIds || [])
                                   .map((c) =>
                                     typeof c === "object" && c?.name ? c.name : null,
@@ -1126,7 +1157,7 @@ const Home = ({ embedded = false, onThemeChange, embeddedHeaderColor = null }) =
                                 className="w-[130px] md:w-[160px] lg:w-[180px] flex-shrink-0 snap-start">
                                 <ProductCard
                                   product={product}
-                                  className="bg-white border border-slate-100 shadow-[0_10px_24px_rgba(15,23,42,0.08)]"
+                                  className="border border-slate-100 dark:border-white/5 shadow-[0_10px_24px_rgba(15,23,42,0.08)]"
                                   compact
                                 />
                               </div>
@@ -1147,19 +1178,19 @@ const Home = ({ embedded = false, onThemeChange, embeddedHeaderColor = null }) =
                 "container mx-auto px-4 md:px-8 lg:px-[50px] bg-[#F0F9FF] rounded-none pt-4 pb-10 mt-[-28px] mb-10 relative z-[1] border-x-2 border-b-2 border-sky-200/50 shadow-sm overflow-hidden",
               )}>
               {/* Animated Top Border Glow */}
-              <motion.div 
-                animate={{ 
-                    x: ["-100%", "100%"],
-                    opacity: [0, 1, 0]
+              <motion.div
+                animate={{
+                  x: ["-100%", "100%"],
+                  opacity: [0, 1, 0]
                 }}
-                transition={{ 
-                    duration: 3, 
-                    repeat: Infinity, 
-                    ease: "linear" 
+                transition={{
+                  duration: 3,
+                  repeat: Infinity,
+                  ease: "linear"
                 }}
                 className="absolute top-0 left-0 w-full h-[3px] bg-gradient-to-r from-transparent via-sky-400/80 to-transparent"
               />
-              
+
               <SectionRenderer
                 sections={sectionsForRenderer}
                 productsById={productsById}

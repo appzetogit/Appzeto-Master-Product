@@ -41,7 +41,7 @@ const SectionRenderer = ({ sections = [], productsById = {}, categoriesById = {}
           const hydratedItems = categoryConfig.items || [];
           const rows = categoryConfig.rows || 1;
           const visibleCount = rows * 4;
-          
+
           const items = hydratedItems.map(c => ({
             ...c,
             id: c.id || c._id,
@@ -58,7 +58,7 @@ const SectionRenderer = ({ sections = [], productsById = {}, categoriesById = {}
             >
               {heading && (
                 <div className="flex items-center justify-between mb-2">
-                  <h3 className="text-base font-black text-[#1A1A1A]">
+                  <h3 className="text-base font-black text-foreground">
                     {heading}
                   </h3>
                   <span className="text-[11px] font-semibold text-slate-400">
@@ -75,20 +75,20 @@ const SectionRenderer = ({ sections = [], productsById = {}, categoriesById = {}
                 {items.map((cat, idx) => (
                   <motion.div
                     key={cat.id}
-                    initial={{ 
-                      rotateY: idx % 2 === 0 ? 45 : -45, 
+                    initial={{
+                      rotateY: idx % 2 === 0 ? 45 : -45,
                       opacity: 0,
                       y: 20,
                       scale: 0.95
                     }}
-                    whileInView={{ 
-                      rotateY: 0, 
+                    whileInView={{
+                      rotateY: 0,
                       opacity: 1,
                       y: 0,
                       scale: 1
                     }}
                     viewport={{ once: true, amount: 0.2 }}
-                    transition={{ 
+                    transition={{
                       type: "spring",
                       stiffness: 260,
                       damping: 20,
@@ -97,7 +97,7 @@ const SectionRenderer = ({ sections = [], productsById = {}, categoriesById = {}
                     onClick={() => navigate(`/category/${cat.id}`)}
                     className="flex flex-col items-center group cursor-pointer"
                   >
-                    <div 
+                    <div
                       className="w-full aspect-square rounded-2xl p-2.5 mb-1.5 group-hover:scale-[1.05] transition-all duration-300 flex items-center justify-center overflow-hidden shadow-sm border border-white/50"
                       style={{ backgroundColor: categoryBgColors[idx % categoryBgColors.length] }}
                     >
@@ -130,11 +130,11 @@ const SectionRenderer = ({ sections = [], productsById = {}, categoriesById = {}
             <div
               key={section._id}
               id={`section-${section._id}`}
-              className="mt-6"
+              className=""
             >
               <div className="flex items-center justify-between mb-3">
                 {heading && (
-                  <h3 className="text-base font-black text-[#1A1A1A]">
+                  <h3 className="text-base font-black text-foreground">
                     {heading}
                   </h3>
                 )}
@@ -166,7 +166,7 @@ const SectionRenderer = ({ sections = [], productsById = {}, categoriesById = {}
                         }
                       }}
                     >
-                      <div className="relative aspect-square w-full rounded-2xl bg-[#F8F9FA] border border-slate-100/80 flex items-center justify-center overflow-hidden p-1 transition-all duration-200 group-hover:border-[#0c831f]/40 group-hover:bg-white group-hover:shadow-[0_10px_25px_rgba(15,23,42,0.08)]">
+                      <div className="relative aspect-square w-full rounded-2xl bg-card dark:bg-background border border-border flex items-center justify-center overflow-hidden p-1 transition-all duration-200 group-hover:border-[#0c831f]/40 group-hover:bg-accent group-hover:shadow-[0_10px_25px_rgba(15,23,42,0.08)]">
                         {cat.image ? (
                           <img
                             src={resolveQuickImageUrl(cat.image)}
@@ -180,7 +180,7 @@ const SectionRenderer = ({ sections = [], productsById = {}, categoriesById = {}
                           <div className="h-6 w-6 rounded-full bg-slate-100" />
                         )}
                       </div>
-                      <div className="text-[11px] font-semibold text-slate-700 text-center leading-snug line-clamp-2 group-hover:text-[#0c831f]">
+                      <div className="text-[11px] font-semibold text-foreground text-center leading-snug line-clamp-2 group-hover:text-[#0c831f]">
                         {cat.name}
                       </div>
                     </button>
@@ -210,14 +210,14 @@ const SectionRenderer = ({ sections = [], productsById = {}, categoriesById = {}
 
           if (singleRowScrollable) {
             return (
-            <div
-              key={section._id}
-              id={`section-${section._id}`}
-              className="mt-6 mb-2"
-            >
+              <div
+                key={section._id}
+                id={`section-${section._id}`}
+                className="mb-2"
+              >
                 <div className="flex items-center justify-between mb-3">
                   {heading && (
-                    <h3 className="text-base font-black text-[#1A1A1A]">
+                    <h3 className="text-base font-black text-foreground">
                       {heading}
                     </h3>
                   )}
@@ -246,11 +246,11 @@ const SectionRenderer = ({ sections = [], productsById = {}, categoriesById = {}
             <div
               key={section._id}
               id={`section-${section._id}`}
-              className="mt-6"
+              className=""
             >
               <div className="flex items-center justify-between mb-3">
                 {heading && (
-                  <h3 className="text-base font-black text-[#1A1A1A]">
+                  <h3 className="text-base font-black text-foreground">
                     {heading}
                   </h3>
                 )}
@@ -264,14 +264,14 @@ const SectionRenderer = ({ sections = [], productsById = {}, categoriesById = {}
                   columns === 1
                     ? "grid-cols-1"
                     : columns === 2
-                    ? "grid-cols-2"
-                    : columns === 3
-                    ? "grid-cols-3"
-                    : columns === 4
-                    ? "grid-cols-4"
-                    : columns === 5
-                    ? "grid-cols-5"
-                    : "grid-cols-2"
+                      ? "grid-cols-2"
+                      : columns === 3
+                        ? "grid-cols-3"
+                        : columns === 4
+                          ? "grid-cols-4"
+                          : columns === 5
+                            ? "grid-cols-5"
+                            : "grid-cols-2"
                 )}
               >
                 {items.map((product) => (

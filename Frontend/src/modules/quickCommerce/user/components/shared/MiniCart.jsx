@@ -66,8 +66,8 @@ const MiniCart = ({
                             className="flex flex-col items-center justify-center w-[72px] h-[72px] md:w-[84px] md:h-[84px] bg-black text-white rounded-full shadow-[0_15px_45px_rgba(0,0,0,0.5)] hover:scale-110 transition-all duration-300 relative group overflow-hidden border-2 border-white/10"
                         >
                             <div className="absolute inset-0 bg-gradient-to-br from-white/15 to-transparent pointer-events-none" />
-                            
-                            <motion.div 
+
+                            <motion.div
                                 variants={{
                                     open: { scale: 0.9, rotate: -5 }
                                 }}
@@ -75,26 +75,26 @@ const MiniCart = ({
                             >
                                 <div className="relative mb-0.5">
                                     {/* Solid Bag Icon with Propagated Animation */}
-                                    <motion.svg 
-                                        width="32" 
-                                        height="32" 
-                                        viewBox="0 0 24 24" 
-                                        fill="white" 
+                                    <motion.svg
+                                        width="32"
+                                        height="32"
+                                        viewBox="0 0 24 24"
+                                        fill="white"
                                         stroke="none"
                                     >
                                         {/* Bag Body (Trapezoid) */}
-                                        <motion.path 
-                                            d="M6 10 L18 10 L19 22 C19 23 18 24 17 24 L7 24 C6 24 5 23 5 22 L6 10 Z" 
+                                        <motion.path
+                                            d="M6 10 L18 10 L19 22 C19 23 18 24 17 24 L7 24 C6 24 5 23 5 22 L6 10 Z"
                                             variants={{
                                                 closed: { scaleY: 1, y: 0 },
                                                 open: { scaleY: 0.9, y: 1 }
                                             }}
                                             transition={{ type: "spring", stiffness: 400, damping: 20 }}
                                         />
-                                        
+
                                         {/* Left Handle */}
-                                        <motion.path 
-                                            d="M9 10 C9 10 9 4 12 4" 
+                                        <motion.path
+                                            d="M9 10 C9 10 9 4 12 4"
                                             fill="none"
                                             stroke="white"
                                             strokeWidth="2.5"
@@ -105,10 +105,10 @@ const MiniCart = ({
                                             }}
                                             transition={{ type: "spring", stiffness: 400, damping: 20 }}
                                         />
-                                        
+
                                         {/* Right Handle */}
-                                        <motion.path 
-                                            d="M15 10 C15 10 15 4 12 4" 
+                                        <motion.path
+                                            d="M15 10 C15 10 15 4 12 4"
                                             fill="none"
                                             stroke="white"
                                             strokeWidth="2.5"
@@ -121,7 +121,7 @@ const MiniCart = ({
                                         />
                                     </motion.svg>
 
-                                    <motion.span 
+                                    <motion.span
                                         initial={{ scale: 0 }}
                                         animate={{ scale: 1 }}
                                         whileHover={{ scale: 1.2 }}
