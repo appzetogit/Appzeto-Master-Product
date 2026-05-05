@@ -21,8 +21,18 @@ const OrdersPage = () => {
     const fetchOrders = async () => {
       try {
         const response = await customerApi.getMyOrders();
-        const list = response?.data?.result || response?.data?.results || [];
-        setOrders(Array.isArray(list) ? list : []);
+        const rawList = response?.data?.result || response?.data?.results || [];
+        
+        // Filter to keep only quick commerce orders in this module
+        const list = Array.isArray(rawList) ? rawList.filter(order => {
+          const type = order.orderType || order.module || 'quick'
+          const orderId = String(order.orderId || order.id || order._id || '')
+          // Include quick commerce orders (type 'quick' or prefix 'QC')
+          // and exclude food orders (prefix 'FOD' or 'ORD')
+          return type === 'quick' || orderId.startsWith('QC') || (!orderId.startsWith('FOD') && !orderId.startsWith('ORD') && type !== 'food')
+        }) : [];
+        
+        setOrders(list);
       } catch (error) {
         console.error("Failed to fetch orders:", error);
         setOrders([]);

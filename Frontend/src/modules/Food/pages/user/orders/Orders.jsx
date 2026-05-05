@@ -240,7 +240,15 @@ export default function Orders() {
     const fetchOrders = async () => {
       try {
         setLoading(true)
-        const ordersData = await fetchAllOrders()
+        const rawOrdersData = await fetchAllOrders()
+        
+        // Filter to keep only food orders in this module
+        const ordersData = rawOrdersData.filter(order => {
+          const type = order.orderType || order.module || 'food'
+          const orderId = String(order.orderId || order.id || order._id || '')
+          // Exclude quick commerce orders (type 'quick' or prefix 'QC')
+          return type !== 'quick' && !orderId.startsWith('QC')
+        })
 
         if (ordersData.length > 0) {
           debugLog('?? Raw orders from API:', ordersData.slice(0, 3).map(o => ({

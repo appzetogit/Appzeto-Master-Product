@@ -328,6 +328,7 @@ const CheckoutPage = () => {
     { value: 20, label: "₹20" },
     { value: 30, label: "₹30" },
   ];
+  const [customTip, setCustomTip] = useState("");
 
   const deliveryFee = pricingPreview?.deliveryFeeCharged || 0;
   const handlingFee = pricingPreview?.handlingFeeCharged || 0;
@@ -1042,7 +1043,7 @@ const CheckoutPage = () => {
     const taxTotal = 0;
     const grandTotal = Math.max(
       0,
-      subtotal + deliveryFeeCharged + handlingFeeCharged + taxTotal - discountAmount,
+      subtotal + deliveryFeeCharged + handlingFeeCharged + taxTotal - discountAmount + selectedTip,
     );
 
     setPricingPreview({
@@ -1053,7 +1054,7 @@ const CheckoutPage = () => {
       grandTotal,
     });
     setIsPreviewLoading(false);
-  }, [cart, discountAmount]);
+  }, [cart, discountAmount, selectedTip]);
 
   const handlePlaceOrder = async () => {
     setIsPlacingOrder(true);
@@ -1763,19 +1764,44 @@ const CheckoutPage = () => {
               <p className="text-xs text-slate-600 mb-3">
                 100% of the tip goes to them
               </p>
-              <div className="grid grid-cols-4 gap-2">
+              <div className="grid grid-cols-4 gap-2 mb-3">
                 {tipAmounts.map((tip) => (
                   <button
                     key={tip.value}
-                    onClick={() => setSelectedTip(tip.value)}
+                    onClick={() => {
+                      setSelectedTip(tip.value);
+                      setCustomTip("");
+                    }}
                     className={`py-2 rounded-xl border-2 transition-all font-bold text-sm ${
-                      selectedTip === tip.value
+                      selectedTip === tip.value && !customTip
                         ? "border-pink-500 bg-pink-100 text-pink-700"
                         : "border-pink-200 bg-white text-slate-700 hover:border-pink-300"
                     }`}>
                     {tip.label}
                   </button>
                 ))}
+              </div>
+              <div className="relative">
+                <input
+                  type="number"
+                  min="1"
+                  placeholder="Enter custom tip amount (₹)"
+                  value={customTip}
+                  onChange={(e) => {
+                    const val = e.target.value.replace(/[^0-9]/g, "");
+                    setCustomTip(val);
+                    setSelectedTip(val ? Number(val) : 0);
+                  }}
+                  className="w-full h-10 rounded-xl border-2 border-pink-200 bg-white px-3 text-sm font-bold text-slate-700 placeholder:text-slate-400 focus:outline-none focus:border-pink-400 transition-colors"
+                />
+                {customTip && (
+                  <button
+                    onClick={() => { setCustomTip(""); setSelectedTip(0); }}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  >
+                    <X size={14} />
+                  </button>
+                )}
               </div>
             </motion.div>
 
@@ -1913,16 +1939,19 @@ const CheckoutPage = () => {
                   </motion.div>
                 )}
 
-                {false && selectedTip > 0 && (
-                  <div className="flex justify-between items-center px-3 py-2 bg-pink-50 rounded-xl border border-pink-100 italic">
+                {selectedTip > 0 && (
+                  <motion.div
+                    initial={{ opacity: 0, x: -10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    className="flex justify-between items-center px-3 py-2 bg-pink-50 rounded-xl border border-pink-100">
                     <span className="text-pink-600 font-bold text-xs flex items-center gap-2">
                       <Heart size={14} className="fill-pink-500" />
-                      Partner Support
+                      Delivery Partner Tip
                     </span>
                     <span className="font-black text-pink-600">
-                      ₹{selectedTip}
+                      +₹{selectedTip}
                     </span>
-                  </div>
+                  </motion.div>
                 )}
 
                 <div className="mt-4 pt-6 border-t-2 border-dashed border-slate-100">
@@ -1940,14 +1969,23 @@ const CheckoutPage = () => {
                     </span>
                   </div>
 
-                  {/* Desktop Integrated Slide to Pay */}
+                  {/* Desktop Integrated Slide to Pay / Place Order */}
                   <div className="hidden lg:block">
-                    <SlideToPay
-                      amount={totalAmount}
-                      onSuccess={handlePlaceOrder}
-                      isLoading={isPlacingOrder || isPreviewLoading || !pricingPreview}
-                      text="Order Now"
-                    />
+                    {selectedPayment === "cash" ? (
+                      <button
+                        onClick={handlePlaceOrder}
+                        disabled={isPlacingOrder || isPreviewLoading || !pricingPreview}
+                        className="w-full py-4 rounded-2xl bg-green-600 hover:bg-green-700 disabled:opacity-60 disabled:cursor-not-allowed text-white font-black text-lg tracking-wide transition-colors">
+                        {isPlacingOrder ? "Placing Order..." : `Place Order | ₹${totalAmount}`}
+                      </button>
+                    ) : (
+                      <SlideToPay
+                        amount={totalAmount}
+                        onSuccess={handlePlaceOrder}
+                        isLoading={isPlacingOrder || isPreviewLoading || !pricingPreview}
+                        text="Order Now"
+                      />
+                    )}
                     <p className="text-center text-[10px] text-slate-400 font-bold mt-4 uppercase tracking-[0.1em]">
                       🔒 SSL encrypted secure checkout
                     </p>
@@ -1962,12 +2000,21 @@ const CheckoutPage = () => {
       {/* Sticky Footer - Mobile Only */}
       <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 px-4 py-4 shadow-[0_-10px_40px_rgba(0,0,0,0.1)] z-50 rounded-t-3xl">
         <div className="max-w-4xl mx-auto">
-          <SlideToPay
-            amount={totalAmount}
-            onSuccess={handlePlaceOrder}
-            isLoading={isPlacingOrder || isPreviewLoading || !pricingPreview}
-            text="Slide to Pay"
-          />
+          {selectedPayment === "cash" ? (
+            <button
+              onClick={handlePlaceOrder}
+              disabled={isPlacingOrder || isPreviewLoading || !pricingPreview}
+              className="w-full py-4 rounded-2xl bg-green-600 hover:bg-green-700 disabled:opacity-60 disabled:cursor-not-allowed text-white font-black text-lg tracking-wide transition-colors">
+              {isPlacingOrder ? "Placing Order..." : `Place Order | ₹${totalAmount}`}
+            </button>
+          ) : (
+            <SlideToPay
+              amount={totalAmount}
+              onSuccess={handlePlaceOrder}
+              isLoading={isPlacingOrder || isPreviewLoading || !pricingPreview}
+              text="Slide to Pay"
+            />
+          )}
         </div>
       </div>
 
