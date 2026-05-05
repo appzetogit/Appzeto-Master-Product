@@ -293,7 +293,8 @@ const MainLocationHeader = ({
     }
   }, [showCategories, externalCategories.length]);
 
-  const categories = externalCategories.length > 0 ? externalCategories : internalCategories;
+  const categories = (externalCategories.length > 0 ? externalCategories : internalCategories)
+    .filter(cat => !serviceTabs.some(tab => tab.name.toLowerCase() === cat.name?.toLowerCase()));
 
   // Search Logic
   const handleSearchClick = () => {
@@ -494,7 +495,7 @@ const MainLocationHeader = ({
           )}
 
           {/* Desktop/Tablet Header Layout (md and above) */}
-          {(showTopContent || showSearchBar) && (
+          {!embedded && (showTopContent || showSearchBar) && (
             <div className="hidden md:flex items-center justify-between relative z-20 px-2 lg:px-6 mb-4 mt-1">
               {/* Left Section: Logo + Location row */}
               <div className="flex items-center gap-4 lg:gap-8">
@@ -614,8 +615,9 @@ const MainLocationHeader = ({
             </div>
           )}
 
-          {/* Service Tabs (Mobile/Desktop) */}
-          <div className="relative z-10 px-1 pt-1 mb-3 flex items-end justify-start gap-[6px] overflow-x-auto no-scrollbar">
+          {/* Service Tabs (Mobile/Desktop) - Hide when embedded in another module's home */}
+          {!embedded && (
+            <div className="relative z-10 px-1 pt-1 mb-3 flex items-end justify-start gap-[6px] overflow-x-auto no-scrollbar">
             {serviceTabs.map((tab) => {
               const isActive = tab.id === "quick";
               const themeColor = baseHeaderColor || "#0c831f";
@@ -669,9 +671,10 @@ const MainLocationHeader = ({
               );
             })}
           </div>
+          )}
 
           {/* Collapsible Delivery Info & Location (MOBILE ONLY) */}
-          {showTopContent && <div className="md:hidden">
+          {!embedded && showTopContent && <div className="md:hidden">
             <motion.div
               style={{
                 height: contentHeight,
@@ -713,7 +716,7 @@ const MainLocationHeader = ({
           </div>}
 
           {/* Search Bar (MOBILE ONLY) */}
-          {showSearchBar && <div className="relative z-10 mt-0 flex items-center gap-2.5 md:hidden">
+          {!embedded && showSearchBar && <div className="relative z-10 mt-0 flex items-center gap-2.5 md:hidden">
             <motion.div
               onClick={handleSearchClick}
               whileTap={{ scale: 0.98 }}

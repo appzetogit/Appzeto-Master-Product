@@ -169,6 +169,9 @@ const AppRoutes = () => {
           }
         />
 
+        {/* Quick storefront landing keeps the shared food layout */}
+        <Route path="/quick" element={<SharedFoodHomeRoute />} />
+
         {/* Global shared cart */}
         <Route
           element={
