@@ -123,7 +123,7 @@ const ProductCard = React.memo(
       <motion.div
         whileHover={{ y: -6, transition: { type: "spring", stiffness: 400, damping: 20 } }}
         className={cn(
-          "flex-shrink-0 w-full flex flex-col h-full cursor-pointer group",
+          "flex-shrink-0 w-full flex flex-col h-full cursor-pointer group bg-transparent",
           className,
         )}
         onClick={handleProductClick}>
@@ -154,8 +154,9 @@ const ProductCard = React.memo(
                 animate={isWishlisted ? { scale: [1, 1.3, 1] } : {}}>
                 <Heart
                   size={window.innerWidth < 768 ? 14 : 18}
+                  fill={isWishlisted ? "currentColor" : "none"}
                   className={cn(
-                    isWishlisted ? "text-red-500 fill-current" : "text-slate-300 dark:text-slate-500 group-hover:text-slate-400 dark:group-hover:text-slate-300",
+                    isWishlisted ? "text-red-500" : "text-slate-300 dark:text-slate-500 group-hover:text-slate-400 dark:group-hover:text-slate-300",
                   )}
                 />
               </motion.div>

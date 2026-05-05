@@ -60,7 +60,6 @@ import { useProductDetail } from "../context/ProductDetailContext";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@food/components/ui/skeleton";
 import CardBanner from "@/assets/CardBanner.jpg";
-import QuickCategoriesBg from "@/assets/Catagorysection_bg.png";
 import SectionRenderer from "../components/experience/SectionRenderer";
 import ExperienceBannerCarousel from "../components/experience/ExperienceBannerCarousel";
 import { useLocation } from "../context/LocationContext";
@@ -454,7 +453,7 @@ function QuickHomeLoadingState({ embedded }) {
       </div>
 
       <div className="px-4 pb-4 md:px-8 lg:px-[50px]">
-        <div className="rounded-[28px] border border-[#0c831f]/10 bg-white/80 p-4 shadow-[0_10px_30px_rgba(15,23,42,0.06)] md:p-6">
+        <div className="rounded-[28px] border border-[#0c831f]/10 bg-white/80 dark:bg-card/80 p-4 shadow-[0_10px_30px_rgba(15,23,42,0.06)] md:p-6">
           <div className="mb-5 flex items-center justify-between">
             <div className="space-y-2">
               <Skeleton className="h-4 w-28 rounded-full" />
@@ -654,8 +653,8 @@ const Home = ({ embedded = false, onThemeChange, embeddedHeaderColor = null }) =
   return (
     <div
       className={cn(
-        "bg-[#F5F7F8]",
-        embedded ? "min-h-0 bg-white pt-0" : "min-h-screen pt-[216px] md:pt-[250px]",
+        "bg-[#F5F7F8] dark:bg-background",
+        embedded ? "min-h-0 bg-white dark:bg-card pt-0" : "min-h-screen pt-[176px] md:pt-[210px]",
       )}>
       {/* Top Dynamic Gradient Section */}
       <div
@@ -674,7 +673,7 @@ const Home = ({ embedded = false, onThemeChange, embeddedHeaderColor = null }) =
       {isInitialPageLoading ? (
         <QuickHomeLoadingState embedded={embedded} />
       ) : (
-        <div className={cn("pt-[160px] md:pt-[180px]", embedded && "pt-0")}>
+        <div className={cn("pt-[100px]", embedded && "pt-0")}>
           {/* Hero Banners (mobile): admin-configured or static fallback */}
           <>
             <div className={cn("block md:hidden", embedded ? "-mt-[1px]" : "mt-0")}>
@@ -741,10 +740,10 @@ const Home = ({ embedded = false, onThemeChange, embeddedHeaderColor = null }) =
                         </div>
                       </motion.div>
                       <motion.div
-                        onClick={() => navigate("/categories")}
+                        onClick={() => navigate(getQuickCategoriesPath())}
                         whileTap={{ scale: 0.96 }}
                         className="min-w-full">
-                        <div className="w-full h-[190px] bg-white relative overflow-hidden flex border-y border-gray-100 shadow-[0_4px_15px_rgba(0,0,0,0.05)] group">
+                        <div className="w-full h-[190px] bg-white dark:bg-card relative overflow-hidden flex border-y border-gray-100 dark:border-white/5 shadow-[0_4px_15px_rgba(0,0,0,0.05)] group">
                           <img
                             src={CardBanner}
                             alt="Promotion"
@@ -850,15 +849,9 @@ const Home = ({ embedded = false, onThemeChange, embeddedHeaderColor = null }) =
               )}>
               <div
                 className={cn(
-                  "relative overflow-hidden bg-white",
+                  "relative overflow-hidden bg-white dark:bg-card",
                   embedded ? "shadow-none" : "shadow-[0_14px_28px_rgba(15,23,42,0.09)]",
-                )}
-                style={{
-                  backgroundImage: `linear-gradient(180deg, rgba(255,255,255,0.78) 0%, rgba(255,255,255,0.65) 100%), url(${QuickCategoriesBg})`,
-                  backgroundSize: "cover",
-                  backgroundPosition: "center",
-                }}>
-                <div className="absolute inset-0 bg-white/10 pointer-events-none" />
+                )}>
 
                 <div className="relative z-10 px-4 pt-3 pb-1 md:px-8 md:pt-4">
                   <h2 className="text-center text-[18px] md:text-[20px] font-bold tracking-tight text-[#132018] leading-none">
@@ -959,7 +952,7 @@ const Home = ({ embedded = false, onThemeChange, embeddedHeaderColor = null }) =
           <div
             className={cn(
               "mb-4 md:mb-8",
-              embedded ? "-mt-[22px] md:-mt-[32px]" : "-mt-[60px] md:-mt-[60px]",
+              embedded ? "-mt-[12px] md:-mt-[16px]" : "mt-0 md:mt-4",
             )}>
             <div className="relative overflow-hidden bg-linear-to-br from-[#0c831f]/10 via-[#0c831f]/5 to-transparent pt-[20px] pb-0 border-y border-[#0c831f]/10 shadow-sm md:shadow-[inset_0_-10px_40px_rgba(0,0,0,0.02)]">
               {/* Background Decoration */}
@@ -969,7 +962,7 @@ const Home = ({ embedded = false, onThemeChange, embeddedHeaderColor = null }) =
               <div className="container mx-auto px-4 md:px-8 lg:px-[50px] relative z-10">
                 <div className="flex justify-between items-center mb-6 md:mb-10 px-1">
                   <div className="flex flex-col">
-                    <h3 className="text-xl md:text-4xl font-[1000] text-[#1A1A1A] tracking-tighter uppercase leading-none">
+                    <h3 className="text-xl md:text-4xl font-[1000] text-foreground tracking-tighter uppercase leading-none">
                       Lowest Price <span className="text-[#0c831f]">ever</span>
                     </h3>
                     <div className="flex items-center gap-1.5 md:gap-2 mt-1.5 md:mt-3">
@@ -983,7 +976,7 @@ const Home = ({ embedded = false, onThemeChange, embeddedHeaderColor = null }) =
                     onClick={() => navigate(getQuickCategoriesPath())}
                     whileHover={{ x: 5, scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
-                    className="flex items-center gap-1 md:gap-2 bg-white px-3 py-1.5 md:px-6 md:py-3 rounded-full text-[#0c831f] font-bold text-[10px] md:text-sm cursor-pointer shadow-sm md:shadow-lg border border-[#0c831f]/5 transition-all">
+                    className="flex items-center gap-1 md:gap-2 bg-card dark:bg-background px-3 py-1.5 md:px-6 md:py-3 rounded-full text-[#0c831f] font-bold text-[10px] md:text-sm cursor-pointer shadow-sm md:shadow-lg border border-border transition-all">
                     See all{" "}
                     <ArrowRightIcon
                       sx={{ fontSize: 12, ml: { xs: 0.2, md: 0.5 } }}
@@ -998,7 +991,7 @@ const Home = ({ embedded = false, onThemeChange, embeddedHeaderColor = null }) =
                       className="w-[130px] md:w-[160px] lg:w-[180px] shrink-0 snap-start">
                       <ProductCard
                         product={product}
-                        className="bg-white shadow-[0_8px_20px_-8px_rgba(0,0,0,0.1)] md:shadow-[0_15px_30px_rgba(0,0,0,0.05)] border-green-50/50 md:border-slate-100 transition-all"
+                        className="shadow-[0_8px_20px_-8px_rgba(0,0,0,0.1)] md:shadow-[0_15px_30px_rgba(0,0,0,0.05)] border-green-50/50 md:border-slate-100 transition-all dark:border-white/5"
                         compact={true}
                       />
                     </div>
@@ -1047,9 +1040,9 @@ const Home = ({ embedded = false, onThemeChange, embeddedHeaderColor = null }) =
                       whileInView={{ opacity: 1, y: 0 }}
                       viewport={{ once: true, amount: 0.25 }}
                       transition={{ duration: 0.4 }}
-                      className="mb-10 rounded-none overflow-hidden shadow-[0_18px_35px_rgba(15,23,42,0.16)] bg-white border-y border-slate-100/70 border-x-0 md:border-x">
+                      className="mb-10 rounded-none overflow-hidden shadow-[0_18px_35px_rgba(15,23,42,0.16)] bg-white dark:bg-card border-y border-slate-100/70 dark:border-white/5 border-x-0 md:border-x">
                       <div
-                        className="relative flex items-center justify-between px-5 md:px-8 py-5 md:py-6 text-black"
+                        className="relative flex items-center justify-between px-5 md:px-8 py-5 md:py-6 text-black dark:text-white"
                         style={{
                           backgroundColor: bgColor,
                           backgroundImage: getBackgroundGradientByValue(
@@ -1061,7 +1054,7 @@ const Home = ({ embedded = false, onThemeChange, embeddedHeaderColor = null }) =
                           <div className="absolute -bottom-10 right-0 w-44 h-44 bg-white/10 rounded-full blur-3xl" />
                         </div>
                         <div className="flex-1 pr-4">
-                          <p className="text-[10px] md:text-[11px] font-black uppercase tracking-[0.25em] text-black/60 mb-1">
+                          <p className="text-[10px] md:text-[11px] font-black uppercase tracking-[0.25em] text-black/60 dark:text-white/60 mb-1">
                             Trending right now
                           </p>
                           <h3 className="text-2xl md:text-3xl font-black tracking-tight leading-tight drop-shadow-sm">
@@ -1074,7 +1067,7 @@ const Home = ({ embedded = false, onThemeChange, embeddedHeaderColor = null }) =
                             .filter(Boolean)
                             .join(", ") ||
                             section.categoryId?.name) && (
-                              <p className="text-xs md:text-sm font-semibold text-black/75 mt-1">
+                              <p className="text-xs md:text-sm font-semibold text-black/75 dark:text-white/75 mt-1">
                                 {(section.categoryIds || [])
                                   .map((c) =>
                                     typeof c === "object" && c?.name ? c.name : null,
@@ -1139,7 +1132,7 @@ const Home = ({ embedded = false, onThemeChange, embeddedHeaderColor = null }) =
                                 className="w-[130px] md:w-[160px] lg:w-[180px] flex-shrink-0 snap-start">
                                 <ProductCard
                                   product={product}
-                                  className="bg-white border border-slate-100 shadow-[0_10px_24px_rgba(15,23,42,0.08)]"
+                                  className="border border-slate-100 dark:border-white/5 shadow-[0_10px_24px_rgba(15,23,42,0.08)]"
                                   compact
                                 />
                               </div>
@@ -1158,7 +1151,7 @@ const Home = ({ embedded = false, onThemeChange, embeddedHeaderColor = null }) =
             <div
               className={cn(
                 "container mx-auto px-4 md:px-8 lg:px-[50px]",
-                embedded ? "pt-2 pb-24 md:pt-6 md:pb-16" : "py-10 md:py-16",
+                embedded ? "pt-2 pb-24 md:pt-6 md:pb-16" : "pt-2 pb-10 md:pt-4 md:pb-16",
               )}>
               <SectionRenderer
                 sections={sectionsForRenderer}

@@ -312,7 +312,7 @@ const ProductDetailPage = () => {
     <div className="relative z-10 mx-auto w-full max-w-[1920px] animate-in px-4 py-4 fade-in duration-700 md:px-[50px] md:py-8">
       <button
         onClick={() => navigate(-1)}
-        className="group mb-6 inline-flex items-center gap-2 font-bold text-slate-500 dark:text-slate-400 transition-colors hover:text-[#0c831f]"
+        className="group mb-6 inline-flex items-center gap-2 font-bold text-slate-500 dark:text-slate-400 transition-colors hover:text-[#0c831f] dark:hover:text-emerald-400"
       >
         <ArrowLeft
           size={20}
@@ -323,11 +323,11 @@ const ProductDetailPage = () => {
 
       <div className="flex flex-col gap-10 lg:flex-row lg:gap-16">
         <div className="space-y-4 lg:w-[45%] xl:w-[40%]">
-          <div className="relative aspect-square overflow-hidden rounded-[2rem] border border-border bg-white dark:bg-slate-800 shadow-sm transition-colors">
+          <div className="relative aspect-square overflow-hidden rounded-[2rem] border border-border bg-card dark:bg-background shadow-sm transition-colors">
             <img
               src={activeImage}
               alt={product.name}
-              className="h-full w-full object-contain p-6"
+              className="h-full w-full object-contain p-6 mix-blend-multiply dark:mix-blend-normal"
             />
             <button
               onClick={handleToggleWishlist}
@@ -335,10 +335,10 @@ const ProductDetailPage = () => {
                 "absolute right-5 top-5 rounded-full p-3.5 shadow-lg transition-all",
                 isWishlisted
                   ? "bg-red-50 dark:bg-red-950/30 text-red-500"
-                  : "bg-white dark:bg-slate-700 text-slate-400 dark:text-slate-300",
+                  : "bg-card dark:bg-background text-slate-400 dark:text-slate-300",
               )}
             >
-              <Heart size={20} className={cn(isWishlisted && "fill-current")} />
+              <Heart size={20} fill={isWishlisted ? "currentColor" : "none"} className={cn(isWishlisted && "fill-current")} />
             </button>
           </div>
 
@@ -394,7 +394,7 @@ const ProductDetailPage = () => {
             </div>
 
             <div className="mb-5 flex items-baseline gap-4">
-              <span className="text-4xl font-black text-[#0c831f]">
+              <span className="text-4xl font-black text-[#0c831f] dark:text-emerald-500">
                 {"\u20B9"}
                 {product.price}
               </span>
@@ -421,7 +421,7 @@ const ProductDetailPage = () => {
             </p>
           </div>
 
-          <div className="flex flex-col items-center gap-6 rounded-[2.5rem] border border-border bg-slate-50 dark:bg-slate-900 p-6 sm:flex-row transition-colors">
+          <div className="flex flex-col items-center gap-6 rounded-[2.5rem] border border-border bg-card dark:bg-slate-900/50 p-6 sm:flex-row transition-colors">
             <div className="w-full sm:w-72">
               {quantity > 0 ? (
                 <div className="flex h-16 w-full items-center rounded-2xl bg-[#0c831f] px-2 text-white shadow-xl shadow-green-100">
@@ -509,7 +509,7 @@ const ProductDetailPage = () => {
                           "flex h-12 w-12 items-center justify-center rounded-xl transition-all",
                           newReview.rating >= star
                             ? "bg-orange-50 dark:bg-orange-950/30 text-orange-500"
-                            : "bg-slate-50 dark:bg-slate-800 text-slate-300 dark:text-slate-600",
+                            : "bg-card dark:bg-background text-slate-300 dark:text-slate-600",
                         )}
                       >
                         <Star
@@ -533,7 +533,7 @@ const ProductDetailPage = () => {
                       }))
                     }
                     placeholder="What did you like or dislike?"
-                    className="min-h-[120px] w-full rounded-2xl bg-slate-50 dark:bg-slate-800 p-4 text-sm font-bold outline-none ring-1 ring-transparent transition-all focus:ring-[#0c831f]/20 dark:text-white"
+                    className="min-h-[120px] w-full rounded-2xl bg-card dark:bg-background border border-border p-4 text-sm font-bold outline-none ring-1 ring-transparent transition-all focus:ring-[#0c831f]/20 dark:text-white"
                   />
                 </div>
 
@@ -575,7 +575,7 @@ const ProductDetailPage = () => {
                   >
                     <div className="mb-4 flex items-start justify-between">
                       <div className="flex items-center gap-4">
-                        <div className="ds-h2 flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl bg-slate-50 dark:bg-slate-800 text-slate-400 dark:text-slate-500">
+                        <div className="ds-h2 flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl bg-card dark:bg-background border border-border text-slate-400 dark:text-slate-500">
                           {(review.userId?.profileImage || review.userId?.image || review.userAvatar) ? (
                             <img
                               src={resolveQuickImageUrl(review.userId?.profileImage || review.userId?.image || review.userAvatar)}

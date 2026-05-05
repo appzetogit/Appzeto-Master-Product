@@ -279,24 +279,24 @@ const AddressesPage = () => {
     };
 
     return (
-        <div className="min-h-screen bg-slate-50 pb-24 font-sans">
-            <div className="sticky top-0 z-30 bg-slate-50/95 backdrop-blur-sm px-4 pt-4 pb-3 border-b border-slate-200/60 mb-4 flex items-center gap-2">
+        <div className="min-h-screen bg-slate-50 dark:bg-background pb-24 font-sans transition-colors duration-500">
+            <div className="sticky top-0 z-30 bg-slate-50/95 dark:bg-background/95 backdrop-blur-sm px-4 pt-4 pb-3 border-b border-slate-200/60 dark:border-white/5 mb-4 flex items-center gap-2 transition-colors">
                 <button
                     onClick={() => navigate(-1)}
-                    className="w-10 h-10 flex items-center justify-center hover:bg-slate-200/70 rounded-full transition-colors -ml-1"
+                    className="w-10 h-10 flex items-center justify-center hover:bg-slate-200/70 dark:hover:bg-white/10 rounded-full transition-colors -ml-1"
                 >
-                    <ChevronLeft size={22} className="text-slate-800" />
+                    <ChevronLeft size={22} className="text-slate-800 dark:text-slate-200" />
                 </button>
-                <h1 className="text-xl font-semibold text-slate-900 tracking-tight">Saved Addresses</h1>
+                <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-100 tracking-tight">Saved Addresses</h1>
             </div>
 
             <div className="max-w-2xl mx-auto px-4 pt-1 relative z-20 space-y-4">
                 {/* Add New Address Button */}
                 <button
                     onClick={openAddModal}
-                    className="w-full bg-white p-4 rounded-xl border border-slate-200 flex items-center justify-center gap-2 text-slate-700 hover:bg-slate-50 transition-colors group"
+                    className="w-full bg-white dark:bg-card p-4 rounded-xl border border-slate-200 dark:border-white/5 flex items-center justify-center gap-2 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors group"
                 >
-                    <div className="h-8 w-8 rounded-lg bg-slate-100 flex items-center justify-center">
+                    <div className="h-8 w-8 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
                         <Plus size={18} strokeWidth={2.5} />
                     </div>
                     <span className="font-semibold text-sm">Add New Address</span>
@@ -315,7 +315,7 @@ const AddressesPage = () => {
                             <p className="text-slate-500 text-sm">Add your first delivery address above</p>
                         </div>
                     ) : addresses.map((addr) => (
-                        <div key={addr.id} className="bg-white rounded-xl p-4 border border-slate-200 relative overflow-hidden">
+                        <div key={addr.id} className="bg-white dark:bg-card rounded-xl p-4 border border-slate-200 dark:border-white/5 relative overflow-hidden transition-colors">
                             {addr.isDefault && (
                                 <div className="absolute top-0 right-0 bg-slate-900 text-white text-[10px] font-semibold px-2.5 py-1 rounded-bl-lg uppercase tracking-wide">
                                     Default
@@ -340,13 +340,13 @@ const AddressesPage = () => {
                             <div className="mt-4 flex items-center gap-2 pt-3 border-t border-slate-100">
                                 <button
                                     onClick={() => handleEdit(addr)}
-                                    className="flex-1 py-2 rounded-lg bg-slate-100 text-slate-700 font-medium text-xs hover:bg-slate-200 transition-colors flex items-center justify-center gap-1.5"
+                                    className="flex-1 py-2 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-medium text-xs hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors flex items-center justify-center gap-1.5"
                                 >
                                     <Edit2 size={14} /> Edit
                                 </button>
                                 <button
                                     onClick={() => handleDelete(addr)}
-                                    className="flex-1 py-2 rounded-lg bg-slate-100 text-slate-700 font-medium text-xs hover:bg-slate-200 transition-colors flex items-center justify-center gap-1.5"
+                                    className="flex-1 py-2 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-medium text-xs hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors flex items-center justify-center gap-1.5"
                                 >
                                     <Trash2 size={14} /> Delete
                                 </button>

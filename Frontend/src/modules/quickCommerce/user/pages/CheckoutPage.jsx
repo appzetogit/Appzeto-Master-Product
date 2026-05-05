@@ -1070,7 +1070,7 @@ const CheckoutPage = () => {
 
   if (loading && cart.length === 0 && !showSuccess) {
     return (
-      <div className="min-h-screen bg-white flex flex-col items-center justify-center p-6 text-center">
+      <div className="min-h-screen bg-white dark:bg-background flex flex-col items-center justify-center p-6 text-center transition-colors">
         <div className="h-12 w-12 animate-spin rounded-full border-4 border-slate-200 border-t-[#0c831f]" />
         <h2 className="mt-5 text-2xl font-black text-slate-800">Loading checkout</h2>
         <p className="mt-2 text-sm font-medium text-slate-500">
@@ -1082,7 +1082,7 @@ const CheckoutPage = () => {
 
   if (cart.length === 0 && !showSuccess) {
     return (
-      <div className="min-h-screen bg-white flex flex-col items-center justify-center p-6 relative overflow-hidden font-sans">
+      <div className="min-h-screen bg-white dark:bg-background flex flex-col items-center justify-center p-6 relative overflow-hidden font-sans transition-colors duration-500">
         {/* Artistic Background Elements */}
         <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(circle_at_top_right,_var(--tw-gradient-stops))] from-green-50/50 via-transparent to-transparent pointer-events-none" />
         <motion.div
@@ -1110,7 +1110,7 @@ const CheckoutPage = () => {
             <motion.div
               animate={{ y: [-8, 8, -8] }}
               transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
-              className="relative z-10 rounded-[2rem] bg-white/90 p-6 shadow-[0_20px_50px_rgba(0,0,0,0.1)] border border-emerald-100">
+              className="relative z-10 rounded-[2rem] bg-white/90 dark:bg-card/90 p-6 shadow-[0_20px_50px_rgba(0,0,0,0.1)] border border-emerald-100 dark:border-white/5 transition-colors">
               <Lottie
                 animationData={emptyBoxAnimation}
                 loop
@@ -1144,7 +1144,7 @@ const CheckoutPage = () => {
 
           <div className="mt-8 flex gap-6 text-slate-400">
             <div className="flex flex-col items-center gap-2">
-              <div className="p-3 bg-slate-50 rounded-2xl">
+              <div className="p-3 bg-slate-50 dark:bg-card rounded-2xl">
                 <Clock size={20} />
               </div>
               <span className="text-[10px] font-bold uppercase tracking-wider">
@@ -1218,9 +1218,9 @@ const CheckoutPage = () => {
           {/* Left Column: Delivery & Items */}
           <div className="lg:col-span-7 xl:col-span-8 space-y-6 pb-8">
             {/* Delivery Time Banner */}
-            <motion.div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 mt-3">
+            <motion.div className="bg-white dark:bg-card rounded-2xl p-4 shadow-sm border border-slate-100 dark:border-white/5 mt-3 transition-colors">
               <div className="flex items-center gap-3">
-                <div className="h-12 w-12 rounded-full bg-green-50 flex items-center justify-center flex-shrink-0">
+                <div className="h-12 w-12 rounded-full bg-green-50 dark:bg-emerald-500/10 flex items-center justify-center flex-shrink-0">
                   <Clock size={24} className="text-[#0c831f]" />
                 </div>
                 <div>
@@ -1235,7 +1235,7 @@ const CheckoutPage = () => {
             </motion.div>
 
             {/* Delivery Address Section - New UI */}
-            <motion.div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
+            <motion.div className="bg-white dark:bg-card rounded-2xl p-4 shadow-sm border border-slate-100 dark:border-white/5 transition-colors">
               <div className="flex justify-between items-center mb-3">
                 <span className="text-xs text-slate-500 font-medium">
                   Ordering for someone else?
@@ -1298,7 +1298,7 @@ const CheckoutPage = () => {
                     exit={{ height: 0, opacity: 0 }}
                     transition={{ duration: 0.3, ease: "easeInOut" }}
                     className="overflow-hidden mb-4">
-                    <div className="bg-[#f8f9fb] rounded-2xl p-4 border border-slate-100 space-y-4">
+                    <div className="bg-[#f8f9fb] dark:bg-slate-900/50 rounded-2xl p-4 border border-slate-100 dark:border-white/5 space-y-4">
                       <div>
                         <h4 className="text-sm font-bold text-slate-800 mb-3">
                           Enter delivery address details
@@ -1399,7 +1399,7 @@ const CheckoutPage = () => {
               </div>
 
               {/* Address Card */}
-              <div className="border rounded-xl p-3 mb-3 relative cursor-pointer transition-all border-[#0c831f] bg-green-50/50">
+              <div className="border rounded-xl p-3 mb-3 relative cursor-pointer transition-all border-[#0c831f] bg-green-50/50 dark:bg-emerald-950/20">
                 <div className="flex items-start gap-3">
                   {/* Radio/Check Button */}
                   <div className="mt-1">
@@ -1524,7 +1524,7 @@ const CheckoutPage = () => {
 
             {/* Your Wishlist */}
             {wishlist.filter((item) => item.name).length > 0 && (
-              <motion.div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
+              <motion.div className="bg-white dark:bg-card rounded-2xl p-4 shadow-sm border border-slate-100 dark:border-white/5 transition-colors">
                 <h3 className="font-black text-slate-800 text-lg mb-4">
                   Your wishlist
                 </h3>
@@ -1543,7 +1543,7 @@ const CheckoutPage = () => {
             )}
 
             {/* You might also like */}
-            <motion.div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
+            <motion.div className="bg-white dark:bg-card rounded-2xl p-4 shadow-sm border border-slate-100 dark:border-white/5 transition-colors">
               <h3 className="font-black text-slate-800 text-lg mb-4">
                 You might also like
               </h3>
@@ -1563,7 +1563,7 @@ const CheckoutPage = () => {
           <div className="lg:col-span-5 xl:col-span-4 space-y-6 lg:sticky lg:top-8 pb-32 lg:pb-8">
             {/* Summary Backdrop for desktop */}
             <div className="hidden lg:block absolute inset-0 -m-4 bg-[#fcf9f2] rounded-[2.5rem] -z-10 shadow-inner group-hover:shadow-2xl transition-all duration-500" />
-            <motion.div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
+            <motion.div className="bg-white dark:bg-card rounded-2xl p-4 shadow-sm border border-slate-100 dark:border-white/5 transition-colors">
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-2">
                   <Tag size={20} className="text-orange-500" />
@@ -1581,7 +1581,7 @@ const CheckoutPage = () => {
                 {coupons.map((coupon) => (
                   <div
                     key={coupon.code}
-                    className="flex items-center gap-3 p-3 bg-gradient-to-r from-orange-50 to-yellow-50 rounded-xl border border-orange-100">
+                    className="flex items-center gap-3 p-3 bg-gradient-to-r from-orange-50 to-yellow-50 dark:from-slate-800 dark:to-slate-900 rounded-xl border border-orange-100 dark:border-white/5">
                     <div className="flex-1">
                       <p className="font-black text-slate-800 text-sm">
                         {coupon.code}
@@ -1608,7 +1608,7 @@ const CheckoutPage = () => {
             </motion.div>
 
             {/* Tip for Partner */}
-            <motion.div className="bg-gradient-to-r from-pink-50 to-purple-50 rounded-2xl p-4 border border-pink-100">
+            <motion.div className="bg-gradient-to-r from-pink-50 to-purple-50 dark:from-slate-800 dark:to-slate-900 rounded-2xl p-4 border border-pink-100 dark:border-white/5">
               <div className="flex items-center gap-2 mb-3">
                 <Heart size={18} className="text-pink-500 fill-pink-500" />
                 <h3 className="font-black text-slate-800">
@@ -1635,7 +1635,7 @@ const CheckoutPage = () => {
             </motion.div>
 
             {/* Payment Method */}
-            <motion.div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
+            <motion.div className="bg-white dark:bg-card rounded-2xl p-4 shadow-sm border border-slate-100 dark:border-white/5 transition-colors">
               <h3 className="font-black text-slate-800 mb-4">Payment Method</h3>
               <div className="space-y-2">
                 {paymentMethods.map((method) => {
@@ -1690,9 +1690,9 @@ const CheckoutPage = () => {
             </motion.div>
 
             {/* Bill Details */}
-            <motion.div className="bg-white rounded-[2rem] p-6 shadow-xl shadow-gray-200/50 border border-slate-100">
+            <motion.div className="bg-white dark:bg-card rounded-[2rem] p-6 shadow-xl shadow-gray-200/50 dark:shadow-none border border-slate-100 dark:border-white/5 transition-colors">
               <div className="flex items-center gap-2 mb-6">
-                <div className="h-10 w-10 rounded-2xl bg-green-50 flex items-center justify-center">
+                <div className="h-10 w-10 rounded-2xl bg-green-50 dark:bg-emerald-500/10 flex items-center justify-center">
                   <Clipboard size={20} className="text-[#0c831f]" />
                 </div>
                 <h3 className="font-[1000] text-slate-800 text-xl tracking-tight uppercase">
@@ -1815,7 +1815,7 @@ const CheckoutPage = () => {
       </div>
 
       {/* Sticky Footer - Mobile Only */}
-      <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 px-4 py-4 shadow-[0_-10px_40px_rgba(0,0,0,0.1)] z-50 rounded-t-3xl">
+      <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-white dark:bg-card border-t border-slate-200 dark:border-white/10 px-4 py-4 shadow-[0_-10px_40px_rgba(0,0,0,0.1)] z-50 rounded-t-3xl transition-colors">
         <div className="max-w-4xl mx-auto">
           <SlideToPay
             amount={totalAmount}

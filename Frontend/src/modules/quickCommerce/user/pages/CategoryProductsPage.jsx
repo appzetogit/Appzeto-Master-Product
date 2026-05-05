@@ -193,7 +193,7 @@ const CategoryProductsPage = () => {
     }, [safeProducts]);
 
     return (
-        <div className="flex min-h-screen flex-col bg-white font-sans pt-0">
+        <div className="flex min-h-screen flex-col bg-white dark:bg-background font-sans pt-0 transition-colors duration-500">
             <div className="mx-auto flex w-full max-w-[1920px] flex-1 flex-col">
                 {/* Category Subheader */}
                 <header className={cn(
@@ -224,7 +224,7 @@ const CategoryProductsPage = () => {
 
                 <div className="flex flex-1 relative items-start">
                     {/* Sidebar */}
-                    <aside className="w-20 md:w-28 border-r border-gray-50 flex flex-col bg-white overflow-y-auto hide-scrollbar sticky top-0 h-screen pb-32">
+                    <aside className="w-20 md:w-28 border-r border-gray-50 dark:border-white/5 flex flex-col bg-white dark:bg-card overflow-y-auto hide-scrollbar sticky top-0 h-screen pb-32 transition-colors">
                         {subCategories.map((cat) => (
                             <button
                                 key={cat.id}
@@ -232,8 +232,8 @@ const CategoryProductsPage = () => {
                                 className={cn(
                                     "flex flex-col items-center py-4 px-1 gap-2 transition-all relative border-l-4",
                                     selectedSubCategory === cat.id
-                                        ? "bg-[#F7FCF5] border-[#0c831f]"
-                                        : "border-transparent hover:bg-gray-50"
+                                        ? "bg-[#F7FCF5] dark:bg-emerald-950/20 border-[#0c831f]"
+                                        : "border-transparent hover:bg-gray-50 dark:hover:bg-white/5"
                                 )}
                             >
                                 <div className={cn(
@@ -253,7 +253,7 @@ const CategoryProductsPage = () => {
                     </aside>
 
                     {/* Content */}
-                    <main className="flex-1 px-3 pt-1 pb-24 bg-white">
+                    <main className="flex-1 px-3 pt-1 pb-24 bg-white dark:bg-background transition-colors">
                         {selectedSubCategory === 'all' && experienceSections.filter(s => (s.title || '').trim().toLowerCase() !== 'best sellers').length > 0 && (
                             <div className="mb-4">
                                 <SectionRenderer
@@ -290,7 +290,6 @@ const CategoryProductsPage = () => {
                     
                     body {
                         font-family: 'Outfit', sans-serif;
-                        background-color: #f8f8f8;
                     }
                     .hide-scrollbar::-webkit-scrollbar {
                         display: none;

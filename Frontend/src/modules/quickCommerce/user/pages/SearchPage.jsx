@@ -209,18 +209,18 @@ const SearchPage = () => {
     };
 
     return (
-        <div className="min-h-screen bg-white font-outfit">
+        <div className="min-h-screen bg-[#F5F7F8] dark:bg-background font-outfit transition-colors duration-500">
             {/* Search Input */}
             <div className={cn(
-                "sticky top-0 z-50 bg-white shadow-sm",
+                "sticky top-0 z-50 bg-[#F5F7F8] dark:bg-background shadow-sm border-b dark:border-white/5",
                 isProductDetailOpen && "hidden md:block"
             )}>
                 <div className="relative px-4 pt-4 pb-4 flex items-center md:justify-center gap-3">
                     <button
                         onClick={() => navigate(-1)}
-                        className="p-2 -ml-2 hover:bg-slate-50 rounded-full transition-colors flex-shrink-0 md:absolute md:left-4 z-10"
+                        className="p-2 -ml-2 hover:bg-slate-50 dark:hover:bg-white/5 rounded-full transition-colors flex-shrink-0 md:absolute md:left-4 z-10"
                     >
-                        <ArrowLeft size={24} className="text-slate-800" />
+                        <ArrowLeft size={24} className="text-slate-800 dark:text-slate-200" />
                     </button>
 
                     <div className="flex-1 relative md:flex-none md:w-[500px] lg:w-[600px]">
@@ -234,7 +234,7 @@ const SearchPage = () => {
                             value={query}
                             onKeyDown={handleKeyDown}
                             onChange={(e) => setQuery(e.target.value)}
-                            className="w-full h-12 bg-slate-50 rounded-2xl pl-11 pr-10 border border-slate-100 outline-none text-slate-800 font-bold placeholder:text-slate-400 placeholder:font-medium focus:ring-2 focus:ring-[var(--primary)]/10"
+                            className="w-full h-12 bg-slate-50 dark:bg-card rounded-2xl pl-11 pr-10 border border-slate-100 dark:border-white/5 outline-none text-slate-800 dark:text-slate-200 font-bold placeholder:text-slate-400 placeholder:font-medium focus:ring-2 focus:ring-[var(--primary)]/10 transition-colors"
                         />
                         {query && (
                             <button
@@ -262,7 +262,7 @@ const SearchPage = () => {
                 {trimmedQuery ? (
                     <section>
                         <div className="flex justify-between items-center mb-6">
-                            <h2 className="text-xl font-black text-slate-800 tracking-tight">
+                            <h2 className="text-xl font-black text-slate-800 dark:text-slate-200 tracking-tight transition-colors">
                                 Search Results
                             </h2>
                             <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">{results.length} found</span>
@@ -278,10 +278,10 @@ const SearchPage = () => {
                             </div>
                         ) : (
                             <div className="py-16 flex flex-col items-center text-center">
-                                <div className="h-20 w-20 bg-slate-50 rounded-full flex items-center justify-center mb-4">
-                                    <Search size={32} className="text-slate-300" />
+                                <div className="h-20 w-20 bg-slate-50 dark:bg-card rounded-full flex items-center justify-center mb-4">
+                                    <Search size={32} className="text-slate-300 dark:text-slate-600" />
                                 </div>
-                                <h3 className="text-lg font-bold text-slate-800 mb-1">No products found</h3>
+                                <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 mb-1">No products found</h3>
                                 <p className="text-slate-400 text-sm">Try different keywords or check spelling.</p>
                             </div>
                         )}
@@ -296,13 +296,13 @@ const SearchPage = () => {
                                     {pastSearches.map((term) => (
                                         <div
                                             key={term}
-                                            className="flex items-center gap-2 px-3 py-1.5 bg-white border border-slate-100 shadow-sm rounded-full whitespace-nowrap active:scale-95 transition-transform cursor-pointer"
+                                            className="flex items-center gap-2 px-3 py-1.5 bg-card dark:bg-background border border-border shadow-sm rounded-full whitespace-nowrap active:scale-95 transition-transform cursor-pointer"
                                             onClick={() => setQuery(term)}
                                         >
                                             <div className="h-5 w-5 rounded flex items-center justify-center" style={{ backgroundColor: (settings?.primaryColor || 'var(--primary)') + '20' }}>
                                                 <History size={12} style={{ color: settings?.primaryColor || 'var(--primary)' }} />
                                             </div>
-                                            <span className="text-sm font-bold text-slate-700">{term}</span>
+                                            <span className="text-sm font-bold text-foreground">{term}</span>
                                             <button
                                                 onClick={(e) => handleRemoveSearch(e, term)}
                                                 className="ml-1 p-0.5 hover:bg-slate-100 rounded-full transition-colors"
@@ -318,7 +318,7 @@ const SearchPage = () => {
                         {/* 2. Lowest Price Ever Section */}
                         <section>
                             <div className="flex justify-between items-center mb-5">
-                                <h2 className="text-xl font-black text-slate-800 tracking-tight">Lowest Price Ever!</h2>
+                                <h2 className="text-xl font-black text-foreground tracking-tight">Lowest Price Ever!</h2>
                                 <button className="flex items-center gap-1 text-sm font-bold" style={{ color: settings?.primaryColor || 'var(--primary)' }}>
                                     See All <ChevronRight size={16} />
                                 </button>

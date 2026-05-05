@@ -20,6 +20,10 @@ const setNoCache = (res) => {
   res.set('Expires', '0');
 };
 
+const setPublicCache = (res, maxAge = 300) => {
+  res.set('Cache-Control', `public, max-age=${maxAge}`);
+};
+
 const approvedOrLegacyFilter = {
   $and: [
     {
@@ -143,7 +147,7 @@ const mapProduct = (product, sellerMap = {}) => {
 };
 
 export const getHomeData = async (req, res) => {
-  setNoCache(res);
+  setPublicCache(res, 60); // 1 minute cache
   await ensureQuickCommerceSeedData();
 
   const pageType = req.query?.pageType || 'home';
@@ -244,7 +248,7 @@ export const getOffers = async (_req, res) => {
 };
 
 export const getCategories = async (req, res) => {
-  setNoCache(res);
+  setPublicCache(res, 300); // 5 minutes cache
   await ensureQuickCommerceSeedData();
 
   const { tree, parentId } = req.query;
@@ -252,22 +256,29 @@ export const getCategories = async (req, res) => {
   const mapped = categories.map(mapCategory);
 
   if (tree === 'true' || tree === true) {
-    const buildTree = (parentId = null) => {
-      return mapped
-        .filter((cat) => String(cat.parentId || '') === String(parentId || ''))
-        .map((cat) => ({
-          ...cat,
-          children: buildTree(cat._id),
-        }));
-    };
-    return res.json({ success: true, results: buildTree(null) });
+    // Optimized tree builder using a map instead of recursive filter
+    const catMap = {};
+    mapped.forEach(cat => {
+      cat.children = [];
+      catMap[String(cat._id)] = cat;
+    });
+    
+    const root = [];
+    mapped.forEach(cat => {
+      if (cat.parentId && catMap[String(cat.parentId)]) {
+        catMap[String(cat.parentId)].children.push(cat);
+      } else {
+        root.push(cat);
+      }
+    });
+    return res.json({ success: true, results: root });
   }
 
   return res.json({ success: true, results: mapped });
 };
 
 export const getProducts = async (req, res) => {
-  setNoCache(res);
+  setPublicCache(res, 60);
   await ensureQuickCommerceSeedData();
 
   const { categoryId, search, limit } = req.query;
@@ -295,7 +306,7 @@ export const getProducts = async (req, res) => {
 };
 
 export const getProductById = async (req, res) => {
-  setNoCache(res);
+  setPublicCache(res, 600); // 10 minutes cache
   await ensureQuickCommerceSeedData();
 
   const product = await QuickProduct.findOne({ _id: req.params.productId, ...publicProductFilter }).lean();
@@ -310,7 +321,7 @@ export const getProductById = async (req, res) => {
 };
 
 export const getProductReviews = async (req, res) => {
-  setNoCache(res);
+  setPublicCache(res, 300); // 5 minutes cache
   const { productId } = req.params;
 
   try {

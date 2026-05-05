@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import ExperienceBannerCarousel from "./ExperienceBannerCarousel";
 import { resolveQuickImageUrl } from "../../utils/image";
 import { getCloudinarySrcSet } from "@/shared/utils/cloudinaryUtils";
+import { getQuickCategoryPath } from "../../utils/routes";
 
 const SectionRenderer = ({ sections = [], productsById = {}, categoriesById = {}, subcategoriesById = {} }) => {
   const navigate = useNavigate();
@@ -42,11 +43,11 @@ const SectionRenderer = ({ sections = [], productsById = {}, categoriesById = {}
             <div
               key={section._id}
               id={`section-${section._id}`}
-              className="mt-6"
+              className=""
             >
               {heading && (
                 <div className="flex items-center justify-between mb-2">
-                  <h3 className="text-base font-black text-[#1A1A1A]">
+                  <h3 className="text-base font-black text-foreground">
                     {heading}
                   </h3>
                   <span className="text-[11px] font-semibold text-slate-400">
@@ -63,10 +64,10 @@ const SectionRenderer = ({ sections = [], productsById = {}, categoriesById = {}
                 {items.map((cat) => (
                   <div
                     key={cat.id}
-                    onClick={() => navigate(`/category/${cat.id}`)}
+                    onClick={() => navigate(getQuickCategoryPath(cat.id))}
                     className="flex flex-col items-center group cursor-pointer"
                   >
-                    <div className="w-full aspect-square bg-slate-50 rounded-2xl p-2 mb-1 group-hover:bg-slate-100 transition-colors flex items-center justify-center overflow-hidden shadow-sm border border-slate-50">
+                    <div className="w-full aspect-square bg-card dark:bg-background rounded-2xl p-2 mb-1 group-hover:bg-accent transition-colors flex items-center justify-center overflow-hidden shadow-sm border border-border">
                       <img
                         src={cat.image}
                         srcSet={getCloudinarySrcSet(cat.image)}
@@ -76,7 +77,7 @@ const SectionRenderer = ({ sections = [], productsById = {}, categoriesById = {}
                         loading="lazy"
                       />
                     </div>
-                    <span className="text-[10px] md:text-xs font-bold text-slate-700 text-center line-clamp-1 group-hover:text-slate-900">
+                    <span className="text-[10px] md:text-xs font-bold text-foreground text-center line-clamp-1 group-hover:text-primary">
                       {cat.name}
                     </span>
                   </div>
@@ -96,11 +97,11 @@ const SectionRenderer = ({ sections = [], productsById = {}, categoriesById = {}
             <div
               key={section._id}
               id={`section-${section._id}`}
-              className="mt-6"
+              className=""
             >
               <div className="flex items-center justify-between mb-3">
                 {heading && (
-                  <h3 className="text-base font-black text-[#1A1A1A]">
+                  <h3 className="text-base font-black text-foreground">
                     {heading}
                   </h3>
                 )}
@@ -123,16 +124,16 @@ const SectionRenderer = ({ sections = [], productsById = {}, categoriesById = {}
                           null;
 
                         if (parentId) {
-                          navigate(`/category/${parentId}`, {
+                          navigate(getQuickCategoryPath(parentId), {
                             state: { activeSubcategoryId: cat._id },
                           });
                         } else {
                           // Fallback to previous behavior if we can't resolve parent
-                          navigate(`/category/${cat._id}`);
+                          navigate(getQuickCategoryPath(cat._id));
                         }
                       }}
                     >
-                      <div className="relative aspect-square w-full rounded-2xl bg-[#F8F9FA] border border-slate-100/80 flex items-center justify-center overflow-hidden p-1 transition-all duration-200 group-hover:border-[#0c831f]/40 group-hover:bg-white group-hover:shadow-[0_10px_25px_rgba(15,23,42,0.08)]">
+                      <div className="relative aspect-square w-full rounded-2xl bg-card dark:bg-background border border-border flex items-center justify-center overflow-hidden p-1 transition-all duration-200 group-hover:border-[#0c831f]/40 group-hover:bg-accent group-hover:shadow-[0_10px_25px_rgba(15,23,42,0.08)]">
                         {cat.image ? (
                           <img
                             src={resolveQuickImageUrl(cat.image)}
@@ -146,7 +147,7 @@ const SectionRenderer = ({ sections = [], productsById = {}, categoriesById = {}
                           <div className="h-6 w-6 rounded-full bg-slate-100" />
                         )}
                       </div>
-                      <div className="text-[11px] font-semibold text-slate-700 text-center leading-snug line-clamp-2 group-hover:text-[#0c831f]">
+                      <div className="text-[11px] font-semibold text-foreground text-center leading-snug line-clamp-2 group-hover:text-[#0c831f]">
                         {cat.name}
                       </div>
                     </button>
@@ -179,11 +180,11 @@ const SectionRenderer = ({ sections = [], productsById = {}, categoriesById = {}
             <div
               key={section._id}
               id={`section-${section._id}`}
-              className="mt-6 mb-2"
+              className="mb-2"
             >
                 <div className="flex items-center justify-between mb-3">
                   {heading && (
-                    <h3 className="text-base font-black text-[#1A1A1A]">
+                    <h3 className="text-base font-black text-foreground">
                       {heading}
                     </h3>
                   )}
@@ -212,11 +213,11 @@ const SectionRenderer = ({ sections = [], productsById = {}, categoriesById = {}
             <div
               key={section._id}
               id={`section-${section._id}`}
-              className="mt-6"
+              className=""
             >
               <div className="flex items-center justify-between mb-3">
                 {heading && (
-                  <h3 className="text-base font-black text-[#1A1A1A]">
+                  <h3 className="text-base font-black text-foreground">
                     {heading}
                   </h3>
                 )}
