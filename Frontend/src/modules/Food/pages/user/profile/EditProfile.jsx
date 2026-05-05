@@ -146,6 +146,18 @@ export default function EditProfile() {
   })
   const fileInputRef = useRef(null)
   const hydratedFromDraftRef = useRef(Boolean(draftProfile))
+  const [isDarkMode, setIsDarkMode] = useState(false)
+
+  // Track dark mode
+  useEffect(() => {
+    const checkDarkMode = () => {
+      setIsDarkMode(document.documentElement.classList.contains('dark'))
+    }
+    checkDarkMode()
+    const observer = new MutationObserver(checkDarkMode)
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
+    return () => observer.disconnect()
+  }, [])
 
   // Update form data when profile changes
   useEffect(() => {
@@ -538,11 +550,13 @@ export default function EditProfile() {
                         '& .MuiOutlinedInput-root': {
                           height: '48px',
                           borderRadius: '8px',
+                          backgroundColor: isDarkMode ? '#1a1a1a' : '#ffffff',
+                          color: isDarkMode ? '#ffffff' : '#111827',
                           '& fieldset': {
-                            borderColor: '#d1d5db',
+                            borderColor: isDarkMode ? '#374151' : '#d1d5db',
                           },
                           '&:hover fieldset': {
-                            borderColor: '#9ca3af',
+                            borderColor: isDarkMode ? '#4b5563' : '#9ca3af',
                           },
                           '&.Mui-focused fieldset': {
                             borderColor: '#EB590E',
@@ -552,6 +566,10 @@ export default function EditProfile() {
                         '& .MuiInputBase-input': {
                           padding: '12px 14px',
                           fontSize: '16px',
+                          color: isDarkMode ? '#ffffff !important' : '#111827 !important',
+                        },
+                        '& .MuiInputAdornment-root .MuiIconButton-root': {
+                          color: isDarkMode ? '#ffffff !important' : 'inherit',
                         },
                       },
                     },
@@ -579,11 +597,13 @@ export default function EditProfile() {
                         '& .MuiOutlinedInput-root': {
                           height: '48px',
                           borderRadius: '8px',
+                          backgroundColor: isDarkMode ? '#1a1a1a' : '#ffffff',
+                          color: isDarkMode ? '#ffffff' : '#111827',
                           '& fieldset': {
-                            borderColor: '#d1d5db',
+                            borderColor: isDarkMode ? '#374151' : '#d1d5db',
                           },
                           '&:hover fieldset': {
-                            borderColor: '#9ca3af',
+                            borderColor: isDarkMode ? '#4b5563' : '#9ca3af',
                           },
                           '&.Mui-focused fieldset': {
                             borderColor: '#EB590E',
@@ -593,6 +613,10 @@ export default function EditProfile() {
                         '& .MuiInputBase-input': {
                           padding: '12px 14px',
                           fontSize: '16px',
+                          color: isDarkMode ? '#ffffff !important' : '#111827 !important',
+                        },
+                        '& .MuiInputAdornment-root .MuiIconButton-root': {
+                          color: isDarkMode ? '#ffffff !important' : 'inherit',
                         },
                       },
                     },
