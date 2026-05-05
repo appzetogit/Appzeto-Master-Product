@@ -154,6 +154,87 @@ const parseVariants = (value = '[]') => {
   }
 };
 
+const QUICK_CANCELLED_STATUSES = ['cancelled', 'cancelled_by_user', 'cancelled_by_restaurant', 'cancelled_by_admin'];
+
+const legacyQuickStatusFromOrder = (order = {}) => {
+  const workflowStatus = String(order?.workflowStatus || '').toUpperCase();
+  const rawStatus = String(order?.orderStatus || order?.status || '').toLowerCase();
+
+  if (workflowStatus === 'OUT_FOR_DELIVERY') return 'out_for_delivery';
+  if (workflowStatus === 'DELIVERED') return 'delivered';
+  if (workflowStatus === 'CANCELLED' || QUICK_CANCELLED_STATUSES.includes(rawStatus)) return 'cancelled';
+  if (workflowStatus === 'SELLER_ACCEPTED' || workflowStatus === 'DELIVERY_SEARCH' || workflowStatus === 'DELIVERY_ASSIGNED' || workflowStatus === 'PICKUP_READY') {
+    return 'confirmed';
+  }
+  if (rawStatus === 'out_for_delivery') return 'out_for_delivery';
+  if (rawStatus === 'delivered') return 'delivered';
+  if (rawStatus === 'confirmed' || rawStatus === 'packed') return rawStatus;
+  return 'pending';
+};
+
+const buildQuickAdminOrderResponse = (order, sellerMap = {}, sellerOrderMap = {}) => {
+  const quickItems = Array.isArray(order?.items) ? order.items.filter((item) => item?.type === 'quick') : [];
+  const firstSellerId = String(quickItems[0]?.sourceId || '');
+  const seller = sellerMap[firstSellerId] || null;
+  const sellerOrder = sellerOrderMap[String(order?.orderId || '')] || null;
+  const itemCount = Array.isArray(order?.items)
+    ? order.items.reduce((sum, item) => sum + Number(item?.quantity || 0), 0)
+    : 0;
+
+  return {
+    id: order._id,
+    _id: order._id,
+    orderId: order.orderId,
+    orderNumber: order.orderId,
+    orderType: order.orderType || 'quick',
+    total: order.pricing?.total || 0,
+    amount: order.pricing?.total || 0,
+    status: legacyQuickStatusFromOrder(order),
+    orderStatus: order.orderStatus || '',
+    workflowStatus: order.workflowStatus || '',
+    workflowVersion: order.workflowVersion || 1,
+    returnStatus: order.returnStatus || '',
+    itemCount,
+    items: Array.isArray(order.items) ? order.items : [],
+    pricing: order.pricing || {},
+    payment: order.payment || {},
+    sessionId: order.sessionId || '',
+    createdAt: order.createdAt || null,
+    updatedAt: order.updatedAt || null,
+    customer: {
+      name:
+        sellerOrder?.customer?.name ||
+        order.customer?.name ||
+        order.shippingAddress?.name ||
+        order.deliveryAddress?.name ||
+        'Unknown',
+      phone:
+        sellerOrder?.customer?.phone ||
+        order.customer?.phone ||
+        order.deliveryAddress?.phone ||
+        '',
+      email: order.customer?.email || '',
+    },
+    seller: seller
+      ? {
+          _id: seller._id,
+          shopName: seller.shopName || seller.name || 'Store',
+          name: seller.name || seller.shopName || 'Store',
+        }
+      : null,
+    storeName: seller?.shopName || seller?.name || '',
+    sellerOrder: sellerOrder
+      ? {
+          _id: sellerOrder._id,
+          status: sellerOrder.status,
+          workflowStatus: sellerOrder.workflowStatus,
+          customer: sellerOrder.customer || {},
+          address: sellerOrder.address || {},
+        }
+      : null,
+  };
+};
+
 const getCategoryImage = async (req) => {
   if (req.file?.buffer) {
     return uploadImageBuffer(req.file.buffer, 'quick-commerce/categories');
@@ -633,7 +714,39 @@ export const removeProduct = async (req, res) => {
 export const getAdminOrders = async (req, res) => {
   const { status, page = 1, limit = 50 } = req.query || {};
   const query = { orderType: { $in: ['quick', 'mixed'] } };
-  if (status && status !== 'all') query.orderStatus = status;
+  if (status && status !== 'all') {
+    switch (status) {
+      case 'pending':
+        query.$or = [
+          { orderStatus: 'pending' },
+          { workflowStatus: { $in: ['CREATED', 'SELLER_PENDING'] } },
+        ];
+        break;
+      case 'processed':
+        query.$or = [
+          { orderStatus: { $in: ['confirmed', 'packed'] } },
+          { workflowStatus: { $in: ['SELLER_ACCEPTED', 'DELIVERY_SEARCH', 'DELIVERY_ASSIGNED', 'PICKUP_READY'] } },
+        ];
+        break;
+      case 'cancelled':
+        query.orderStatus = { $in: QUICK_CANCELLED_STATUSES };
+        break;
+      case 'out-for-delivery':
+        query.$or = [
+          { orderStatus: 'out_for_delivery' },
+          { workflowStatus: 'OUT_FOR_DELIVERY' },
+        ];
+        break;
+      case 'delivered':
+        query.$or = [
+          { orderStatus: 'delivered' },
+          { workflowStatus: 'DELIVERED' },
+        ];
+        break;
+      default:
+        break;
+    }
+  }
 
   const currentPage = Math.max(1, parseInt(page, 10) || 1);
   const perPage = Math.max(1, Math.min(parseInt(limit, 10) || 50, 200));
@@ -658,40 +771,142 @@ export const getAdminOrders = async (req, res) => {
     .select('_id shopName name')
     .lean();
 
+  const sellerOrders = await SellerOrder.find({ orderId: { $in: orders.map((order) => order.orderId).filter(Boolean) } })
+    .select('_id orderId status workflowStatus customer address')
+    .lean();
+
   const sellerMap = sellers.reduce((acc, s) => {
     acc[String(s._id)] = s;
+    return acc;
+  }, {});
+
+  const sellerOrderMap = sellerOrders.reduce((acc, sellerOrder) => {
+    acc[String(sellerOrder.orderId)] = sellerOrder;
     return acc;
   }, {});
 
   return res.json({
     success: true,
     result: {
-      items: orders.map((order) => {
-        const quickItems = (order.items || []).filter(item => item.type === 'quick');
-        const firstSellerId = quickItems[0]?.sourceId;
-        const seller = sellerMap[String(firstSellerId)] || null;
-        
-        return {
-          id: order._id,
-          _id: order._id,
-          orderId: order.orderId,
-          orderNumber: order.orderId,
-          orderType: order.orderType || 'quick',
-          total: order.pricing?.total || 0,
-          status: order.orderStatus,
-          itemCount: order.items.reduce((sum, item) => sum + item.quantity, 0),
-          items: order.items || [],
-          pricing: order.pricing || {},
-          payment: order.payment || {},
-          sessionId: order.sessionId,
-          createdAt: order.createdAt,
-          seller: seller ? {
-            _id: seller._id,
-            shopName: seller.shopName || seller.name || 'Store'
-          } : null,
-          storeName: seller?.shopName || seller?.name || ''
-        };
-      }),
+      items: orders.map((order) => buildQuickAdminOrderResponse(order, sellerMap, sellerOrderMap)),
+      page: currentPage,
+      limit: perPage,
+      total,
+    },
+  });
+};
+
+export const getAdminOrderById = async (req, res) => {
+  const rawOrderId = String(req.params.orderId || '').trim();
+
+  if (!rawOrderId) {
+    return res.status(400).json({ success: false, message: 'orderId is required' });
+  }
+
+  const query = {
+    orderType: { $in: ['quick', 'mixed'] },
+    $or: [
+      { orderId: rawOrderId },
+      ...(mongoose.isValidObjectId(rawOrderId) ? [{ _id: rawOrderId }] : []),
+    ],
+  };
+
+  const order = await QuickOrder.findOne(query).lean();
+  if (!order) {
+    return res.status(404).json({ success: false, message: 'Order not found' });
+  }
+
+  const quickItems = Array.isArray(order.items) ? order.items.filter((item) => item?.type === 'quick') : [];
+  const sellerIds = [...new Set(quickItems.map((item) => String(item?.sourceId || '')).filter(Boolean))].filter((id) => mongoose.Types.ObjectId.isValid(id));
+  const [sellers, sellerOrders] = await Promise.all([
+    Seller.find({ _id: { $in: sellerIds } }).select('_id shopName name location').lean(),
+    SellerOrder.find({ orderId: order.orderId }).select('_id orderId status workflowStatus customer address').lean(),
+  ]);
+
+  const sellerMap = sellers.reduce((acc, seller) => {
+    acc[String(seller._id)] = seller;
+    return acc;
+  }, {});
+  const sellerOrderMap = sellerOrders.reduce((acc, sellerOrder) => {
+    acc[String(sellerOrder.orderId)] = sellerOrder;
+    return acc;
+  }, {});
+
+  return res.json({
+    success: true,
+    result: buildQuickAdminOrderResponse(order, sellerMap, sellerOrderMap),
+  });
+};
+
+export const getAdminCustomers = async (req, res) => {
+  const { page = 1, limit = 50, search = '' } = req.query || {};
+  const currentPage = Math.max(1, parseInt(page, 10) || 1);
+  const perPage = Math.max(1, Math.min(parseInt(limit, 10) || 50, 200));
+  const normalizedSearch = String(search || '').trim().toLowerCase();
+
+  const orders = await QuickOrder.find({ orderType: { $in: ['quick', 'mixed'] } })
+    .select('customer deliveryAddress pricing createdAt updatedAt orderId sessionId')
+    .sort({ createdAt: -1 })
+    .lean();
+
+  const customerMap = new Map();
+
+  orders.forEach((order) => {
+    const name = String(order?.customer?.name || order?.deliveryAddress?.name || 'Customer').trim() || 'Customer';
+    const email = String(order?.customer?.email || '').trim();
+    const phone = String(order?.customer?.phone || order?.deliveryAddress?.phone || '').trim();
+    const customerKey = email || phone || String(order?.sessionId || order?._id || '').trim();
+    if (!customerKey) return;
+
+    const existing = customerMap.get(customerKey) || {
+      id: customerKey,
+      name,
+      email,
+      phone,
+      avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(name)}`,
+      status: 'active',
+      totalOrders: 0,
+      totalSpent: 0,
+      joinedDate: order.createdAt || null,
+      lastOrderDate: order.createdAt || null,
+    };
+
+    existing.totalOrders += 1;
+    existing.totalSpent += Number(order?.pricing?.total || 0);
+
+    const createdAtTime = new Date(order.createdAt || 0).getTime();
+    const joinedDateTime = new Date(existing.joinedDate || 0).getTime();
+    const lastOrderDateTime = new Date(existing.lastOrderDate || 0).getTime();
+
+    if (!existing.joinedDate || (createdAtTime && createdAtTime < joinedDateTime)) {
+      existing.joinedDate = order.createdAt || existing.joinedDate;
+    }
+    if (!existing.lastOrderDate || (createdAtTime && createdAtTime > lastOrderDateTime)) {
+      existing.lastOrderDate = order.createdAt || existing.lastOrderDate;
+    }
+
+    customerMap.set(customerKey, existing);
+  });
+
+  let customers = Array.from(customerMap.values());
+
+  if (normalizedSearch) {
+    customers = customers.filter((customer) =>
+      [customer.name, customer.email, customer.phone]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(normalizedSearch))
+    );
+  }
+
+  customers.sort((a, b) => new Date(b.lastOrderDate || 0).getTime() - new Date(a.lastOrderDate || 0).getTime());
+
+  const total = customers.length;
+  const pagedCustomers = customers.slice((currentPage - 1) * perPage, currentPage * perPage);
+
+  return res.json({
+    success: true,
+    result: {
+      items: pagedCustomers,
       page: currentPage,
       limit: perPage,
       total,

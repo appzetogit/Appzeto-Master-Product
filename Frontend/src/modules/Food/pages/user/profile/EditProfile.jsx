@@ -33,9 +33,6 @@ import dayjs from 'dayjs'
 const debugLog = (...args) => {}
 const debugWarn = (...args) => {}
 const debugError = (...args) => {}
-const EDIT_PROFILE_DRAFT_KEY = "user_edit_profile_draft"
-
-
 // Gender options
 const genderOptions = [
   { value: "male", label: "Male" },
@@ -88,27 +85,9 @@ const buildFormDataFromProfile = (profile = {}) => ({
   gender: profile.gender || "",
 })
 
-const loadEditProfileDraft = () => {
-  try {
-    const saved = localStorage.getItem(EDIT_PROFILE_DRAFT_KEY)
-    return saved ? JSON.parse(saved) : null
-  } catch (error) {
-    debugError('Error loading edit profile draft from localStorage:', error)
-    return null
-  }
-}
-
-const saveEditProfileDraft = (data) => {
-  try {
-    localStorage.setItem(EDIT_PROFILE_DRAFT_KEY, JSON.stringify(data))
-  } catch (error) {
-    debugError('Error saving edit profile draft to localStorage:', error)
-  }
-}
-
 const clearEditProfileDraft = () => {
   try {
-    localStorage.removeItem(EDIT_PROFILE_DRAFT_KEY)
+    localStorage.removeItem("user_edit_profile_draft")
   } catch (error) {
     debugError('Error clearing edit profile draft from localStorage:', error)
   }
@@ -126,8 +105,7 @@ export default function EditProfile() {
 
   // Load from localStorage or use context
   const storedProfile = loadProfileFromStorage()
-  const draftProfile = loadEditProfileDraft()
-  const initialProfile = draftProfile || storedProfile || userProfile || {}
+  const initialProfile = storedProfile || userProfile || {}
 
   const initialFormData = buildFormDataFromProfile(initialProfile)
 
@@ -145,13 +123,16 @@ export default function EditProfile() {
     dateOfBirth: "",
   })
   const fileInputRef = useRef(null)
-  const hydratedFromDraftRef = useRef(Boolean(draftProfile))
+  const hydratedFromDraftRef = useRef(false)
   const [isDarkMode, setIsDarkMode] = useState(false)
 
   // Track dark mode
   useEffect(() => {
     const checkDarkMode = () => {
-      setIsDarkMode(document.documentElement.classList.contains('dark'))
+      const isDark = document.documentElement.classList.contains('dark') || 
+                     document.body.classList.contains('dark') ||
+                     document.documentElement.style.colorScheme === 'dark';
+      setIsDarkMode(isDark)
     }
     checkDarkMode()
     const observer = new MutationObserver(checkDarkMode)
@@ -176,17 +157,53 @@ export default function EditProfile() {
   }, [userProfile])
 
   useEffect(() => {
-    saveEditProfileDraft({
-      name: formData.name,
-      phone: formData.mobile,
-      mobile: formData.mobile,
-      email: formData.email,
-      profileImage,
-      dateOfBirth: formData.dateOfBirth ? formData.dateOfBirth.format('YYYY-MM-DD') : null,
-      anniversary: formData.anniversary ? formData.anniversary.format('YYYY-MM-DD') : null,
-      gender: formData.gender || "",
-    })
-  }, [formData, profileImage])
+    clearEditProfileDraft()
+  }, [])
+
+  const datePickerTextFieldSx = {
+    '& .MuiOutlinedInput-root': {
+      height: '48px',
+      borderRadius: '8px',
+      backgroundColor: isDarkMode ? '#1a1a1a' : '#ffffff',
+      color: isDarkMode ? '#ffffff' : '#111827',
+      '& fieldset': {
+        borderColor: isDarkMode ? '#374151' : '#d1d5db',
+      },
+      '&:hover fieldset': {
+        borderColor: isDarkMode ? '#4b5563' : '#9ca3af',
+      },
+      '&.Mui-focused fieldset': {
+        borderColor: '#EB590E',
+        borderWidth: '1px',
+      },
+    },
+    '& .MuiInputBase-input': {
+      padding: '12px 14px',
+      fontSize: '16px',
+      color: isDarkMode ? '#ffffff !important' : '#111827 !important',
+      WebkitTextFillColor: isDarkMode ? '#ffffff !important' : '#111827 !important',
+      caretColor: isDarkMode ? '#ffffff' : '#111827',
+    },
+    '& .MuiPickersSectionList-root': {
+      color: isDarkMode ? '#ffffff !important' : '#111827 !important',
+    },
+    '& .MuiPickersSectionList-section': {
+      color: isDarkMode ? '#ffffff !important' : '#111827 !important',
+    },
+    '& .MuiPickersInputBase-sectionsContainer': {
+      color: isDarkMode ? '#ffffff !important' : '#111827 !important',
+    },
+    '& .MuiInputAdornment-root .MuiIconButton-root': {
+      color: isDarkMode ? '#ffffff !important' : 'inherit',
+    },
+    '& .MuiSvgIcon-root': {
+      color: isDarkMode ? '#ffffff !important' : 'inherit',
+    },
+    '& .MuiOutlinedInput-notchedOutline': {
+      borderColor: isDarkMode ? '#374151 !important' : '#d1d5db !important',
+    },
+    colorScheme: isDarkMode ? 'dark' : 'light',
+  }
 
   // Get avatar initial
   const avatarInitial = formData.name?.charAt(0).toUpperCase() || 'A'
@@ -282,22 +299,18 @@ export default function EditProfile() {
         setImagePreview(imageUrl)
         toast.success('Profile image uploaded successfully')
 
+        const committedProfile = loadProfileFromStorage() || userProfile || {}
+        const committedMobile = normalizePhoneToTenDigits(committedProfile.mobile || committedProfile.phone || "")
         const mergedProfile = {
-          ...(userProfile || {}),
-          name: formData.name,
-          phone: formData.mobile,
-          mobile: formData.mobile,
-          email: formData.email,
-          dateOfBirth: formData.dateOfBirth ? formData.dateOfBirth.format('YYYY-MM-DD') : null,
-          anniversary: formData.anniversary ? formData.anniversary.format('YYYY-MM-DD') : null,
-          gender: formData.gender || "",
+          ...committedProfile,
+          phone: committedMobile,
+          mobile: committedMobile,
           profileImage: imageUrl,
         }
 
-        // Update context + local persistence with current form values so refresh keeps all fields
+        // Only persist the uploaded image here. Other fields must wait for Update Profile.
         updateUserProfile(mergedProfile)
         saveProfileToStorage(mergedProfile)
-        saveEditProfileDraft(mergedProfile)
 
         // Dispatch event to refresh profile
         window.dispatchEvent(new Event("userAuthChanged"))
@@ -546,32 +559,7 @@ export default function EditProfile() {
                   slotProps={{
                     textField: {
                       className: "w-full",
-                      sx: {
-                        '& .MuiOutlinedInput-root': {
-                          height: '48px',
-                          borderRadius: '8px',
-                          backgroundColor: isDarkMode ? '#1a1a1a' : '#ffffff',
-                          color: isDarkMode ? '#ffffff' : '#111827',
-                          '& fieldset': {
-                            borderColor: isDarkMode ? '#374151' : '#d1d5db',
-                          },
-                          '&:hover fieldset': {
-                            borderColor: isDarkMode ? '#4b5563' : '#9ca3af',
-                          },
-                          '&.Mui-focused fieldset': {
-                            borderColor: '#EB590E',
-                            borderWidth: '1px',
-                          },
-                        },
-                        '& .MuiInputBase-input': {
-                          padding: '12px 14px',
-                          fontSize: '16px',
-                          color: isDarkMode ? '#ffffff !important' : '#111827 !important',
-                        },
-                        '& .MuiInputAdornment-root .MuiIconButton-root': {
-                          color: isDarkMode ? '#ffffff !important' : 'inherit',
-                        },
-                      },
+                      sx: datePickerTextFieldSx,
                     },
                   }}
                 />
@@ -593,32 +581,7 @@ export default function EditProfile() {
                   slotProps={{
                     textField: {
                       className: "w-full",
-                      sx: {
-                        '& .MuiOutlinedInput-root': {
-                          height: '48px',
-                          borderRadius: '8px',
-                          backgroundColor: isDarkMode ? '#1a1a1a' : '#ffffff',
-                          color: isDarkMode ? '#ffffff' : '#111827',
-                          '& fieldset': {
-                            borderColor: isDarkMode ? '#374151' : '#d1d5db',
-                          },
-                          '&:hover fieldset': {
-                            borderColor: isDarkMode ? '#4b5563' : '#9ca3af',
-                          },
-                          '&.Mui-focused fieldset': {
-                            borderColor: '#EB590E',
-                            borderWidth: '1px',
-                          },
-                        },
-                        '& .MuiInputBase-input': {
-                          padding: '12px 14px',
-                          fontSize: '16px',
-                          color: isDarkMode ? '#ffffff !important' : '#111827 !important',
-                        },
-                        '& .MuiInputAdornment-root .MuiIconButton-root': {
-                          color: isDarkMode ? '#ffffff !important' : 'inherit',
-                        },
-                      },
+                      sx: datePickerTextFieldSx,
                     },
                   }}
                 />

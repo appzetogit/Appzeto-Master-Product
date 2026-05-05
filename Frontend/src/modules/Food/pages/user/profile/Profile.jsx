@@ -49,6 +49,7 @@ import { authAPI, userAPI } from "@food/api";
 import { firebaseAuth } from "@food/firebase";
 import { clearModuleAuth } from "@food/utils/auth";
 import { toast } from "sonner";
+import { useTheme } from "next-themes";
 const debugLog = (...args) => { };
 const debugWarn = (...args) => { };
 const debugError = (...args) => { };
@@ -64,6 +65,7 @@ export default function Profile() {
   const routerLocation = useRouterLocation();
   const routeSearchParams = new URLSearchParams(routerLocation.search);
   const companyName = useCompanyName();
+  const { theme, setTheme } = useTheme();
   const isSharedProfile = routerLocation.pathname.startsWith("/profile");
   const profileSource = routeSearchParams.get("from");
   const isQuickProfile =
@@ -125,23 +127,19 @@ export default function Profile() {
   };
 
   // Settings states
-  const [appearance, setAppearance] = useState(() => {
-    // Load theme from localStorage or default to 'light'
-    return localStorage.getItem("appTheme") || "light";
-  });
+  const [appearance, setAppearance] = useState(() => theme || localStorage.getItem("appTheme") || "light");
 
-  // Apply theme to document
   useEffect(() => {
-    const root = document.documentElement;
-    if (appearance === "dark") {
-      root.classList.add("dark");
-    } else {
-      root.classList.remove("dark");
-    }
-    // Save to localStorage
-    localStorage.setItem("appTheme", appearance);
-    window.dispatchEvent(new CustomEvent("app-theme-changed", { detail: { theme: appearance } }));
-  }, [appearance]);
+    const normalizedTheme = theme === "dark" ? "dark" : "light";
+    setAppearance(normalizedTheme);
+  }, [theme]);
+
+  useEffect(() => {
+    const normalizedAppearance = appearance === "dark" ? "dark" : "light";
+    setTheme(normalizedAppearance);
+    localStorage.setItem("appTheme", normalizedAppearance);
+    window.dispatchEvent(new CustomEvent("app-theme-changed", { detail: { theme: normalizedAppearance } }));
+  }, [appearance, setTheme]);
 
   // Get first letter of name for avatar
   const avatarInitial =

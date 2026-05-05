@@ -15,21 +15,54 @@ import { cn } from '@/lib/utils';
 import { useToast } from '@shared/components/ui/Toast';
 import { adminApi } from '../services/adminApi';
 
+const formatNonNegativeNumberInput = (value) => {
+    if (value === null || value === undefined) return '';
+
+    let nextValue = String(value).replace(/[^\d.]/g, '');
+    const firstDotIndex = nextValue.indexOf('.');
+
+    if (firstDotIndex !== -1) {
+        nextValue =
+            nextValue.slice(0, firstDotIndex + 1) +
+            nextValue
+                .slice(firstDotIndex + 1)
+                .replace(/\./g, '');
+    }
+
+    if (nextValue.startsWith('.')) {
+        nextValue = `0${nextValue}`;
+    }
+
+    if (nextValue.includes('.')) {
+        const [integerPart, decimalPart] = nextValue.split('.');
+        const normalizedInteger = integerPart.replace(/^0+(?=\d)/, '') || '0';
+        return `${normalizedInteger}.${decimalPart}`;
+    }
+
+    return nextValue.replace(/^0+(?=\d)/, '');
+};
+
+const toNonNegativeNumber = (value, fallback = 0) => {
+    const parsedValue = Number.parseFloat(value);
+    if (!Number.isFinite(parsedValue)) return fallback;
+    return Math.max(0, parsedValue);
+};
+
 const BillingCharges = () => {
     const { showToast } = useToast();
     const [isSaving, setIsSaving] = useState(false);
     const [deliveryMode, setDeliveryMode] = useState('distance'); // 'fixed' or 'distance'
-    const [returnDeliveryCommission, setReturnDeliveryCommission] = useState(0);
+    const [returnDeliveryCommission, setReturnDeliveryCommission] = useState('0');
 
     const [config, setConfig] = useState({
-        platformFee: 0,
-        freeDeliveryThreshold: 0,
-        baseCharge: 30,
-        riderBasePayout: 30,
-        baseDistance: 0.5,
-        extraPerKm: 10,
-        deliveryPartnerRatePerKm: 5,
-        fixedCharge: 30,
+        platformFee: '0',
+        freeDeliveryThreshold: '0',
+        baseCharge: '30',
+        riderBasePayout: '30',
+        baseDistance: '0.5',
+        extraPerKm: '10',
+        deliveryPartnerRatePerKm: '5',
+        fixedCharge: '30',
         handlingFeeStrategy: "highest_category_fee",
         codEnabled: true,
         onlineEnabled: true,
@@ -44,7 +77,7 @@ const BillingCharges = () => {
                 ]);
 
                 if (platformRes.data?.success && platformRes.data.result) {
-                    setReturnDeliveryCommission(platformRes.data.result.returnDeliveryCommission ?? 0);
+                    setReturnDeliveryCommission(formatNonNegativeNumberInput(platformRes.data.result.returnDeliveryCommission ?? 0));
                 }
 
                 if (deliveryRes.data?.success && deliveryRes.data.result) {
@@ -52,12 +85,12 @@ const BillingCharges = () => {
                     setDeliveryMode(s.deliveryPricingMode === 'fixed_price' ? 'fixed' : 'distance');
                     setConfig((prev) => ({
                         ...prev,
-                        baseCharge: s.customerBaseDeliveryFee ?? s.baseDeliveryCharge ?? prev.baseCharge,
-                        riderBasePayout: s.riderBasePayout ?? s.customerBaseDeliveryFee ?? prev.riderBasePayout,
-                        baseDistance: s.baseDistanceCapacityKm ?? prev.baseDistance,
-                        extraPerKm: s.incrementalKmSurcharge ?? prev.extraPerKm,
-                        deliveryPartnerRatePerKm: s.deliveryPartnerRatePerKm ?? s.fleetCommissionRatePerKm ?? prev.deliveryPartnerRatePerKm,
-                        fixedCharge: s.fixedDeliveryFee ?? s.customerBaseDeliveryFee ?? prev.fixedCharge,
+                        baseCharge: formatNonNegativeNumberInput(s.customerBaseDeliveryFee ?? s.baseDeliveryCharge ?? prev.baseCharge),
+                        riderBasePayout: formatNonNegativeNumberInput(s.riderBasePayout ?? s.customerBaseDeliveryFee ?? prev.riderBasePayout),
+                        baseDistance: formatNonNegativeNumberInput(s.baseDistanceCapacityKm ?? prev.baseDistance),
+                        extraPerKm: formatNonNegativeNumberInput(s.incrementalKmSurcharge ?? prev.extraPerKm),
+                        deliveryPartnerRatePerKm: formatNonNegativeNumberInput(s.deliveryPartnerRatePerKm ?? s.fleetCommissionRatePerKm ?? prev.deliveryPartnerRatePerKm),
+                        fixedCharge: formatNonNegativeNumberInput(s.fixedDeliveryFee ?? s.customerBaseDeliveryFee ?? prev.fixedCharge),
                         handlingFeeStrategy: s.handlingFeeStrategy ?? prev.handlingFeeStrategy,
                         codEnabled: s.codEnabled ?? prev.codEnabled,
                         onlineEnabled: s.onlineEnabled ?? prev.onlineEnabled,
@@ -73,20 +106,32 @@ const BillingCharges = () => {
     const handleSave = async () => {
         try {
             setIsSaving(true);
+            const normalizedReturnDeliveryCommission = toNonNegativeNumber(returnDeliveryCommission);
+            const normalizedConfig = {
+                platformFee: toNonNegativeNumber(config.platformFee),
+                freeDeliveryThreshold: toNonNegativeNumber(config.freeDeliveryThreshold),
+                baseCharge: toNonNegativeNumber(config.baseCharge),
+                riderBasePayout: toNonNegativeNumber(config.riderBasePayout),
+                baseDistance: toNonNegativeNumber(config.baseDistance),
+                extraPerKm: toNonNegativeNumber(config.extraPerKm),
+                deliveryPartnerRatePerKm: toNonNegativeNumber(config.deliveryPartnerRatePerKm),
+                fixedCharge: toNonNegativeNumber(config.fixedCharge),
+            };
+
             await Promise.all([
                 adminApi.updatePlatformSettings({
-                    returnDeliveryCommission,
+                    returnDeliveryCommission: normalizedReturnDeliveryCommission,
                 }),
                 adminApi.updateDeliveryFinanceSettings({
                     deliveryPricingMode: deliveryMode === 'fixed' ? 'fixed_price' : 'distance_based',
-                    customerBaseDeliveryFee: config.baseCharge,
-                    riderBasePayout: config.riderBasePayout,
-                    baseDeliveryCharge: config.baseCharge,
-                    baseDistanceCapacityKm: config.baseDistance,
-                    incrementalKmSurcharge: config.extraPerKm,
-                    deliveryPartnerRatePerKm: config.deliveryPartnerRatePerKm,
-                    fleetCommissionRatePerKm: config.deliveryPartnerRatePerKm,
-                    fixedDeliveryFee: config.fixedCharge,
+                    customerBaseDeliveryFee: normalizedConfig.baseCharge,
+                    riderBasePayout: normalizedConfig.riderBasePayout,
+                    baseDeliveryCharge: normalizedConfig.baseCharge,
+                    baseDistanceCapacityKm: normalizedConfig.baseDistance,
+                    incrementalKmSurcharge: normalizedConfig.extraPerKm,
+                    deliveryPartnerRatePerKm: normalizedConfig.deliveryPartnerRatePerKm,
+                    fleetCommissionRatePerKm: normalizedConfig.deliveryPartnerRatePerKm,
+                    fixedDeliveryFee: normalizedConfig.fixedCharge,
                     handlingFeeStrategy: config.handlingFeeStrategy,
                     codEnabled: config.codEnabled,
                     onlineEnabled: config.onlineEnabled,
@@ -103,7 +148,7 @@ const BillingCharges = () => {
     };
 
     const handleInputChange = (field, value) => {
-        setConfig(prev => ({ ...prev, [field]: parseFloat(value) || 0 }));
+        setConfig((prev) => ({ ...prev, [field]: formatNonNegativeNumberInput(value) }));
     };
 
     return (
@@ -163,7 +208,8 @@ const BillingCharges = () => {
                                 <div className="relative group">
                                     <span className="absolute left-5 top-1/2 -translate-y-1/2 font-bold text-slate-300 group-focus-within:text-red-500 transition-colors">₹</span>
                                     <input
-                                        type="number"
+                                        type="text"
+                                        inputMode="decimal"
                                         value={config.platformFee}
                                         onChange={(e) => handleInputChange('platformFee', e.target.value)}
                                         className="w-full pl-10 pr-5 py-4 bg-slate-50 border-none rounded-2xl text-base font-black text-slate-900 outline-none focus:ring-2 focus:ring-red-500/10 transition-all"
@@ -179,7 +225,8 @@ const BillingCharges = () => {
                                 <div className="relative group">
                                     <span className="absolute left-5 top-1/2 -translate-y-1/2 font-bold text-slate-300 group-focus-within:text-red-500 transition-colors">₹</span>
                                     <input
-                                        type="number"
+                                        type="text"
+                                        inputMode="decimal"
                                         value={config.freeDeliveryThreshold}
                                         onChange={(e) => handleInputChange('freeDeliveryThreshold', e.target.value)}
                                         className="w-full pl-10 pr-5 py-4 bg-slate-50 border-none rounded-2xl text-base font-black text-slate-900 outline-none focus:ring-2 focus:ring-red-500/10 transition-all"
@@ -223,7 +270,8 @@ const BillingCharges = () => {
                                         <div className="space-y-3">
                                             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Base Delivery Charge (₹)</label>
                                             <input
-                                                type="number"
+                                                type="text"
+                                                inputMode="decimal"
                                                 value={config.baseCharge}
                                                 onChange={(e) => handleInputChange('baseCharge', e.target.value)}
                                                 className="w-full px-5 py-4 bg-slate-50 border-none rounded-2xl text-sm font-black text-slate-900 outline-none focus:ring-2 focus:ring-sky-500/10 transition-all"
@@ -233,7 +281,8 @@ const BillingCharges = () => {
                                         <div className="space-y-3">
                                             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Rider Base Payout (₹)</label>
                                             <input
-                                                type="number"
+                                                type="text"
+                                                inputMode="decimal"
                                                 value={config.riderBasePayout}
                                                 onChange={(e) => handleInputChange('riderBasePayout', e.target.value)}
                                                 className="w-full px-5 py-4 bg-slate-50 border-none rounded-2xl text-sm font-black text-slate-900 outline-none focus:ring-2 focus:ring-sky-500/10 transition-all"
@@ -244,8 +293,8 @@ const BillingCharges = () => {
                                             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Base Distance Capacity (km)</label>
                                             <div className="relative group">
                                                 <input
-                                                    type="number"
-                                                    step="0.1"
+                                                    type="text"
+                                                    inputMode="decimal"
                                                     value={config.baseDistance}
                                                     onChange={(e) => handleInputChange('baseDistance', e.target.value)}
                                                     className="w-full px-5 py-4 bg-slate-50 border-none rounded-2xl text-sm font-black text-slate-900 outline-none focus:ring-2 focus:ring-sky-500/10 transition-all"
@@ -257,7 +306,8 @@ const BillingCharges = () => {
                                         <div className="space-y-3">
                                             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Incremental Km Surcharge (₹)</label>
                                             <input
-                                                type="number"
+                                                type="text"
+                                                inputMode="decimal"
                                                 value={config.extraPerKm}
                                                 onChange={(e) => handleInputChange('extraPerKm', e.target.value)}
                                                 className="w-full px-5 py-4 bg-slate-50 border-none rounded-2xl text-sm font-black text-slate-900 outline-none focus:ring-2 focus:ring-sky-500/10 transition-all"
@@ -267,7 +317,8 @@ const BillingCharges = () => {
                                         <div className="space-y-3">
                                             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Delivery Partner Rate (₹/km)</label>
                                             <input
-                                                type="number"
+                                                type="text"
+                                                inputMode="decimal"
                                                 value={config.deliveryPartnerRatePerKm}
                                                 onChange={(e) => handleInputChange('deliveryPartnerRatePerKm', e.target.value)}
                                                 className="w-full px-5 py-4 bg-slate-50 border-none rounded-2xl text-sm font-black text-slate-900 outline-none focus:ring-2 focus:ring-sky-500/10 transition-all"
@@ -283,7 +334,8 @@ const BillingCharges = () => {
                                         <div className="relative group max-w-md">
                                             <span className="absolute left-5 top-1/2 -translate-y-1/2 font-bold text-slate-300 group-focus-within:text-slate-900 transition-colors">₹</span>
                                             <input
-                                                type="number"
+                                                type="text"
+                                                inputMode="decimal"
                                                 value={config.fixedCharge}
                                                 onChange={(e) => handleInputChange('fixedCharge', e.target.value)}
                                                 className="w-full pl-10 pr-5 py-4 bg-white ring-1 ring-slate-200 border-none rounded-xl text-base font-medium text-slate-900 outline-none focus:ring-2 focus:ring-slate-900/10 transition-all"
@@ -302,11 +354,11 @@ const BillingCharges = () => {
                                     <div className="relative group max-w-md">
                                         <span className="absolute left-5 top-1/2 -translate-y-1/2 font-bold text-slate-300 group-focus-within:text-slate-900 transition-colors">₹</span>
                                         <input
-                                            type="number"
-                                            min="0"
+                                            type="text"
+                                            inputMode="decimal"
                                             value={returnDeliveryCommission}
                                             onChange={(e) =>
-                                                setReturnDeliveryCommission(Number(e.target.value) || 0)
+                                                setReturnDeliveryCommission(formatNonNegativeNumberInput(e.target.value))
                                             }
                                             className="w-full pl-10 pr-5 py-4 bg-slate-50 border-none rounded-2xl text-sm font-black text-slate-900 outline-none focus:ring-2 focus:ring-emerald-500/10 transition-all"
                                         />

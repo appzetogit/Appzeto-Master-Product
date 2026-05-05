@@ -21,6 +21,8 @@ import {
   createProduct,
   getAdminCategories,
   getAdminOrders,
+  getAdminOrderById,
+  getAdminCustomers,
   deleteAdminOrder,
   getAdminProducts,
   getAdminStats,
@@ -128,7 +130,9 @@ router.put('/admin/products/:productId', ...adminOnly, upload.fields([
 ]), updateProduct);
 router.delete('/admin/products/:productId', ...adminOnly, removeProduct);
 router.get('/admin/orders', ...adminOnly, getAdminOrders);
+router.get('/admin/orders/:orderId', ...adminOnly, getAdminOrderById);
 router.delete('/admin/orders/:orderId', ...adminOnly, deleteAdminOrder);
+router.get('/admin/customers', ...adminOnly, getAdminCustomers);
 router.get('/admin/seller-requests', ...adminOnly, getAdminSellerRequests);
 router.put('/admin/seller-requests/:sellerId/approve', ...adminOnly, approveAdminSellerRequest);
 router.put('/admin/seller-requests/:sellerId/reject', ...adminOnly, rejectAdminSellerRequest);

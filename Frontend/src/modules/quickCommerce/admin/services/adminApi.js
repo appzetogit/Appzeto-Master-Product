@@ -321,10 +321,10 @@ export const adminApi = {
   updateZone: (id, body) => axiosInstance.patch(`/quick-commerce/admin/zones/${id}`, body ?? {}),
   deleteZone: (id) => axiosInstance.delete(`/quick-commerce/admin/zones/${id}`),
 
-  getOrderDetails: () => emptyResponse({}),
-  updateOrderStatus: () => emptyResponse({ updated: false }),
+  getOrderDetails: (orderId) => axiosInstance.get(`/quick-commerce/admin/orders/${orderId}`),
+  updateOrderStatus: () => emptyResponse({ updated: false, unsupported: true }),
 
-  getUsers: () => emptyResponse({ items: [], total: 0, page: 1 }),
+  getUsers: (params) => axiosInstance.get('/quick-commerce/admin/customers', { params }),
   getUserById: () => emptyResponse({}),
   approveSeller: (sellerId, data = {}) => axiosInstance.put(`/quick-commerce/admin/seller-requests/${sellerId}/approve`, data),
   getAdminWalletData: () => emptyResponse({}),
