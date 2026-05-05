@@ -36,7 +36,7 @@ const ScallopedBadge = ({ text, className }) => (
 );
 
 const ProductCard = React.memo(
-  ({ product, badge, className, compact = false, neutralBg = false }) => {
+  ({ product, badge, className, compact = false, neutralBg = false, curvedInfo = false }) => {
     const navigate = useNavigate();
     const { toggleWishlist: toggleWishlistGlobal, isInWishlist } =
       useWishlist();
@@ -99,9 +99,10 @@ const ProductCard = React.memo(
         e.preventDefault();
         e.stopPropagation();
         if (imageRef.current) {
+          const resolvedSrc = resolveQuickImageUrl(product.image || product.mainImage) || product.image || product.mainImage;
           animateAddToCart(
             imageRef.current.getBoundingClientRect(),
-            product.image,
+            resolvedSrc,
           );
         }
         addToCart(product);
@@ -142,17 +143,16 @@ const ProductCard = React.memo(
     );
 
     return (
-      <motion.div
-        whileHover={{ y: -6, transition: { type: "spring", stiffness: 400, damping: 20 } }}
+      <div
         className={cn(
           "flex-shrink-0 w-full flex flex-col h-full cursor-pointer group",
           className,
         )}
         onClick={handleProductClick}>
         <div className={cn(
-          "flex flex-col h-full w-full rounded-[18px] overflow-hidden transition-all duration-500",
-          "bg-white border border-slate-100 shadow-sm",
-          "hover:shadow-md hover:border-emerald-100/50"
+          "flex flex-col h-full w-full rounded-xl overflow-hidden transition-all duration-500 product-card-container premium-wave-shimmer",
+          "bg-[#EBF2FF] border border-blue-100/50 shadow-sm",
+          "hover:shadow-md"
         )}>
           {/* Top Image Section */}
           <div className="relative overflow-hidden w-full h-[90px] md:h-[110px] p-1 md:p-2">
@@ -195,7 +195,7 @@ const ProductCard = React.memo(
               )}
             </AnimatePresence>
 
-            <div className="w-full h-full rounded-lg overflow-hidden bg-white flex items-center justify-center transition-transform duration-700 group-hover:scale-105">
+            <div className="w-full h-full rounded-md overflow-hidden bg-white flex items-center justify-center transition-transform duration-500 group-hover:scale-110">
             <img
               ref={imageRef}
               src={resolveQuickImageUrl(product.image || product.mainImage) || product.image || product.mainImage}
@@ -209,7 +209,9 @@ const ProductCard = React.memo(
         </div>
 
           {/* Content Section */ }
-    <div className="flex flex-col flex-1 px-1.5 py-1 space-y-0.5 bg-[#F8F9FA] border-t border-slate-100/50">
+    <div className={cn(
+      "flex flex-col flex-1 px-1.5 py-1 space-y-0.5 bg-[#EBF2FF] border-t border-blue-100/30 relative product-content-area transition-all duration-300",
+    )}>
       <div className="space-y-0">
         <div className="flex items-center gap-1 text-[7.5px] md:text-[8px] text-slate-500 font-bold uppercase tracking-wider">
           <Clock size={7} className="text-emerald-600" />
@@ -263,8 +265,8 @@ const ProductCard = React.memo(
         )}
       </div>
     </div>
-    </div>
-      </motion.div>
+  </div>
+</div>
     );
   },
 );

@@ -536,19 +536,6 @@ const Home = ({ embedded = false, onThemeChange, embeddedHeaderColor = null }) =
   const hasHeroBanners = (heroConfig.banners?.items || []).length > 0;
   const shouldShowHeroFallback = !isInitialPageLoading && !hasHeroBanners;
 
-  // Preload first hero banner for performance (Point 6)
-  useEffect(() => {
-    if (hasHeroBanners && heroConfig.banners.items[0]?.imageUrl) {
-      const link = document.createElement("link");
-      link.rel = "preload";
-      link.as = "image";
-      link.href = resolveQuickImageUrl(heroConfig.banners.items[0].imageUrl);
-      document.head.appendChild(link);
-      return () => {
-        if (document.head.contains(link)) document.head.removeChild(link);
-      };
-    }
-  }, [hasHeroBanners, heroConfig.banners.items]);
 
   // Autoplay for Mobile Banner Carousel
   useEffect(() => {
@@ -910,7 +897,7 @@ const Home = ({ embedded = false, onThemeChange, embeddedHeaderColor = null }) =
                         }}
                         className="flex flex-col items-center gap-1 min-w-[84px] md:min-w-[112px] lg:min-w-[128px] cursor-pointer group/item snap-start">
                         <div
-                          className="relative w-[84px] h-[96px] md:w-[112px] md:h-[126px] lg:w-[128px] lg:h-[140px] rounded-[22px] shadow-[0_10px_22px_rgba(15,23,42,0.10)] border flex items-start justify-center p-2 transition-all duration-300 group-hover/item:-translate-y-1 group-hover/item:shadow-[0_16px_30px_rgba(15,23,42,0.14)] overflow-hidden"
+                          className="relative w-[84px] h-[96px] md:w-[112px] md:h-[126px] lg:w-[128px] lg:h-[140px] rounded-t-full rounded-b-[24px] shadow-[0_10px_22px_rgba(15,23,42,0.10)] border flex items-start justify-center p-2 transition-all duration-300 group-hover/item:-translate-y-1 group-hover/item:shadow-[0_16px_30px_rgba(15,23,42,0.14)] overflow-hidden"
                           style={{
                             backgroundImage: `linear-gradient(135deg, rgba(255,255,255,0.96) 0%, rgba(255,255,255,0.6) 24%, rgba(255,255,255,0.15) 100%), linear-gradient(135deg, ${palette.bgFrom}, ${palette.bgVia}, ${palette.bgTo})`,
                             borderColor: palette.frameColor,
@@ -996,6 +983,7 @@ const Home = ({ embedded = false, onThemeChange, embeddedHeaderColor = null }) =
                         product={product}
                         className="bg-white rounded-[20px] shadow-[0_8px_20px_-8px_rgba(0,0,0,0.1)] border-blue-50/50 transition-all"
                         compact={true}
+                        curvedInfo={true}
                       />
                     </div>
                   ))}
@@ -1011,7 +999,7 @@ const Home = ({ embedded = false, onThemeChange, embeddedHeaderColor = null }) =
 
           {/* Offer Sections (admin-configured: Trending, etc.) – show on Home so user sees them */}
           {offerSections.length > 0 && (
-            <div className="w-full px-0 pt-0 pb-6 md:pb-10">
+            <div className="w-full px-0 pt-0 pb-2 md:pb-4">
               {[...offerSections]
                 .filter(section => (section.title || '').trim().toLowerCase() !== 'best sellers')
                 .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
@@ -1043,7 +1031,10 @@ const Home = ({ embedded = false, onThemeChange, embeddedHeaderColor = null }) =
                       whileInView={{ opacity: 1, y: 0 }}
                       viewport={{ once: true, amount: 0.25 }}
                       transition={{ duration: 0.4 }}
-                      className="mb-10 rounded-none overflow-hidden shadow-[0_18px_35px_rgba(15,23,42,0.16)] bg-white border-y border-slate-100/70 border-x-0 md:border-x">
+                      className={cn(
+                        "mb-4 rounded-none overflow-hidden shadow-[0_10px_25px_rgba(15,23,42,0.1)] border-y border-slate-100/70 border-x-0 md:border-x",
+                        section.title?.toLowerCase().includes('masala') ? "bg-[#FFF9E7]" : "bg-white"
+                      )}>
                       <div
                         className="relative flex items-center justify-between px-5 md:px-8 py-5 md:py-6 text-black"
                         style={{
@@ -1153,9 +1144,22 @@ const Home = ({ embedded = false, onThemeChange, embeddedHeaderColor = null }) =
           {sectionsForRenderer.length > 0 && (
             <div
               className={cn(
-                "container mx-auto px-4 md:px-8 lg:px-[50px]",
-                embedded ? "pt-2 pb-24 md:pt-6 md:pb-16" : "py-10 md:py-16",
+                "container mx-auto px-4 md:px-8 lg:px-[50px] bg-[#F0F9FF] rounded-none pt-4 pb-10 mt-[-28px] mb-10 relative z-[1] border-x-2 border-b-2 border-sky-200/50 shadow-sm overflow-hidden",
               )}>
+              {/* Animated Top Border Glow */}
+              <motion.div 
+                animate={{ 
+                    x: ["-100%", "100%"],
+                    opacity: [0, 1, 0]
+                }}
+                transition={{ 
+                    duration: 3, 
+                    repeat: Infinity, 
+                    ease: "linear" 
+                }}
+                className="absolute top-0 left-0 w-full h-[3px] bg-gradient-to-r from-transparent via-sky-400/80 to-transparent"
+              />
+              
               <SectionRenderer
                 sections={sectionsForRenderer}
                 productsById={productsById}
@@ -1180,7 +1184,6 @@ const Home = ({ embedded = false, onThemeChange, embeddedHeaderColor = null }) =
           {embedded && (
             <>
               <MiniCart
-                position="center"
                 linkTo={getQuickCartPath(routePathname)}
               />
               <ProductDetailSheet />
