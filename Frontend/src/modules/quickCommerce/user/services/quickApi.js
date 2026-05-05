@@ -25,17 +25,17 @@ const withSession = (config = {}) => {
 const unwrap = (response) => response?.data?.result;
 
 const quickApi = {
-  getHome: async () =>
+  getHome: async (params = {}) =>
     unwrap(
       await apiClient.get(
         '/quick-commerce/home',
-        withSession({ params: { _t: Date.now() } })
+        withSession({ params })
       )
     ),
-  getCategories: async () => {
+  getCategories: async (params = {}) => {
     const res = await apiClient.get(
       '/quick-commerce/categories',
-      withSession({ params: { _t: Date.now() } })
+      withSession({ params })
     );
     return res?.data?.results || [];
   },
@@ -43,7 +43,7 @@ const quickApi = {
     unwrap(
       await apiClient.get(
         '/quick-commerce/products',
-        withSession({ params: { ...params, _t: Date.now() } })
+        withSession({ params: { ...params } })
       )
     ),
   getCart: async () => unwrap(await apiClient.get('/quick-commerce/cart', withSession())),

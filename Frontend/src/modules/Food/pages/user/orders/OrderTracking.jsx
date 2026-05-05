@@ -515,7 +515,7 @@ const transformOrderForTracking = (apiOrder, previousOrder = null, explicitResta
     id: apiOrder?.orderId || apiOrder?._id,
     mongoId: apiOrder?._id || null,
     orderId: apiOrder?.orderId || apiOrder?._id,
-    restaurant: apiOrder?.restaurantName || previousOrder?.restaurant || 'Restaurant',
+    restaurant: apiOrder?.restaurantName || previousOrder?.restaurant || (apiOrder?.orderType === 'quick' || /^QC/i.test(apiOrder?.orderId || apiOrder?._id) ? 'Store' : 'Restaurant'),
     orderType: apiOrder?.orderType || previousOrder?.orderType || 'food',
     restaurantPhone:
       apiOrder?.restaurantPhone ||
@@ -1178,11 +1178,11 @@ export default function OrderTracking() {
     const cleanPhone = String(rawPhone).replace(/[^\d+]/g, '');
     
     if (!cleanPhone || cleanPhone.length < 5) {
-      toast.error('Restaurant phone number not available');
+      toast.error(`${isQuickOrder ? 'Store' : 'Restaurant'} phone number not available`);
       return;
     }
 
-    debugLog('?? Attempting to call restaurant:', cleanPhone);
+    debugLog(`?? Attempting to call ${isQuickOrder ? 'store' : 'restaurant'}:`, cleanPhone);
     
     // Most compatible way to trigger dialer on overall mobile/web environments:
     // Create a temporary hidden anchor and programmatically click it.
@@ -1996,36 +1996,36 @@ export default function OrderTracking() {
   const statusConfig = {
     scheduled: {
       title: "Order Scheduled",
-      subtitle: "Your order is scheduled. Please wait for the restaurant to respond.",
+      subtitle: isQuickOrder ? "Your order is scheduled. Please wait for the store to respond." : "Your order is scheduled. Please wait for the restaurant to respond.",
       color: "bg-blue-600",
       iconType: 'food'
     },
     placed: {
       title: "Order Placed",
-      subtitle: "Waiting for restaurant to accept",
+      subtitle: isQuickOrder ? "Waiting for store to accept" : "Waiting for restaurant to accept",
       color: "bg-green-600",
       iconType: 'food'
     },
     confirmed: {
       title: "Order Confirmed",
-      subtitle: "Restaurant has accepted your order",
+      subtitle: isQuickOrder ? "Store has accepted your order" : "Restaurant has accepted your order",
       color: "bg-green-600",
       iconType: 'food'
     },
     preparing: {
-      title: "Food is being prepared",
-      subtitle: typeof estimatedTime === 'number' ? `Arriving in ${estimatedTime} mins` : "Cooking your meal",
+      title: isQuickOrder ? "Items are being packed" : "Food is being prepared",
+      subtitle: typeof estimatedTime === 'number' ? `Arriving in ${estimatedTime} mins` : (isQuickOrder ? "Packing your items" : "Cooking your meal"),
       color: "bg-green-600",
       iconType: 'food'
     },
     assigned: {
       title: "Rider is arriving",
-      subtitle: "A delivery partner is arriving at the restaurant",
+      subtitle: isQuickOrder ? "A delivery partner is arriving at the store" : "A delivery partner is arriving at the restaurant",
       color: "bg-green-600",
       iconType: 'rider'
     },
     at_pickup: {
-      title: "Rider at restaurant",
+      title: isQuickOrder ? "Rider at store" : "Rider at restaurant",
       subtitle: "Rider is waiting for your order",
       color: "bg-green-600",
       iconType: 'rider'
@@ -2050,7 +2050,7 @@ export default function OrderTracking() {
     },
     delivered: {
       title: "Order delivered",
-      subtitle: "Enjoy your meal!",
+      subtitle: isQuickOrder ? "Enjoy your purchase!" : "Enjoy your meal!",
       color: "bg-green-600",
       iconType: 'delivered'
     },
@@ -2241,7 +2241,7 @@ export default function OrderTracking() {
                   </h3>
                   <p className="mt-1 text-sm text-gray-600">
                     {orderStatus === 'scheduled' 
-                      ? 'The restaurant will receive your order 15 minutes before the scheduled time.' 
+                      ? `The ${isQuickOrder ? 'store' : 'restaurant'} will receive your order 15 minutes before the scheduled time.` 
                       : 'The route map is ready. Live rider movement will appear here as soon as a rider accepts the trip.'}
                   </p>
                 </div>
@@ -2577,7 +2577,7 @@ export default function OrderTracking() {
             <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="text-xs font-bold uppercase tracking-[0.2em] text-gray-400">
-                  {order?.orderType === 'mixed' ? 'Pickup Points' : 'Restaurant'}
+                  {order?.orderType === 'mixed' ? 'Pickup Points' : (isQuickOrder ? 'Store' : 'Restaurant')}
                 </p>
                 <p className="mt-1 text-sm text-gray-500">
                   {order?.orderType === 'mixed'
@@ -2986,7 +2986,7 @@ export default function OrderTracking() {
               <div className="px-6 py-6 space-y-6">
                 <div>
                   <p className="text-sm font-semibold text-gray-900 mb-3">
-                    Restaurant rating (out of 5)
+                    {isQuickOrder ? 'Store rating' : 'Restaurant rating'} (out of 5)
                   </p>
                   <div className="flex items-center justify-center gap-2 mb-3">
                     {[1, 2, 3, 4, 5].map((num) => {

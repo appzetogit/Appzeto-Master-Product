@@ -108,7 +108,7 @@ const productSeeds = [
     badge: 'No Added Color',
   },
   {
-    name: 'Lay’s Classic Salted Chips',
+    name: 'Lay\'s Classic Salted Chips',
     slug: 'lays-classic-salted-chips',
     categorySlug: 'snacks-munchies',
     image: 'https://cdn.grofers.com/cdn-cgi/image/f=auto,fit=scale-down,q=70,metadata=none,w=300/app/images/products/sliding_image/123a.jpg',
@@ -118,7 +118,7 @@ const productSeeds = [
     badge: 'Crunchy',
   },
   {
-    name: 'Haldiram’s Aloo Bhujia',
+    name: 'Haldiram\'s Aloo Bhujia',
     slug: 'haldirams-aloo-bhujia',
     categorySlug: 'snacks-munchies',
     image: 'https://cdn.grofers.com/cdn-cgi/image/f=auto,fit=scale-down,q=70,metadata=none,w=300/app/images/products/sliding_image/352019a.jpg',
@@ -169,56 +169,67 @@ const productSeeds = [
   },
 ];
 
-let alreadySeeded = false;
+let isSeedingVerified = false;
+let seedingPromise = null;
 
 export const ensureQuickCommerceSeedData = async () => {
-  if (alreadySeeded) return;
+  if (isSeedingVerified) return;
+  if (seedingPromise) return seedingPromise;
 
-  const existingCategories = await QuickCategory.countDocuments();
-  const existingProducts = await QuickProduct.countDocuments();
+  seedingPromise = (async () => {
+    try {
+      const existingCategories = await QuickCategory.countDocuments();
+      const existingProducts = await QuickProduct.countDocuments();
 
-  if (existingCategories > 0 && existingProducts > 0) {
-    alreadySeeded = true;
-    return;
-  }
+      if (existingCategories > 0 && existingProducts > 0) {
+        isSeedingVerified = true;
+        return;
+      }
 
-  let categories = await QuickCategory.find({}).lean();
+    let categories = await QuickCategory.find({}).lean();
 
-  if (existingCategories === 0) {
-    await QuickCategory.insertMany(categoriesSeed);
-    categories = await QuickCategory.find({}).lean();
-  }
-
-  if (existingProducts === 0) {
-    const categoryBySlug = categories.reduce((acc, category) => {
-      acc[category.slug] = category;
-      return acc;
-    }, {});
-
-    const products = productSeeds
-      .map((product) => {
-        const category = categoryBySlug[product.categorySlug];
-        if (!category) return null;
-        return {
-          name: product.name,
-          slug: product.slug,
-          image: product.image,
-          categoryId: category._id,
-          price: product.price,
-          mrp: product.mrp,
-          unit: product.unit,
-          deliveryTime: '10 mins',
-          badge: product.badge,
-          rating: 4.2,
-          isActive: true,
-        };
-      })
-      .filter(Boolean);
-
-    if (products.length > 0) {
-      await QuickProduct.insertMany(products);
+    if (existingCategories === 0) {
+      await QuickCategory.insertMany(categoriesSeed);
+      categories = await QuickCategory.find({}).lean();
     }
-  }
 
-  alreadySeeded = true;
+    if (existingProducts === 0) {
+      const categoryBySlug = categories.reduce((acc, category) => {
+        acc[category.slug] = category;
+        return acc;
+      }, {});
+
+      const products = productSeeds
+        .map((product) => {
+          const category = categoryBySlug[product.categorySlug];
+          if (!category) return null;
+          return {
+            name: product.name,
+            slug: product.slug,
+            image: product.image,
+            categoryId: category._id,
+            price: product.price,
+            mrp: product.mrp,
+            unit: product.unit,
+            deliveryTime: '10 mins',
+            badge: product.badge,
+            rating: 4.2,
+            isActive: true,
+          };
+        })
+        .filter(Boolean);
+
+      if (products.length > 0) {
+        await QuickProduct.insertMany(products);
+      }
+      isSeedingVerified = true;
+      }
+    } catch (err) {
+      console.error('Quick Commerce seeding failed:', err);
+    } finally {
+      seedingPromise = null;
+    }
+  })();
+
+  return seedingPromise;
 };

@@ -24,6 +24,7 @@ import LogoImage from "@/assets/Logo.png";
 import shoppingCartAnimation from "@/assets/lottie/shopping-cart.json";
 import { Sparkles } from "lucide-react";
 import { customerApi } from "../../services/customerApi";
+import ThemeToggle from "../layout/ThemeToggle";
 
 // MUI Icons (shared with Home.jsx)
 import HomeIcon from "@mui/icons-material/Home";
@@ -292,7 +293,8 @@ const MainLocationHeader = ({
     }
   }, [showCategories, externalCategories.length]);
 
-  const categories = externalCategories.length > 0 ? externalCategories : internalCategories;
+  const categories = (externalCategories.length > 0 ? externalCategories : internalCategories)
+    .filter(cat => !serviceTabs.some(tab => tab.name.toLowerCase() === cat.name?.toLowerCase()));
 
   // Search Logic
   const handleSearchClick = () => {
@@ -493,7 +495,7 @@ const MainLocationHeader = ({
           )}
 
           {/* Desktop/Tablet Header Layout (md and above) */}
-          {(showTopContent || showSearchBar) && (
+          {!embedded && (showTopContent || showSearchBar) && (
             <div className="hidden md:flex items-center justify-between relative z-20 px-2 lg:px-6 mb-4 mt-1">
               {/* Left Section: Logo + Location row */}
               <div className="flex items-center gap-4 lg:gap-8">
@@ -606,12 +608,16 @@ const MainLocationHeader = ({
                   )}
                 </motion.button>
 
+                <div className="flex items-center">
+                  <ThemeToggle />
+                </div>
               </div>
             </div>
           )}
 
-          {/* Service Tabs (Mobile/Desktop) */}
-          <div className="relative z-10 px-1 pt-1 mb-3 flex items-end justify-start gap-[6px] overflow-x-auto no-scrollbar">
+          {/* Service Tabs (Mobile/Desktop) - Hide when embedded in another module's home */}
+          {!embedded && (
+            <div className="relative z-10 px-1 pt-1 mb-3 flex items-end justify-start gap-[6px] overflow-x-auto no-scrollbar">
             {serviceTabs.map((tab) => {
               const isActive = tab.id === "quick";
               const themeColor = baseHeaderColor || "#0c831f";
@@ -665,9 +671,10 @@ const MainLocationHeader = ({
               );
             })}
           </div>
+          )}
 
           {/* Collapsible Delivery Info & Location (MOBILE ONLY) */}
-          {showTopContent && <div className="md:hidden">
+          {!embedded && showTopContent && <div className="md:hidden">
             <motion.div
               style={{
                 height: contentHeight,
@@ -709,7 +716,7 @@ const MainLocationHeader = ({
           </div>}
 
           {/* Search Bar (MOBILE ONLY) */}
-          {showSearchBar && <div className="relative z-10 mt-0 flex items-center gap-2.5 md:hidden">
+          {!embedded && showSearchBar && <div className="relative z-10 mt-0 flex items-center gap-2.5 md:hidden">
             <motion.div
               onClick={handleSearchClick}
               whileTap={{ scale: 0.98 }}
@@ -727,26 +734,29 @@ const MainLocationHeader = ({
               </div>
             </motion.div>
 
-            <motion.button
-              initial={{ opacity: 0, scale: 0.9, y: -8 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              transition={{ duration: 0.5, delay: 0.15, ease: "easeOut" }}
-              style={{
-                opacity: cartOpacity,
-                scale: cartScale,
-                display: displayCart,
-              }}
-              type="button"
-              aria-label="Open cart"
-              onClick={() => navigate(cartPath)}
-              className="group relative h-11 w-11 shrink-0 overflow-hidden rounded-[14px] border border-white/55 bg-white/28 shadow-[0_12px_28px_rgba(15,23,42,0.14)] backdrop-blur-xl transition-all duration-300 hover:bg-white/42">
-              <div className="absolute inset-0 bg-gradient-to-br from-white/30 via-transparent to-black/5 pointer-events-none" />
-              <Lottie
-                animationData={shoppingCartAnimation}
-                loop
-                className="pointer-events-none absolute inset-0 scale-[1.22] drop-shadow-[0_8px_18px_rgba(0,0,0,0.14)] transition-transform duration-300 group-hover:scale-[1.28]"
-              />
-            </motion.button>
+            <div className="flex items-center gap-2">
+              <ThemeToggle />
+              <motion.button
+                initial={{ opacity: 0, scale: 0.9, y: -8 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                transition={{ duration: 0.5, delay: 0.15, ease: "easeOut" }}
+                style={{
+                  opacity: cartOpacity,
+                  scale: cartScale,
+                  display: displayCart,
+                }}
+                type="button"
+                aria-label="Open cart"
+                onClick={() => navigate(cartPath)}
+                className="group relative h-11 w-11 shrink-0 overflow-hidden rounded-[14px] border border-white/55 bg-white/28 shadow-[0_12px_28px_rgba(15,23,42,0.14)] backdrop-blur-xl transition-all duration-300 hover:bg-white/42">
+                <div className="absolute inset-0 bg-gradient-to-br from-white/30 via-transparent to-black/5 pointer-events-none" />
+                <Lottie
+                  animationData={shoppingCartAnimation}
+                  loop
+                  className="pointer-events-none absolute inset-0 scale-[1.22] drop-shadow-[0_8px_18px_rgba(0,0,0,0.14)] transition-transform duration-300 group-hover:scale-[1.28]"
+                />
+              </motion.button>
+            </div>
           </div>}
 
           {/* Categories Navigation - Smooth Collapse */}

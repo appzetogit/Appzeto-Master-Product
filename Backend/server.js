@@ -11,6 +11,7 @@ import { syncExpiredFssaiNotifications } from './src/modules/food/restaurant/ser
 
 import { logger } from './src/utils/logger.js';
 import { initializeFirebaseRealtime } from './src/config/firebase.js';
+import { ensureQuickCommerceSeedData } from './src/modules/quick-commerce/services/seed.service.js';
 
 const SHUTDOWN_TIMEOUT_MS = 10000;
 let server = null;
@@ -80,6 +81,8 @@ const startServer = async () => {
         } else if (config.bullmqEnabled && !config.redisEnabled) {
             logger.warn('BullMQ is enabled but Redis is disabled. Queue initialization skipped.');
         }
+
+        await ensureQuickCommerceSeedData();
 
         // 6. Start the HTTP server
         server = httpServer.listen(config.port, config.host, () => {

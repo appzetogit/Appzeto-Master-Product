@@ -24,20 +24,20 @@ const CategoryCard = ({ category, isFlipped }) => {
                 className="w-full h-full relative [transform-style:preserve-3d] cursor-pointer"
             >
                 {/* Front Side (Image) */}
-                <div className="absolute inset-0 [backface-visibility:hidden] bg-white rounded-full p-1.5 shadow-[0_8px_20px_-8px_rgba(0,0,0,0.1)] border border-slate-50 flex items-center justify-center overflow-hidden">
+                <div className="absolute inset-0 [backface-visibility:hidden] bg-card dark:bg-background rounded-full p-1.5 shadow-[0_8px_20px_-8px_rgba(0,0,0,0.1)] border border-border flex items-center justify-center overflow-hidden transition-colors">
                     <img
                         src={category.image}
                         alt={category.name}
-                        className="w-[85%] h-[85%] object-contain mix-blend-multiply group-hover:scale-110 transition-transform duration-500"
+                        className="w-[85%] h-[85%] object-contain mix-blend-multiply dark:mix-blend-normal group-hover:scale-110 transition-transform duration-500"
                     />
                 </div>
 
                 {/* Back Side (Name) */}
                 <div
-                    className="absolute inset-0 [backface-visibility:hidden] [transform:rotateY(180deg)] rounded-full p-2.5 flex items-center justify-center text-center shadow-inner border border-slate-50"
+                    className="absolute inset-0 [backface-visibility:hidden] [transform:rotateY(180deg)] rounded-full p-2.5 flex items-center justify-center text-center shadow-inner border border-border"
                     style={{ backgroundColor: category.color }}
                 >
-                    <span className="text-[9px] md:text-[11px] font-black text-slate-800 uppercase tracking-widest leading-tight">
+                    <span className="text-[9px] md:text-[11px] font-black text-foreground uppercase tracking-widest leading-tight">
                         {category.name}
                     </span>
                 </div>
@@ -62,21 +62,15 @@ const CategoriesPage = () => {
                 const allCategories = Array.isArray(results) ? results : [];
 
                 // 1. Identify Header Categories (Top-level parents)
-                // We assume categories with no parentId are headers, or we use the tree structure if children are present
                 const headers = allCategories.filter(cat => !cat.parentId || (cat.children && cat.children.length > 0));
 
                 const formattedGroups = headers
                     .filter((header) => (header.name || '').trim().toLowerCase() !== 'all')
                     .map((header, idx) => {
-                        // 2. Find subcategories for this header
-                        // Either from children array or by matching parentId
                         let subs = header.children && header.children.length > 0
                             ? header.children
                             : allCategories.filter(cat => cat.parentId === header._id);
 
-                        // If still no subs, we only show the header if it has an image (as a standalone), 
-                        // but user wants Heading + Subcategories. 
-                        // If no subs, we'll skip this header to maintain the requested structure.
                         if (subs.length === 0) return null;
 
                         return {
@@ -89,7 +83,7 @@ const CategoriesPage = () => {
                                 color: COLORS[(idx + cIdx) % COLORS.length]
                             }))
                         };
-                    }).filter(Boolean); // Remove null groups
+                    }).filter(Boolean);
 
                 setGroups(formattedGroups);
             }
@@ -104,7 +98,6 @@ const CategoriesPage = () => {
         fetchCategories();
     }, [fetchCategories]);
 
-    // Random Flip Logic
     useEffect(() => {
         if (!groups.length) return;
 
@@ -117,21 +110,20 @@ const CategoriesPage = () => {
 
             setFlippedCategoryId(targetId);
 
-            // Revert flip after some time
             setTimeout(() => {
                 setFlippedCategoryId(null);
             }, 1500);
 
-        }, 3000); // Flip a card every 3 seconds
+        }, 3000);
 
         return () => clearInterval(interval);
     }, [groups]);
 
     return (
-        <div className="min-h-screen bg-[#F8F9FA]">
+        <div className="min-h-screen bg-background transition-colors duration-500">
             <MainLocationHeader showCategories={false} />
 
-            <div className="max-w-[1400px] mx-auto px-3 pt-[150px] md:pt-[170px] pb-20">
+            <div className="max-w-[1400px] mx-auto px-3 pt-[206px] md:pt-[240px] pb-20">
                 <AnimatePresence mode='wait'>
                     {isLoading ? (
                         <motion.div
@@ -154,10 +146,10 @@ const CategoriesPage = () => {
                                     className="space-y-6"
                                 >
                                     <div className="flex items-center gap-3">
-                                        <h2 className="text-sm md:text-base font-black text-slate-800 tracking-wider uppercase">
+                                        <h2 className="text-sm md:text-base font-black text-foreground tracking-wider uppercase transition-colors">
                                             {group.title}
                                         </h2>
-                                        <div className="h-[1px] flex-1 bg-gradient-to-r from-slate-200 to-transparent" />
+                                        <div className="h-[1px] flex-1 bg-gradient-to-r from-border dark:from-white/10 to-transparent" />
                                     </div>
 
                                     <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10 gap-2 md:gap-3 lg:gap-4">

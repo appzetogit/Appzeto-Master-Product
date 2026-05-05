@@ -6,6 +6,26 @@ import { QuickHeroConfig } from '../models/heroConfig.model.js';
 
 const getCollection = (name) => mongoose.connection?.db?.collection(name) || null;
 
+// --- In-memory Cache ---
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const cache = {
+  settings: { data: null, expiry: 0 },
+  hero: { data: new Map(), expiry: 0 },
+  experience: { data: new Map(), expiry: 0 },
+  offerSections: { data: null, expiry: 0 },
+  categories: { data: null, expiry: 0 }
+};
+
+const isExpired = (expiry) => Date.now() > expiry;
+
+export const clearContentCache = () => {
+  cache.settings.expiry = 0;
+  cache.hero.data.clear();
+  cache.experience.data.clear();
+  cache.offerSections.expiry = 0;
+  cache.categories.expiry = 0;
+};
+
 const toIdString = (value) => {
   if (!value) return null;
   if (typeof value === 'object' && value !== null) {
@@ -40,12 +60,25 @@ const approvedOrLegacyFilter = {
 };
 
 export const getQuickSettings = async () => {
+  if (cache.settings.data && !isExpired(cache.settings.expiry)) {
+    return cache.settings.data;
+  }
+
   const collection = getCollection('quick_settings');
   if (!collection) return null;
-  return collection.findOne({}, { sort: { updatedAt: -1, createdAt: -1 } });
+  const data = await collection.findOne({}, { sort: { updatedAt: -1, createdAt: -1 } });
+  
+  cache.settings.data = data;
+  cache.settings.expiry = Date.now() + CACHE_TTL;
+  return data;
 };
 
 export const getQuickHeroConfig = async ({ pageType = 'home', headerId = null } = {}) => {
+  const cacheKey = `${pageType}:${headerId}`;
+  if (cache.hero.data.has(cacheKey) && !isExpired(cache.hero.expiry)) {
+    return cache.hero.data.get(cacheKey);
+  }
+
   const collection = getCollection('quick_hero_configs');
   if (!collection) return null;
 
@@ -54,7 +87,11 @@ export const getQuickHeroConfig = async ({ pageType = 'home', headerId = null } 
     query.headerId = headerId ? String(headerId) : null;
   }
 
-  return QuickHeroConfig.findOne(query).sort({ updatedAt: -1, createdAt: -1 }).lean();
+  const data = await QuickHeroConfig.findOne(query).sort({ updatedAt: -1, createdAt: -1 }).lean();
+  
+  cache.hero.data.set(cacheKey, data);
+  cache.hero.expiry = Date.now() + CACHE_TTL;
+  return data;
 };
 
 export const setQuickHeroConfig = async (data) => {
@@ -63,14 +100,21 @@ export const setQuickHeroConfig = async (data) => {
     query.headerId = data.headerId ? String(data.headerId) : null;
   }
 
-  return QuickHeroConfig.findOneAndUpdate(
+  const result = await QuickHeroConfig.findOneAndUpdate(
     query,
     { $set: data },
     { upsert: true, new: true }
   ).lean();
+  clearContentCache();
+  return result;
 };
 
 export const getQuickExperienceSections = async ({ pageType = 'home', headerId = null } = {}) => {
+  const cacheKey = `${pageType}:${headerId}`;
+  if (cache.experience.data.has(cacheKey) && !isExpired(cache.experience.expiry)) {
+    return cache.experience.data.get(cacheKey);
+  }
+
   const collection = getCollection('quick_experience_sections');
   if (!collection) return [];
 
@@ -86,30 +130,41 @@ export const getQuickExperienceSections = async ({ pageType = 'home', headerId =
   const sections = await QuickExperienceSection.find(query).sort({ order: 1, createdAt: 1 }).lean();
   if (!sections.length) return [];
 
-  // Fetch all categories once to build a recursive lookup for products
-  const allCategories = await QuickCategory.find(normalizeStatusQuery()).lean();
-  const categoryMap = new Map(allCategories.map(c => [String(c._id), c]));
-  const childrenMap = new Map();
-  allCategories.forEach(c => {
-    if (c.parentId) {
-      const pid = String(c.parentId);
-      if (!childrenMap.has(pid)) childrenMap.set(pid, []);
-      childrenMap.get(pid).push(c);
+  // --- Category Tree Logic (Optimized) ---
+  const getCategoryTreeInfo = async () => {
+    if (cache.categories.data && !isExpired(cache.categories.expiry)) {
+      return cache.categories.treeInfo;
     }
-  });
-
-  const getRecursiveChildIds = (catId, seen = new Set()) => {
-    const id = String(catId);
-    if (seen.has(id)) return [];
-    seen.add(id);
-    
-    let ids = [id];
-    const children = childrenMap.get(id) || [];
-    children.forEach(child => {
-      ids = [...ids, ...getRecursiveChildIds(child._id, seen)];
+    const allCategories = await QuickCategory.find(normalizeStatusQuery()).lean();
+    const childrenMap = new Map();
+    allCategories.forEach(c => {
+      if (c.parentId) {
+        const pid = String(c.parentId);
+        if (!childrenMap.has(pid)) childrenMap.set(pid, []);
+        childrenMap.get(pid).push(c);
+      }
     });
-    return ids;
+
+    const getRecursiveChildIds = (catId, seen = new Set()) => {
+      const id = String(catId);
+      if (seen.has(id)) return [];
+      seen.add(id);
+      let ids = [id];
+      const children = childrenMap.get(id) || [];
+      children.forEach(child => {
+        ids = [...ids, ...getRecursiveChildIds(child._id, seen)];
+      });
+      return ids;
+    };
+
+    const treeInfo = { allCategories, childrenMap, getRecursiveChildIds };
+    cache.categories.data = allCategories;
+    cache.categories.treeInfo = treeInfo;
+    cache.categories.expiry = Date.now() + CACHE_TTL;
+    return treeInfo;
   };
+
+  const { getRecursiveChildIds } = await getCategoryTreeInfo();
 
   // Hydrate data
   const productIds = new Set();
@@ -177,22 +232,14 @@ export const getQuickExperienceSections = async ({ pageType = 'home', headerId =
               ]
             },
             approvedOrLegacyFilter,
-            { 
-              $or: [
-                { isActive: true },
-                { isActive: { $exists: false } }
-              ]
-            }
+            { isActive: { $ne: false } }
           ]
-        }).sort({ createdAt: -1 }).limit(300).lean()
+        }).sort({ createdAt: -1 }).limit(500).lean()
       : Promise.resolve([]),
     (categoryIds.size || subcategoryIds.size)
       ? QuickCategory.find({
           _id: { $in: Array.from(new Set([...Array.from(categoryIds), ...Array.from(subcategoryIds)])) },
-          $or: [
-            { isActive: true },
-            { isActive: { $exists: false } }
-          ]
+          isActive: { $ne: false }
         }).lean()
       : Promise.resolve([]),
   ]);
@@ -200,7 +247,7 @@ export const getQuickExperienceSections = async ({ pageType = 'home', headerId =
   const productsById = new Map(products.map((p) => [String(p._id), p]));
   const categoriesById = new Map(categories.map((c) => [String(c._id), c]));
 
-  return sections.map((section) => {
+  const finalSections = sections.map((section) => {
     const { config = {} } = section;
     const typeConfig = config[section.displayType] || config;
     const newConfig = { ...config };
@@ -232,11 +279,9 @@ export const getQuickExperienceSections = async ({ pageType = 'home', headerId =
       if (explicitItems.length > 0) {
         target.items = explicitItems;
       } else {
-        // Fallback: Dynamic products based on categories
         const sectionCatIds = new Set((target.categoryIds || []).map(toIdString).filter(Boolean));
         const sectionSubcatIds = new Set((target.subcategoryIds || []).map(toIdString).filter(Boolean));
         
-        // Include children in the section set for filtering
         const expandedCatIds = new Set();
         sectionCatIds.forEach(id => getRecursiveChildIds(id).forEach(cid => expandedCatIds.add(cid)));
         const expandedSubcatIds = new Set();
@@ -249,14 +294,7 @@ export const getQuickExperienceSections = async ({ pageType = 'home', headerId =
         ).slice(0, (target.rows || 1) * (target.columns || 4) || 20);
       }
       
-      // Always put in .products for frontend consistency
       newConfig.products = target;
-    }
-
-    // For banners, we just ensure they are in the right place if they were flat
-    if (section.displayType === 'banners' && !config.banners && config.items) {
-       // We don't necessarily need to move them to config.banners, 
-       // but we should make sure the items are there.
     }
 
     return {
@@ -264,6 +302,10 @@ export const getQuickExperienceSections = async ({ pageType = 'home', headerId =
       config: newConfig
     };
   });
+
+  cache.experience.data.set(cacheKey, finalSections);
+  cache.experience.expiry = Date.now() + CACHE_TTL;
+  return finalSections;
 };
 
 export const createQuickExperienceSection = async (data) => {
@@ -309,6 +351,10 @@ export const getQuickOffers = async () => {
 };
 
 export const getQuickOfferSections = async (query = {}) => {
+  if (cache.offerSections.data && !isExpired(cache.offerSections.expiry)) {
+    return cache.offerSections.data;
+  }
+
   const collection = getCollection('quick_offer_sections');
   if (!collection) return [];
 
@@ -360,7 +406,7 @@ export const getQuickOfferSections = async (query = {}) => {
   const productsById = new Map(products.map((product) => [String(product._id), product]));
   const categoriesById = new Map(categories.map((category) => [String(category._id), category]));
 
-  return sections.map((section) => {
+  const finalOfferSections = sections.map((section) => {
     const hydratedCategoryIds = (Array.isArray(section.categoryIds) ? section.categoryIds : [])
       .map((id) => categoriesById.get(toIdString(id)) || id);
 
@@ -377,6 +423,10 @@ export const getQuickOfferSections = async (query = {}) => {
       productIds: hydratedProducts,
     };
   });
+
+  cache.offerSections.data = finalOfferSections;
+  cache.offerSections.expiry = Date.now() + CACHE_TTL;
+  return finalOfferSections;
 };
 
 export const createQuickOfferSection = async (data) => {
@@ -440,6 +490,10 @@ export const reorderQuickOfferSections = async (items = []) => {
 };
 
 export const getQuickCategories = async (query = {}) => {
+  if (!query.parentId && cache.categories.data && !isExpired(cache.categories.expiry)) {
+    return cache.categories.data;
+  }
+
   const filter = normalizeStatusQuery();
 
   if (query.parentId) {
@@ -450,5 +504,9 @@ export const getQuickCategories = async (query = {}) => {
     .sort({ order: 1, name: 1 })
     .lean();
 
+  if (!query.parentId) {
+    cache.categories.data = categories;
+    cache.categories.expiry = Date.now() + CACHE_TTL;
+  }
   return categories;
 };

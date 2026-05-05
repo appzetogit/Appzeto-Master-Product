@@ -21,8 +21,18 @@ const OrdersPage = () => {
     const fetchOrders = async () => {
       try {
         const response = await customerApi.getMyOrders();
-        const list = response?.data?.result || response?.data?.results || [];
-        setOrders(Array.isArray(list) ? list : []);
+        const rawList = response?.data?.result || response?.data?.results || [];
+        
+        // Filter to keep only quick commerce orders in this module
+        const list = Array.isArray(rawList) ? rawList.filter(order => {
+          const type = order.orderType || order.module || 'quick'
+          const orderId = String(order.orderId || order.id || order._id || '')
+          // Include quick commerce orders (type 'quick' or prefix 'QC')
+          // and exclude food orders (prefix 'FOD' or 'ORD')
+          return type === 'quick' || orderId.startsWith('QC') || (!orderId.startsWith('FOD') && !orderId.startsWith('ORD') && type !== 'food')
+        }) : [];
+        
+        setOrders(list);
       } catch (error) {
         console.error("Failed to fetch orders:", error);
         setOrders([]);
@@ -37,9 +47,9 @@ const OrdersPage = () => {
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-50">
-        <div className="flex items-center gap-3 rounded-2xl border border-slate-100 bg-white px-4 py-3 shadow-sm">
+        <div className="flex items-center gap-3 rounded-2xl border border-slate-100 dark:border-white/5 bg-white dark:bg-card px-4 py-3 shadow-sm transition-colors">
           <Loader2 className="animate-spin text-emerald-600" size={22} />
-          <span className="text-sm font-medium text-slate-600">
+          <span className="text-sm font-medium text-slate-600 dark:text-slate-400">
             Loading your orders...
           </span>
         </div>
@@ -48,24 +58,24 @@ const OrdersPage = () => {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 pb-24">
-      <div className="sticky top-0 z-30 mb-4 flex items-center gap-2 border-b border-slate-200/60 bg-slate-50/95 px-4 pb-3 pt-4 backdrop-blur-sm">
+    <div className="min-h-screen bg-slate-50 dark:bg-background pb-24 transition-colors duration-500">
+      <div className="sticky top-0 z-30 mb-4 flex items-center gap-2 border-b border-slate-200/60 dark:border-white/5 bg-slate-50/95 dark:bg-background/95 px-4 pb-3 pt-4 backdrop-blur-sm transition-colors">
         <button
           onClick={() => navigate(-1)}
-          className="-ml-1 flex h-10 w-10 items-center justify-center rounded-full transition-colors hover:bg-slate-200/70"
+          className="-ml-1 flex h-10 w-10 items-center justify-center rounded-full transition-colors hover:bg-slate-200/70 dark:hover:bg-white/10"
         >
-          <ChevronLeft size={22} className="text-slate-800" />
+          <ChevronLeft size={22} className="text-slate-800 dark:text-slate-200" />
         </button>
-        <h1 className="text-xl font-semibold tracking-tight text-slate-900">
-          Quick Orders
+        <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">
+          My Orders
         </h1>
       </div>
 
       <div className="space-y-4 px-4 pb-2">
         {orders.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-center">
-            <Package size={56} className="mb-4 text-slate-300" />
-            <h3 className="mb-1 text-base font-semibold text-slate-900">
+            <Package size={56} className="mb-4 text-slate-300 dark:text-slate-700" />
+            <h3 className="mb-1 text-base font-semibold text-slate-900 dark:text-slate-100">
               No orders yet
             </h3>
             <p className="mb-6 max-w-[260px] text-sm text-slate-500">
@@ -112,7 +122,7 @@ const OrdersPage = () => {
                     });
                   }
                 }}
-                className="cursor-pointer rounded-2xl border border-slate-100/80 bg-white px-4 py-3.5 shadow-[0_8px_24px_rgba(15,23,42,0.06)] transition-all hover:-translate-y-0.5 hover:shadow-[0_12px_28px_rgba(15,23,42,0.1)] focus:outline-none focus:ring-2 focus:ring-[#0c831f]/20"
+                className="cursor-pointer rounded-2xl border border-slate-100/80 dark:border-white/5 bg-white dark:bg-card px-4 py-3.5 shadow-[0_8px_24px_rgba(15,23,42,0.06)] transition-all hover:-translate-y-0.5 hover:shadow-[0_12px_28px_rgba(15,23,42,0.1)] focus:outline-none focus:ring-2 focus:ring-[#0c831f]/20"
               >
                 <div className="mb-3.5 flex items-start justify-between gap-3">
                   <div className="flex min-w-0 flex-1 gap-3.5">
@@ -128,10 +138,10 @@ const OrdersPage = () => {
                       )}
                     </div>
                     <div className="min-w-0">
-                      <h3 className="text-sm font-semibold leading-snug tracking-tight text-slate-900">
+                      <h3 className="text-sm font-semibold leading-snug tracking-tight text-slate-900 dark:text-slate-100 transition-colors">
                         Order #{String(orderCode).slice(-6)}
                       </h3>
-                      <p className="mt-0.5 text-[11px] font-medium leading-tight text-slate-500">
+                      <p className="mt-0.5 text-[11px] font-medium leading-tight text-slate-500 dark:text-slate-400 transition-colors">
                         {new Date(order.createdAt).toLocaleDateString("en-IN", {
                           day: "numeric",
                           month: "short",
@@ -175,17 +185,17 @@ const OrdersPage = () => {
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between gap-3 border-t border-slate-100 pt-3">
-                  <div className="max-w-[230px] truncate text-[11px] font-medium text-slate-500">
+                <div className="flex items-center justify-between gap-3 border-t border-slate-100 dark:border-white/5 pt-3 transition-colors">
+                  <div className="max-w-[230px] truncate text-[11px] font-medium text-slate-500 dark:text-slate-400 transition-colors">
                     {itemSummary}
                   </div>
                   <div className="flex shrink-0 items-center gap-1.5">
                     <span className="text-[11px] font-medium text-slate-400">Total</span>
-                    <span className="text-sm font-semibold text-slate-900">
+                    <span className="text-sm font-semibold text-slate-900 dark:text-slate-100 transition-colors">
                       {"\u20B9"}
                       {order.pricing?.total ?? order.total ?? 0}
                     </span>
-                    <ChevronRight size={16} className="text-slate-300" />
+                    <ChevronRight size={16} className="text-slate-300 dark:text-slate-600" />
                   </div>
                 </div>
               </article>
