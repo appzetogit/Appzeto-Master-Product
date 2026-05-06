@@ -6,6 +6,7 @@ import ExperienceBannerCarousel from "./ExperienceBannerCarousel";
 import { resolveQuickImageUrl } from "../../utils/image";
 import { getCloudinarySrcSet } from "@/shared/utils/cloudinaryUtils";
 import { motion } from "framer-motion";
+import { getQuickCategoryPath } from "../../utils/routes";
 
 const SectionRenderer = ({ sections = [], productsById = {}, categoriesById = {}, subcategoriesById = {} }) => {
   const navigate = useNavigate();
@@ -94,7 +95,7 @@ const SectionRenderer = ({ sections = [], productsById = {}, categoriesById = {}
                       damping: 20,
                       delay: (idx % 4) * 0.05
                     }}
-                    onClick={() => navigate(`/category/${cat.id}`)}
+                    onClick={() => navigate(getQuickCategoryPath(cat.id))}
                     className="flex flex-col items-center group cursor-pointer"
                   >
                     <div
@@ -157,12 +158,12 @@ const SectionRenderer = ({ sections = [], productsById = {}, categoriesById = {}
                           null;
 
                         if (parentId) {
-                          navigate(`/category/${parentId}`, {
+                          navigate(getQuickCategoryPath(parentId), {
                             state: { activeSubcategoryId: cat._id },
                           });
                         } else {
                           // Fallback to previous behavior if we can't resolve parent
-                          navigate(`/category/${cat._id}`);
+                          navigate(getQuickCategoryPath(cat._id));
                         }
                       }}
                     >

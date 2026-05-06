@@ -483,18 +483,18 @@ export async function getDashboardStats(query = {}) {
                     platformFeeTotal: { 
                         $sum: { 
                             $cond: [
-                                { $not: { $in: ['$orderStatus', [...CANCELLED_ORDER_STATUSES, 'refunded']] } }, 
-                                { $ifNull: ['$pricing.platformFee', 0] }, 
-                                0
+                                { $in: ['$orderStatus', [...CANCELLED_ORDER_STATUSES, 'refunded']] },
+                                0,
+                                { $ifNull: ['$pricing.platformFee', 0] }
                             ] 
                         } 
                     },
                     deliveryFeeTotal: { 
                         $sum: { 
                             $cond: [
-                                { $not: { $in: ['$orderStatus', [...CANCELLED_ORDER_STATUSES, 'refunded']] } }, 
-                                { $ifNull: ['$pricing.deliveryFee', 0] }, 
-                                0
+                                { $in: ['$orderStatus', [...CANCELLED_ORDER_STATUSES, 'refunded']] },
+                                0,
+                                { $ifNull: ['$pricing.deliveryFee', 0] }
                             ] 
                         } 
                     },
@@ -1176,12 +1176,25 @@ export async function getTaxReportDetail(restaurantId, query = {}) {
 }
 
 // ----- Customers / Users (admin) -----
+const FOOD_CUSTOMER_ORDER_TYPES = ['food', 'mixed'];
+
+async function getEligibleFoodCustomerIds() {
+    const ids = await FoodOrder.distinct('userId', {
+        userId: { $exists: true, $ne: null },
+        orderType: { $in: FOOD_CUSTOMER_ORDER_TYPES },
+    });
+
+    return ids.filter((id) => mongoose.Types.ObjectId.isValid(id));
+}
+
 export async function getCustomers(query = {}) {
     const limit = Math.min(Math.max(parseInt(query.limit, 10) || 50, 1), 1000);
     const page = Math.max(parseInt(query.page, 10) || 1, 1);
     const skip = (page - 1) * limit;
 
-    const filter = { role: 'USER' };
+    const filter = {
+        role: 'USER',
+    };
 
     if (query.status) {
         if (String(query.status) === 'active') filter.isActive = true;
@@ -1285,11 +1298,17 @@ export async function getCustomers(query = {}) {
 
 export async function getCustomerById(id) {
     if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
+
+    const customerObjectId = new mongoose.Types.ObjectId(id);
     const u = await FoodUser.findById(id).select('-__v').lean();
     if (!u) return null;
-    const customerObjectId = new mongoose.Types.ObjectId(id);
     const orderStats = await FoodOrder.aggregate([
-        { $match: { userId: customerObjectId } },
+        {
+            $match: {
+                userId: customerObjectId,
+                orderType: { $in: FOOD_CUSTOMER_ORDER_TYPES },
+            }
+        },
         {
             $group: {
                 _id: '$userId',
@@ -1326,6 +1345,13 @@ export async function getCustomerById(id) {
 
 export async function updateCustomerStatus(id, isActive) {
     if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
+    const customerObjectId = new mongoose.Types.ObjectId(id);
+    const hasFoodOrders = await FoodOrder.exists({
+        userId: customerObjectId,
+        orderType: { $in: FOOD_CUSTOMER_ORDER_TYPES },
+    });
+    if (!hasFoodOrders) return null;
+
     const updatedDoc = await FoodUser.findByIdAndUpdate(
         id,
         { $set: { isActive: Boolean(isActive) } },
@@ -1801,6 +1827,8 @@ export async function upsertFeeSettings(body) {
 
         if (body.gstRate === null) $unset.gstRate = 1;
         else if (body.gstRate !== undefined) $set.gstRate = body.gstRate;
+        if (body.mixedOrderDistanceLimit !== undefined) $set.mixedOrderDistanceLimit = body.mixedOrderDistanceLimit;
+        if (body.mixedOrderAngleLimit !== undefined) $set.mixedOrderAngleLimit = body.mixedOrderAngleLimit;
 
         if (body.isActive !== undefined) $set.isActive = body.isActive;
 
@@ -1821,6 +1849,8 @@ export async function upsertFeeSettings(body) {
     if (body.freeDeliveryThreshold !== undefined && body.freeDeliveryThreshold !== null) payload.freeDeliveryThreshold = body.freeDeliveryThreshold;
     if (body.platformFee !== undefined && body.platformFee !== null) payload.platformFee = body.platformFee;
     if (body.gstRate !== undefined && body.gstRate !== null) payload.gstRate = body.gstRate;
+    if (body.mixedOrderDistanceLimit !== undefined) payload.mixedOrderDistanceLimit = body.mixedOrderDistanceLimit;
+    if (body.mixedOrderAngleLimit !== undefined) payload.mixedOrderAngleLimit = body.mixedOrderAngleLimit;
 
     const created = await FoodFeeSettings.create(payload);
     return created.toObject();

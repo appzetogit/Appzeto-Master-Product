@@ -13,6 +13,8 @@ const feeSettingsUpsertSchema = z.object({
     freeDeliveryThreshold: z.number().min(0).nullable().optional(),
     platformFee: z.number().min(0).nullable().optional(),
     gstRate: z.number().min(0).max(100).nullable().optional(),
+    mixedOrderDistanceLimit: z.number().min(0).nullable().optional(),
+    mixedOrderAngleLimit: z.number().min(0).nullable().optional(),
     isActive: z.boolean().optional()
 });
 
@@ -41,6 +43,10 @@ export const validateFeeSettingsUpsertDto = (body) => {
             body?.platformFee === null ? null : body?.platformFee !== undefined ? Number(body.platformFee) : undefined,
         gstRate:
             body?.gstRate === null ? null : body?.gstRate !== undefined ? Number(body.gstRate) : undefined,
+        mixedOrderDistanceLimit:
+            body?.mixedOrderDistanceLimit === null ? null : body?.mixedOrderDistanceLimit !== undefined ? Number(body.mixedOrderDistanceLimit) : undefined,
+        mixedOrderAngleLimit:
+            body?.mixedOrderAngleLimit === null ? null : body?.mixedOrderAngleLimit !== undefined ? Number(body.mixedOrderAngleLimit) : undefined,
         isActive: body?.isActive !== undefined ? Boolean(body.isActive) : undefined
     };
 
