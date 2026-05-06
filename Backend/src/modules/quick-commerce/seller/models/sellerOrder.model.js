@@ -59,6 +59,7 @@ const sellerOrderSchema = new mongoose.Schema(
         "pending",
         "confirmed",
         "packed",
+        "ready_for_pickup",
         "out_for_delivery",
         "delivered",
         "cancelled",

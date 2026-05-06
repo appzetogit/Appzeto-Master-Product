@@ -22,6 +22,8 @@ import Pagination from '@shared/components/ui/Pagination';
 import { adminApi } from '../services/adminApi';
 import { toast } from 'sonner';
 
+const AUTO_REFRESH_INTERVAL_MS = 30000;
+
 const CustomerManagement = () => {
     const navigate = useNavigate();
     const [searchTerm, setSearchTerm] = useState('');
@@ -32,16 +34,27 @@ const CustomerManagement = () => {
     const [pageSize, setPageSize] = useState(25);
     const [total, setTotal] = useState(0);
     const [loading, setLoading] = useState(true);
+    const [isRefreshing, setIsRefreshing] = useState(false);
 
     useEffect(() => {
         fetchCustomers(1);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [pageSize]);
 
-    const fetchCustomers = async (requestedPage = 1) => {
+    const fetchCustomers = async (requestedPage = 1, options = {}) => {
         try {
-            setLoading(true);
-            const { data } = await adminApi.getUsers({ page: requestedPage, limit: pageSize });
+            const isBackgroundRefresh = options.background === true;
+            if (isBackgroundRefresh) {
+                setIsRefreshing(true);
+            } else {
+                setLoading(true);
+            }
+
+            const { data } = await adminApi.getUsers({
+                page: requestedPage,
+                limit: pageSize,
+                search: searchTerm || undefined,
+            });
             if (data.success) {
                 const payload = data.result || {};
                 const list = Array.isArray(payload.items) ? payload.items : (data.results || []);
@@ -62,8 +75,27 @@ const CustomerManagement = () => {
             toast.error("Failed to load customers");
         } finally {
             setLoading(false);
+            setIsRefreshing(false);
         }
     };
+
+    useEffect(() => {
+        const timeout = window.setTimeout(() => {
+            fetchCustomers(1);
+        }, 250);
+
+        return () => window.clearTimeout(timeout);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [searchTerm]);
+
+    useEffect(() => {
+        const interval = window.setInterval(() => {
+            fetchCustomers(page, { background: true });
+        }, AUTO_REFRESH_INTERVAL_MS);
+
+        return () => window.clearInterval(interval);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [page, pageSize, searchTerm]);
 
     const stats = useMemo(() => {
         const safeCustomers = Array.isArray(customers) ? customers : [];
@@ -130,10 +162,6 @@ const CustomerManagement = () => {
                             {isExporting ? <RotateCw className="ds-icon-sm animate-spin" /> : <Download className="ds-icon-sm" />}
                             {isExporting ? 'EXPORTING...' : 'EXPORT'}
                         </button>
-                        <button className="ds-btn ds-btn-md bg-primary text-white shadow-lg shadow-primary/20">
-                            <UserPlus className="ds-icon-sm" />
-                            NEW CUSTOMER
-                        </button>
                     </>
                 }
             />
@@ -178,6 +206,12 @@ const CustomerManagement = () => {
                     </div>
 
                     <div className="flex items-center gap-2">
+                        {isRefreshing && (
+                            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-[10px] font-bold text-gray-400">
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                Syncing
+                            </div>
+                        )}
                         <div className="flex bg-gray-100 p-0.5 rounded-lg">
                             {['all', 'active', 'inactive'].map((status) => (
                                 <button
@@ -245,7 +279,7 @@ const CustomerManagement = () => {
                                                 />
                                                 <div>
                                                     <p
-                                                        onClick={() => navigate(`/admin/customers/${cust.id}`)}
+                                                        onClick={() => navigate(`/admin/quick-commerce/customers/${cust.id}`)}
                                                         className="ds-h4 hover:text-primary cursor-pointer transition-colors"
                                                     >
                                                         {cust.name}
@@ -281,7 +315,7 @@ const CustomerManagement = () => {
                                         <td className="ds-table-cell text-right">
                                             <div className="flex items-center justify-end gap-2">
                                                 <button
-                                                    onClick={() => navigate(`/admin/customers/${cust.id}`)}
+                                                    onClick={() => navigate(`/admin/quick-commerce/customers/${cust.id}`)}
                                                     className="p-2 bg-primary/10 text-primary rounded-lg hover:bg-primary hover:text-white transition-all"
                                                 >
                                                     <Eye className="ds-icon-sm" />

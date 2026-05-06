@@ -19,7 +19,6 @@ import {
     Package,
     MapPin,
     IndianRupee,
-    ChevronDown,
     ShoppingBag,
     Clock,
     CheckCircle2,
@@ -32,20 +31,75 @@ import {
     adminRouteMatchesOrder,
 } from '@/shared/utils/orderStatus';
 
+const AUTO_REFRESH_INTERVAL_MS = 30000;
+
+const DATE_RANGE_OPTIONS = [
+    { id: 'all', label: 'All Time' },
+    { id: 'today', label: 'Today' },
+    { id: 'last7', label: 'Last 7 Days' },
+    { id: 'last30', label: 'Last 30 Days' },
+];
+
+const PAYMENT_FILTER_OPTIONS = [
+    { id: 'all', label: 'All Payments' },
+    { id: 'cod', label: 'Cash / COD' },
+    { id: 'digital', label: 'Digital' },
+];
+
+const formatOrderTimestamp = (value) => {
+    const date = value ? new Date(value) : null;
+    if (!date || Number.isNaN(date.getTime())) return 'NA';
+    return date.toLocaleString('en-IN', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+    });
+};
+
+const matchesDateRange = (createdAt, rangeId) => {
+    if (rangeId === 'all') return true;
+    const createdAtDate = createdAt ? new Date(createdAt) : null;
+    if (!createdAtDate || Number.isNaN(createdAtDate.getTime())) return false;
+
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+    if (rangeId === 'today') {
+        return createdAtDate >= startOfToday;
+    }
+
+    const days = rangeId === 'last7' ? 7 : 30;
+    const rangeStart = new Date(startOfToday);
+    rangeStart.setDate(rangeStart.getDate() - (days - 1));
+    return createdAtDate >= rangeStart;
+};
+
 const OrdersList = () => {
     const { status = 'all' } = useParams();
     const navigate = useNavigate();
     const { showToast } = useToast();
     const [searchTerm, setSearchTerm] = useState('');
     const [dateRange, setDateRange] = useState('All Time');
+    const [dateRangeId, setDateRangeId] = useState('all');
+    const [paymentFilter, setPaymentFilter] = useState('all');
+    const [showDateMenu, setShowDateMenu] = useState(false);
+    const [showFilterMenu, setShowFilterMenu] = useState(false);
     const [orders, setOrders] = useState([]);
     const [page, setPage] = useState(1);
     const [pageSize, setPageSize] = useState(25);
     const [total, setTotal] = useState(0);
     const [isLoading, setIsLoading] = useState(true);
+    const [isRefreshing, setIsRefreshing] = useState(false);
 
-    const fetchOrders = async (requestedPage = 1) => {
-        setIsLoading(true);
+    const fetchOrders = async (requestedPage = 1, options = {}) => {
+        const isBackgroundRefresh = options.background === true;
+        if (isBackgroundRefresh) {
+            setIsRefreshing(true);
+        } else {
+            setIsLoading(true);
+        }
         try {
             const params = { page: requestedPage, limit: pageSize };
             if (status !== 'all') params.status = status;
@@ -57,18 +111,20 @@ const OrdersList = () => {
                     id: String(o.orderId || o._id || ''),
                     _id: o._id,
                     orderType: String(o.orderType || 'quick').toLowerCase(),
-                    customer: String(o.customer?.name || 'Unknown'),
+                    customer: String(o.customer?.name || o.sellerOrder?.customer?.name || 'Unknown'),
                     seller: String(o.seller?.shopName || o.storeName || 'Unknown'),
-                    items: o.items?.length || 0,
-                    amount: o.pricing?.total || 0,
+                    items: o.itemCount || o.items?.length || 0,
+                    amount: Number(o.amount ?? o.pricing?.total ?? 0),
                     status: String(getLegacyStatusFromOrder(o) || 'pending'),
+                    rawStatus: String(o.orderStatus || ''),
                     workflowStatus: o.workflowStatus,
                     workflowVersion: o.workflowVersion,
                     returnStatus: o.returnStatus,
-                    date: o.createdAt
-                        ? new Date(o.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
-                        : '',
-                    payment: o.payment?.method === 'cod' ? 'COD' : 'Digital',
+                    createdAt: o.createdAt || null,
+                    updatedAt: o.updatedAt || null,
+                    date: formatOrderTimestamp(o.createdAt),
+                    payment: o.payment?.method === 'cod' || o.payment?.method === 'cash' ? 'COD' : 'Digital',
+                    paymentMethod: String(o.payment?.method || '').toLowerCase(),
                 }));
                 setOrders(formatted);
                 if (typeof payload.total === 'number') {
@@ -86,18 +142,11 @@ const OrdersList = () => {
             console.error("Fetch orders error:", error);
             showToast("Failed to load orders", "error");
         } finally {
-            setIsLoading(false);
-        }
-    };
-
-    const handleStatusUpdate = async (orderId, newStatus) => {
-        try {
-            await adminApi.updateOrderStatus(orderId, { status: newStatus });
-            showToast(`Order status updated to ${newStatus}`, "success");
-            fetchOrders(); // Refresh table
-        } catch (error) {
-            console.error("Failed to update status:", error);
-            showToast("Failed to update status", "error");
+            if (isBackgroundRefresh) {
+                setIsRefreshing(false);
+            } else {
+                setIsLoading(false);
+            }
         }
     };
 
@@ -130,6 +179,14 @@ const OrdersList = () => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [pageSize, status]);
 
+    useEffect(() => {
+        const interval = window.setInterval(() => {
+            fetchOrders(page, { background: true });
+        }, AUTO_REFRESH_INTERVAL_MS);
+
+        return () => window.clearInterval(interval);
+    }, [page, pageSize, status]);
+
     const safeOrders = useMemo(
         () => (Array.isArray(orders) ? orders : []),
         [orders]
@@ -161,10 +218,16 @@ const OrdersList = () => {
                 sellerName.includes(term);
 
             const matchesStatus = adminRouteMatchesOrder(status, order);
+            const matchesDate = matchesDateRange(order.createdAt, dateRangeId);
+            const matchesPayment =
+                paymentFilter === 'all' ||
+                (paymentFilter === 'cod'
+                    ? ['cod', 'cash'].includes(order.paymentMethod)
+                    : !['cod', 'cash'].includes(order.paymentMethod));
 
-            return matchesSearch && matchesStatus;
+            return matchesSearch && matchesStatus && matchesDate && matchesPayment;
         });
-    }, [safeOrders, searchTerm, status]);
+    }, [safeOrders, searchTerm, status, dateRangeId, paymentFilter]);
 
     const getStatusStyles = (status) => {
         switch (status.toLowerCase()) {
@@ -192,7 +255,36 @@ const OrdersList = () => {
     };
 
     const handleExport = () => {
-        showToast('Exporting order data archive...', 'info');
+        if (!filteredOrders.length) {
+            showToast('No orders available to export', 'info');
+            return;
+        }
+
+        const rows = [
+            ['Order ID', 'Customer', 'Seller', 'Status', 'Amount', 'Payment', 'Created At'],
+            ...filteredOrders.map((order) => [
+                order.id,
+                order.customer,
+                order.seller,
+                order.status,
+                order.amount,
+                order.payment,
+                order.date,
+            ]),
+        ];
+
+        const csv = rows
+            .map((row) => row.map((value) => `"${String(value ?? '').replace(/"/g, '""')}"`).join(','))
+            .join('\n');
+
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const downloadUrl = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = downloadUrl;
+        link.download = `quick-orders-${status}-${Date.now()}.csv`;
+        link.click();
+        URL.revokeObjectURL(downloadUrl);
+        showToast('Orders exported successfully', 'success');
     };
 
     const pageTitle = status === 'all' ? 'All Orders' : status.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
@@ -219,10 +311,38 @@ const OrdersList = () => {
                         EXPORT
                     </button>
                     <div className="h-10 w-px bg-slate-200 mx-1 hidden lg:block" />
-                    <button className="flex items-center gap-2 px-5 py-3 bg-white ring-1 ring-slate-200 text-slate-700 rounded-2xl text-xs font-bold hover:bg-slate-50 transition-all shadow-sm">
-                        <Calendar className="h-4 w-4 text-emerald-500" />
-                        {dateRange}
-                    </button>
+                    <div className="relative">
+                        <button
+                            onClick={() => {
+                                setShowDateMenu((prev) => !prev);
+                                setShowFilterMenu(false);
+                            }}
+                            className="flex items-center gap-2 px-5 py-3 bg-white ring-1 ring-slate-200 text-slate-700 rounded-2xl text-xs font-bold hover:bg-slate-50 transition-all shadow-sm"
+                        >
+                            <Calendar className="h-4 w-4 text-emerald-500" />
+                            {dateRange}
+                        </button>
+                        {showDateMenu && (
+                            <div className="absolute right-0 top-full mt-2 w-44 rounded-2xl bg-white shadow-xl ring-1 ring-slate-200 p-2 z-20">
+                                {DATE_RANGE_OPTIONS.map((option) => (
+                                    <button
+                                        key={option.id}
+                                        onClick={() => {
+                                            setDateRange(option.label);
+                                            setDateRangeId(option.id);
+                                            setShowDateMenu(false);
+                                        }}
+                                        className={cn(
+                                            "w-full rounded-xl px-3 py-2 text-left text-xs font-bold transition-colors",
+                                            dateRangeId === option.id ? "bg-emerald-50 text-emerald-700" : "text-slate-600 hover:bg-slate-50"
+                                        )}
+                                    >
+                                        {option.label}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                    </div>
                 </div>
             </div>
 
@@ -262,9 +382,40 @@ const OrdersList = () => {
                         />
                     </div>
                     <div className="flex items-center gap-2">
-                        <button className="p-3 bg-slate-50 rounded-xl text-slate-400 hover:text-slate-600 transition-all">
+                        {isRefreshing && (
+                            <div className="flex items-center gap-2 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-slate-400">
+                                <div className="h-3.5 w-3.5 border-2 border-fuchsia-500 border-t-transparent rounded-full animate-spin" />
+                                Syncing
+                            </div>
+                        )}
+                        <button
+                            onClick={() => {
+                                setShowFilterMenu((prev) => !prev);
+                                setShowDateMenu(false);
+                            }}
+                            className="p-3 bg-slate-50 rounded-xl text-slate-400 hover:text-slate-600 transition-all"
+                        >
                             <Filter className="h-4 w-4" />
                         </button>
+                        {showFilterMenu && (
+                            <div className="absolute right-6 top-[88px] w-52 rounded-2xl bg-white shadow-xl ring-1 ring-slate-200 p-2 z-20">
+                                {PAYMENT_FILTER_OPTIONS.map((option) => (
+                                    <button
+                                        key={option.id}
+                                        onClick={() => {
+                                            setPaymentFilter(option.id);
+                                            setShowFilterMenu(false);
+                                        }}
+                                        className={cn(
+                                            "w-full rounded-xl px-3 py-2 text-left text-xs font-bold transition-colors",
+                                            paymentFilter === option.id ? "bg-fuchsia-50 text-fuchsia-700" : "text-slate-600 hover:bg-slate-50"
+                                        )}
+                                    >
+                                        {option.label}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
                     </div>
                 </div>
 
@@ -339,24 +490,13 @@ const OrdersList = () => {
                                             <span className="text-xs font-black text-slate-700">{order.seller}</span>
                                         </div>
                                     </td>
-                                    <td className="px-4 py-5" onClick={(e) => e.stopPropagation()}>
-                                        <div className="relative inline-block w-40">
-                                            <select
-                                                value={order.status}
-                                                onChange={(e) => handleStatusUpdate(order._id, e.target.value)}
-                                                className={cn(
-                                                    "w-full text-[10px] pl-3 pr-8 py-2 rounded-xl font-black uppercase tracking-wider border appearance-none cursor-pointer focus:ring-2 focus:ring-offset-1 transition-all outline-none shadow-sm",
-                                                    getStatusStyles(order.status)
-                                                )}
-                                            >
-                                                <option value="pending">Pending</option>
-                                                <option value="confirmed">Confirmed</option>
-                                                <option value="packed">Packed</option>
-                                                <option value="out_for_delivery">Out for Delivery</option>
-                                                <option value="delivered">Delivered</option>
-                                                <option value="cancelled">Cancelled</option>
-                                            </select>
-                                            <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 pointer-events-none opacity-60" />
+                                    <td className="px-4 py-5">
+                                        <div className={cn(
+                                            "inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-[10px] font-black uppercase tracking-wider shadow-sm",
+                                            getStatusStyles(order.status)
+                                        )}>
+                                            {getStatusIcon(order.status)}
+                                            <span>{order.status.replace(/_/g, ' ')}</span>
                                         </div>
                                     </td>
                                     <td className="px-4 py-5 text-right">

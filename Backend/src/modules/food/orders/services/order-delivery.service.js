@@ -3,6 +3,7 @@ import { FoodOrder } from '../models/order.model.js';
 import { FoodRestaurant } from '../../restaurant/models/restaurant.model.js';
 import { FoodTransaction } from '../models/foodTransaction.model.js';
 import { FoodDeliveryPartner } from '../../delivery/models/deliveryPartner.model.js';
+import { SellerOrder } from '../../../quick-commerce/seller/models/sellerOrder.model.js';
 import {
   ValidationError,
   ForbiddenError,
@@ -19,6 +20,7 @@ import {
 import { fetchPolyline } from '../utils/googleMaps.js';
 import * as foodTransactionService from './foodTransaction.service.js';
 import * as dispatchService from './order-dispatch.service.js';
+import * as quickOrderService from '../../../quick-commerce/services/quickOrder.service.js';
 import {
   buildOrderIdentityFilter,
   emitDeliveryDropOtpToUser,
@@ -58,6 +60,17 @@ function emitOrderUpdate(order, deliveryPartnerId) {
       const trackingId = order.orderId || order._id?.toString?.();
       if (trackingId) {
         io.to(rooms.tracking(trackingId)).emit('order_status_update', payload);
+      }
+
+      // For quick/mixed orders, also notify the seller(s)
+      if (order.orderType === 'quick' || order.orderType === 'mixed') {
+        void SellerOrder.find({ parentOrderId: order._id }).select('sellerId').lean()
+          .then(sellerOrders => {
+            for (const so of sellerOrders) {
+              if (so.sellerId) io.to(rooms.seller(so.sellerId)).emit('order_status_update', payload);
+            }
+          })
+          .catch(err => logger.warn(`Error emitting to seller rooms: ${err.message}`));
       }
     }
 
@@ -582,6 +595,25 @@ export async function confirmReachedPickupDelivery(orderId, deliveryPartnerId) {
         },
       },
     );
+
+    if (order.orderType === 'quick' || order.orderType === 'mixed') {
+      const sellerOrders = await SellerOrder.find({ parentOrderId: order._id }).select('sellerId').lean();
+      if (sellerOrders.length > 0) {
+        await notifyOwnersSafely(
+          sellerOrders.map(so => ({ ownerType: 'SELLER', ownerId: so.sellerId })),
+          {
+            title: 'Rider arrived! 🛵',
+            body: `${partner?.name || 'The delivery partner'} has arrived to pick up Order #${order.orderId}.`,
+            data: {
+              type: 'rider_arrived',
+              orderId: String(order.orderId),
+              orderMongoId: String(order._id),
+              partnerName: partner?.name || '',
+            },
+          }
+        );
+      }
+    }
   } catch (error) {
     logger.error(
       `Error notifying restaurant about rider arrival for ${order._id}: ${
@@ -647,6 +679,11 @@ export async function confirmPickupDelivery(orderId, deliveryPartnerId, billImag
     note: 'Order picked up',
   });
   await order.save();
+
+  if (order.orderType === 'quick' || order.orderType === 'mixed') {
+    void quickOrderService.syncSellerOrderFromDelivery(order._id, 'picked_up')
+      .catch(err => logger.warn(`Seller order sync (pickup) failed: ${err?.message}`));
+  }
 
   emitOrderUpdate(order, deliveryPartnerId);
   enqueueOrderEvent('picked_up', {
@@ -859,6 +896,11 @@ export async function completeDelivery(orderId, deliveryPartnerId, body = {}) {
     recordedById: deliveryPartnerId,
     note: `Delivery completed. Prev status: ${prevPayStatus}`,
   });
+
+  if (order.orderType === 'quick' || order.orderType === 'mixed') {
+    void quickOrderService.syncSellerOrderFromDelivery(order._id, 'delivered')
+      .catch(err => logger.warn(`Seller order sync (delivery) failed: ${err?.message}`));
+  }
 
   emitOrderUpdate(order, deliveryPartnerId);
   enqueueOrderEvent('delivery_completed', {

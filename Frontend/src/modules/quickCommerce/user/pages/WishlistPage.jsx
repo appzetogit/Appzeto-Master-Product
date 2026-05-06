@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import ProductCard from "../components/shared/ProductCard";
 import { useWishlist } from "../context/WishlistContext";
 import { ChevronLeft, Heart, Trash2 } from "lucide-react";
+import { getQuickHomePath } from "../utils/routes";
 
 const WishlistPage = () => {
   const navigate = useNavigate();
@@ -15,10 +16,21 @@ const WishlistPage = () => {
   } = useWishlist();
 
   React.useEffect(() => {
-    if (!isFullDataFetched) {
+    const handleRefresh = () => {
+      if (document.visibilityState && document.visibilityState !== "visible") return;
       fetchFullWishlist();
-    }
-  }, [isFullDataFetched]);
+    };
+
+    handleRefresh();
+
+    window.addEventListener("focus", handleRefresh);
+    document.addEventListener("visibilitychange", handleRefresh);
+
+    return () => {
+      window.removeEventListener("focus", handleRefresh);
+      document.removeEventListener("visibilitychange", handleRefresh);
+    };
+  }, []);
 
   if (loading && !isFullDataFetched) {
     return (
@@ -74,7 +86,7 @@ const WishlistPage = () => {
               Start saving your favorite items to see them here later.
             </p>
             <Link
-              to="/categories"
+              to={getQuickHomePath()}
               className="px-6 py-2.5 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 text-sm font-semibold rounded-lg hover:bg-slate-800 dark:hover:bg-white transition-colors">
               Explore Products
             </Link>

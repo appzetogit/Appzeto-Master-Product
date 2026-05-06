@@ -49,6 +49,7 @@ import { authAPI, userAPI } from "@food/api";
 import { firebaseAuth } from "@food/firebase";
 import { clearModuleAuth } from "@food/utils/auth";
 import { toast } from "sonner";
+import { useTheme } from "next-themes";
 const debugLog = (...args) => { };
 const debugWarn = (...args) => { };
 const debugError = (...args) => { };
@@ -64,6 +65,7 @@ export default function Profile() {
   const routerLocation = useRouterLocation();
   const routeSearchParams = new URLSearchParams(routerLocation.search);
   const companyName = useCompanyName();
+  const { theme, setTheme } = useTheme();
   const isSharedProfile = routerLocation.pathname.startsWith("/profile");
   const profileSource = routeSearchParams.get("from");
   const isQuickProfile =
@@ -125,23 +127,19 @@ export default function Profile() {
   };
 
   // Settings states
-  const [appearance, setAppearance] = useState(() => {
-    // Load theme from localStorage or default to 'light'
-    return localStorage.getItem("appTheme") || "light";
-  });
+  const [appearance, setAppearance] = useState(() => theme || localStorage.getItem("appTheme") || "light");
 
-  // Apply theme to document
   useEffect(() => {
-    const root = document.documentElement;
-    if (appearance === "dark") {
-      root.classList.add("dark");
-    } else {
-      root.classList.remove("dark");
-    }
-    // Save to localStorage
-    localStorage.setItem("appTheme", appearance);
-    window.dispatchEvent(new CustomEvent("app-theme-changed", { detail: { theme: appearance } }));
-  }, [appearance]);
+    const normalizedTheme = theme === "dark" ? "dark" : "light";
+    setAppearance(normalizedTheme);
+  }, [theme]);
+
+  useEffect(() => {
+    const normalizedAppearance = appearance === "dark" ? "dark" : "light";
+    setTheme(normalizedAppearance);
+    localStorage.setItem("appTheme", normalizedAppearance);
+    window.dispatchEvent(new CustomEvent("app-theme-changed", { detail: { theme: normalizedAppearance } }));
+  }, [appearance, setTheme]);
 
   // Get first letter of name for avatar
   const avatarInitial =
@@ -443,10 +441,6 @@ export default function Profile() {
   };
 
   const handleAddressesClick = () => {
-    if (isQuickProfile) {
-      navigate("/quick/addresses");
-      return;
-    }
     openLocationSelector();
   };
 
@@ -516,6 +510,44 @@ export default function Profile() {
 
         {/* Account Options */}
         <div className="space-y-2 mb-3 mt-3">
+          <Link to={profileEditPath} className="block">
+            <motion.div
+              whileHover={{ x: 4, scale: 1.01 }}
+              transition={{ duration: 0.2, type: "spring", stiffness: 300 }}>
+              <Card className="bg-white dark:bg-[#1a1a1a] py-0 rounded-xl shadow-sm border-0 dark:border-gray-800 cursor-pointer">
+                <CardContent className="p-4 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <motion.div
+                      className="bg-gray-100 dark:bg-gray-800 rounded-full p-2"
+                      whileHover={{ rotate: 15, scale: 1.1 }}
+                      transition={{ duration: 0.3 }}>
+                      <User className="h-5 w-5 text-gray-700 dark:text-gray-300" />
+                    </motion.div>
+                    <span className="text-base font-medium text-gray-900 dark:text-white">
+                      Your profile
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <motion.span
+                      className={`text-xs font-medium px-2 py-1 rounded ${isComplete
+                          ? "bg-green-100 text-green-700 border border-green-300"
+                          : "bg-orange-100 text-orange-800"
+                        }`}
+                      whileHover={{ scale: 1.1 }}
+                      transition={{ duration: 0.2 }}>
+                      {profileCompletion}% completed
+                    </motion.span>
+                    <motion.div
+                      whileHover={{ x: 4 }}
+                      transition={{ duration: 0.2 }}>
+                      <ChevronRight className="h-5 w-5 text-gray-400 dark:text-gray-500" />
+                    </motion.div>
+                  </div>
+                </CardContent>
+              </Card>
+            </motion.div>
+          </Link>
+
           <Link to={walletPath} className="block">
             <motion.div
               whileHover={{ x: 4, scale: 1.01 }}
@@ -686,44 +718,6 @@ export default function Profile() {
             </Card>
           </motion.div>
 
-          <Link to={profileEditPath} className="block">
-            <motion.div
-              whileHover={{ x: 4, scale: 1.01 }}
-              transition={{ duration: 0.2, type: "spring", stiffness: 300 }}>
-              <Card className="bg-white dark:bg-[#1a1a1a] py-0 rounded-xl shadow-sm border-0 dark:border-gray-800 cursor-pointer">
-                <CardContent className="p-4 flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <motion.div
-                      className="bg-gray-100 dark:bg-gray-800 rounded-full p-2"
-                      whileHover={{ rotate: 15, scale: 1.1 }}
-                      transition={{ duration: 0.3 }}>
-                      <User className="h-5 w-5 text-gray-700 dark:text-gray-300" />
-                    </motion.div>
-                    <span className="text-base font-medium text-gray-900 dark:text-white">
-                      Your profile
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <motion.span
-                      className={`text-xs font-medium px-2 py-1 rounded ${isComplete
-                          ? "bg-green-100 text-green-700 border border-green-300"
-                          : "bg-orange-100 text-orange-800"
-                        }`}
-                      whileHover={{ scale: 1.1 }}
-                      transition={{ duration: 0.2 }}>
-                      {profileCompletion}% completed
-                    </motion.span>
-                    <motion.div
-                      whileHover={{ x: 4 }}
-                      transition={{ duration: 0.2 }}>
-                      <ChevronRight className="h-5 w-5 text-gray-400 dark:text-gray-500" />
-                    </motion.div>
-                  </div>
-                </CardContent>
-              </Card>
-            </motion.div>
-          </Link>
-
           <motion.div
             whileHover={{ x: 4, scale: 1.01 }}
             transition={{ duration: 0.2, type: "spring", stiffness: 300 }}>
@@ -795,42 +789,71 @@ export default function Profile() {
           </motion.div>
         </div>
 
-        {/* Collections Section */}
+        {/* Food Section */}
         <div className="mb-3">
           <div className="flex items-center gap-2 mb-2 px-1">
             <div className="w-1 h-4 bg-[#EB590E] rounded"></div>
             <h3 className="text-base font-semibold text-gray-900 dark:text-white">
-              Collections
+              Food
             </h3>
           </div>
-          <Link to="/user/profile/favorites">
-            <motion.div
-              whileHover={{ x: 4, scale: 1.01 }}
-              transition={{ duration: 0.2, type: "spring", stiffness: 300 }}>
-              <Card className="bg-white dark:bg-[#1a1a1a] py-0 rounded-xl shadow-sm border-0 dark:border-gray-800 cursor-pointer">
-                <CardContent className="p-4  flex items-center justify-between">
-                  <div className="flex items-center gap-3">
+          <div className="space-y-2">
+            <Link to="/user/profile/favorites" className="block">
+              <motion.div
+                whileHover={{ x: 4, scale: 1.01 }}
+                transition={{ duration: 0.2, type: "spring", stiffness: 300 }}>
+                <Card className="bg-white dark:bg-[#1a1a1a] py-0 rounded-xl shadow-sm border-0 dark:border-gray-800 cursor-pointer">
+                  <CardContent className="p-4  flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <motion.div
+                        className="bg-gray-100 dark:bg-gray-800 rounded-full p-2"
+                        whileHover={{ rotate: 15, scale: 1.1 }}
+                        transition={{ duration: 0.3 }}>
+                        <Bookmark className="h-5 w-5 text-gray-700 dark:text-gray-300" />
+                      </motion.div>
+                      <span className="text-base font-medium text-gray-900 dark:text-white">
+                        Food wishlist
+                      </span>
+                    </div>
                     <motion.div
-                      className="bg-gray-100 dark:bg-gray-800 rounded-full p-2"
-                      whileHover={{ rotate: 15, scale: 1.1 }}
-                      transition={{ duration: 0.3 }}>
-                      <Bookmark className="h-5 w-5 text-gray-700 dark:text-gray-300" />
+                      whileHover={{ x: 4 }}
+                      transition={{ duration: 0.2 }}>
+                      <ChevronRight className="h-5 w-5 text-gray-400 dark:text-gray-500" />
                     </motion.div>
-                    <span className="text-base font-medium text-gray-900 dark:text-white">
-                      Your collections
-                    </span>
-                  </div>
-                  <motion.div
-                    whileHover={{ x: 4 }}
-                    transition={{ duration: 0.2 }}>
-                    <ChevronRight className="h-5 w-5 text-gray-400 dark:text-gray-500" />
-                  </motion.div>
-                </CardContent>
-              </Card>
-            </motion.div>
-          </Link>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            </Link>
+
+            <Link to="/user/orders" className="block">
+              <motion.div
+                whileHover={{ x: 4, scale: 1.01 }}
+                transition={{ duration: 0.2, type: "spring", stiffness: 300 }}>
+                <Card className="bg-white dark:bg-[#1a1a1a] py-0 rounded-xl shadow-sm border-0 dark:border-gray-800 cursor-pointer">
+                  <CardContent className="p-4 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <motion.div
+                        className="bg-gray-100 dark:bg-gray-800 rounded-full p-2"
+                        whileHover={{ rotate: 15, scale: 1.1 }}
+                        transition={{ duration: 0.3 }}>
+                        <Building2 className="h-5 w-5 text-gray-700 dark:text-gray-300" />
+                      </motion.div>
+                      <span className="text-base font-medium text-gray-900 dark:text-white">
+                        Food orders
+                      </span>
+                    </div>
+                    <motion.div
+                      whileHover={{ x: 4 }}
+                      transition={{ duration: 0.2 }}>
+                      <ChevronRight className="h-5 w-5 text-gray-400 dark:text-gray-500" />
+                    </motion.div>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            </Link>
+          </div>
         </div>
- 
+
         {/* Dining Section */}
         <div className="mb-3">
           <div className="flex items-center gap-2 mb-2 px-1">
@@ -869,43 +892,7 @@ export default function Profile() {
           </div>
         </div>
 
-        {/* Food Orders Section */}
-        <div className="mb-3">
-          <div className="flex items-center gap-2 mb-2 px-1">
-            <div className="w-1 h-4 bg-[#EB590E] rounded"></div>
-            <h3 className="text-base font-semibold text-gray-900 dark:text-white">
-              Food Orders
-            </h3>
-          </div>
-          <div className="space-y-2">
-            <Link to="/user/orders" className="block">
-              <motion.div
-                whileHover={{ x: 4, scale: 1.01 }}
-                transition={{ duration: 0.2, type: "spring", stiffness: 300 }}>
-                <Card className="bg-white dark:bg-[#1a1a1a] py-0 rounded-xl shadow-sm border-0 dark:border-gray-800 cursor-pointer">
-                  <CardContent className="p-4 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <motion.div
-                        className="bg-gray-100 dark:bg-gray-800 rounded-full p-2"
-                        whileHover={{ rotate: 15, scale: 1.1 }}
-                        transition={{ duration: 0.3 }}>
-                        <Building2 className="h-5 w-5 text-gray-700 dark:text-gray-300" />
-                      </motion.div>
-                      <span className="text-base font-medium text-gray-900 dark:text-white">
-                        Food orders
-                      </span>
-                    </div>
-                    <motion.div
-                      whileHover={{ x: 4 }}
-                      transition={{ duration: 0.2 }}>
-                      <ChevronRight className="h-5 w-5 text-gray-400 dark:text-gray-500" />
-                    </motion.div>
-                  </CardContent>
-                </Card>
-              </motion.div>
-            </Link>
-          </div>
-        </div>
+
 
         {/* Quick Commerce Section */}
         <div className="mb-3">
