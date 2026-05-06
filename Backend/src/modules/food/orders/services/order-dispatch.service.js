@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import { FoodOrder, FoodSettings } from '../models/order.model.js';
 import { FoodRestaurant } from '../../restaurant/models/restaurant.model.js';
+import { Seller } from '../../../quick-commerce/seller/models/seller.model.js';
 import { FoodDeliveryPartner } from '../../delivery/models/deliveryPartner.model.js';
 import { ValidationError, NotFoundError } from '../../../../core/auth/errors.js';
 import { logger } from '../../../../utils/logger.js';
@@ -16,15 +17,20 @@ import {
 } from './order.helpers.js';
 
 async function listNearbyOnlineDeliveryPartners(
-  restaurantId,
-  { maxKm = 15, limit = 25 } = {},
+  sourceId,
+  { maxKm = 15, limit = 25, sourceType = 'food' } = {},
 ) {
-  const rId = (restaurantId?._id || restaurantId).toString();
-  const restaurant = await FoodRestaurant.findById(rId)
-    .select("location")
-    .lean();
+  if (!sourceId) return { partners: [] };
+  const sId = (sourceId?._id || sourceId).toString();
+  
+  let source = null;
+  if (sourceType === 'quick') {
+    source = await Seller.findById(sId).select("location").lean();
+  } else {
+    source = await FoodRestaurant.findById(sId).select("location").lean();
+  }
 
-  if (!restaurant?.location?.coordinates?.length) {
+  if (!source?.location?.coordinates?.length) {
     const partners = await FoodDeliveryPartner.find({
       status: "approved",
       availabilityStatus: "online",
@@ -39,7 +45,7 @@ async function listNearbyOnlineDeliveryPartners(
     };
   }
 
-  const [rLng, rLat] = restaurant.location.coordinates;
+  const [rLng, rLat] = source.location.coordinates;
   const allOnline = await FoodDeliveryPartner.find({
     availabilityStatus: "online",
   })
@@ -150,8 +156,14 @@ export async function tryAutoAssign(orderId, options = {}) {
     if (attempt === 3) maxKm = 40;
     if (attempt >= 4) maxKm = 60;
 
-    const searchOptions = { maxKm, limit: 15 };
-    const { partners } = await listNearbyOnlineDeliveryPartners(order.restaurantId, searchOptions);
+    const isQuickOrder = order.orderType === 'quick';
+    const quickSellerId =
+      options.quickSellerId ||
+      order.items?.find((item) => item?.type === 'quick' && item?.sourceId)?.sourceId ||
+      order.pickupPoints?.find((point) => point?.pickupType === 'quick' && point?.sourceId)?.sourceId;
+    const dispatchSourceId = isQuickOrder ? quickSellerId : order.restaurantId;
+    const searchOptions = { maxKm, limit: 15, sourceType: isQuickOrder ? 'quick' : 'food' };
+    const { partners } = await listNearbyOnlineDeliveryPartners(dispatchSourceId, searchOptions);
     
     // TIERED ALERT LOGIC
     // Phase 2: Broadcast to all (Attempt 3+)
@@ -210,14 +222,22 @@ export async function tryAutoAssign(orderId, options = {}) {
       logger.info(`[Phase 2] Broadcasting order ${order._id} to ${eligible.length} riders.`);
       for (const p of eligible) {
         const roomName = rooms.delivery(p.partnerId);
-        if (io) io.to(roomName).emit('new_order', { ...payload, pickupDistanceKm: p.distanceKm });
+        if (io) {
+          io.to(roomName).emit('new_order', { ...payload, pickupDistanceKm: p.distanceKm });
+          io.to(roomName).emit('new_order_available', { ...payload, pickupDistanceKm: p.distanceKm });
+          io.to(roomName).emit('play_notification_sound', { orderId: order.orderId, orderMongoId: order._id.toString() });
+        }
       }
     } else {
       // PHASE 1: Target best rider only
       const p = eligible[0];
       const roomName = rooms.delivery(p.partnerId);
       logger.info(`[Phase 1] Offering order ${order._id} to best rider ${p.partnerId} (${p.distanceKm}km)`);
-      if (io) io.to(roomName).emit('new_order', { ...payload, pickupDistanceKm: p.distanceKm });
+      if (io) {
+        io.to(roomName).emit('new_order', { ...payload, pickupDistanceKm: p.distanceKm });
+        io.to(roomName).emit('new_order_available', { ...payload, pickupDistanceKm: p.distanceKm });
+        io.to(roomName).emit('play_notification_sound', { orderId: order.orderId, orderMongoId: order._id.toString() });
+      }
       
       try {
         await notifyOwnerSafely(

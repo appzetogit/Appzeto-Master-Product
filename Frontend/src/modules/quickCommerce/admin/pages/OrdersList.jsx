@@ -30,6 +30,7 @@ import {
     getLegacyStatusFromOrder,
     adminRouteMatchesOrder,
 } from '@/shared/utils/orderStatus';
+import { joinOrderRoom, onOrderStatusUpdate } from "@/core/services/orderSocket";
 
 const AUTO_REFRESH_INTERVAL_MS = 30000;
 
@@ -93,6 +94,11 @@ const OrdersList = () => {
     const [isLoading, setIsLoading] = useState(true);
     const [isRefreshing, setIsRefreshing] = useState(false);
 
+    const getToken = () =>
+        localStorage.getItem("admin_accessToken") ||
+        localStorage.getItem("accessToken") ||
+        "";
+
     const fetchOrders = async (requestedPage = 1, options = {}) => {
         const isBackgroundRefresh = options.background === true;
         if (isBackgroundRefresh) {
@@ -127,6 +133,9 @@ const OrdersList = () => {
                     paymentMethod: String(o.payment?.method || '').toLowerCase(),
                 }));
                 setOrders(formatted);
+                formatted.forEach((row) => {
+                    if (row?.id) joinOrderRoom(row.id, getToken);
+                });
                 if (typeof payload.total === 'number') {
                     setTotal(payload.total);
                 } else {
@@ -187,6 +196,34 @@ const OrdersList = () => {
         return () => window.clearInterval(interval);
     }, [page, pageSize, status]);
 
+    useEffect(() => {
+        const off = onOrderStatusUpdate(getToken, (payload) => {
+            const orderId = String(payload?.orderId || "").trim();
+            if (!orderId) return;
+            const raw = String(payload?.sellerStatus || payload?.orderStatus || "").trim().toLowerCase();
+            if (!raw) return;
+            const nextStatus =
+                raw === "picked_up" ? "out_for_delivery" :
+                    raw === "placed" || raw === "created" ? "pending" :
+                        raw;
+
+            setOrders((prev) =>
+                (Array.isArray(prev) ? prev : []).map((row) =>
+                    String(row?.id || "") === orderId
+                        ? {
+                            ...row,
+                            rawStatus: payload?.orderStatus ?? row.rawStatus,
+                            status: nextStatus,
+                        }
+                        : row
+                )
+            );
+        });
+
+        return () => off?.();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
     const safeOrders = useMemo(
         () => (Array.isArray(orders) ? orders : []),
         [orders]
@@ -195,7 +232,7 @@ const OrdersList = () => {
     const stats = useMemo(() => {
         const totalEarnings = safeOrders.reduce((sum, o) => sum + o.amount, 0);
         const activeOrders = safeOrders.filter(o =>
-            ['pending', 'confirmed', 'packed', 'out_for_delivery'].includes(o.status),
+            ['pending', 'confirmed', 'packed', 'ready_for_pickup', 'out_for_delivery'].includes(o.status),
         ).length;
 
         return [
@@ -234,6 +271,7 @@ const OrdersList = () => {
             case 'pending': return 'bg-amber-100 text-amber-600 border-amber-200';
             case 'confirmed': return 'bg-blue-100 text-blue-600 border-blue-200';
             case 'packed': return 'bg-indigo-100 text-indigo-600 border-indigo-200';
+            case 'ready_for_pickup': return 'bg-blue-100 text-blue-600 border-blue-200';
             case 'out_for_delivery': return 'bg-purple-100 text-purple-600 border-purple-200';
             case 'delivered': return 'bg-emerald-100 text-emerald-600 border-emerald-200';
             case 'cancelled': return 'bg-rose-100 text-rose-600 border-rose-200';
@@ -247,6 +285,7 @@ const OrdersList = () => {
             case 'pending': return <Clock className="h-4 w-4" />;
             case 'confirmed': return <CheckCircle2 className="h-4 w-4" />;
             case 'packed': return <Package className="h-4 w-4" />;
+            case 'ready_for_pickup': return <CheckCircle2 className="h-4 w-4" />;
             case 'out_for_delivery': return <Truck className="h-4 w-4" />;
             case 'delivered': return <CheckCircle2 className="h-4 w-4" />;
             case 'cancelled': return <XCircle className="h-4 w-4" />;

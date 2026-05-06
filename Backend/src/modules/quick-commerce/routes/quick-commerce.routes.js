@@ -75,6 +75,7 @@ import {
   toggleDeliveryCommissionRuleStatus,
   updateDeliveryCommissionRule,
 } from '../controllers/billing.controller.js';
+import { geocodeAddress, reverseGeocode } from '../controllers/location.controller.js';
 
 import { authMiddleware } from '../../../core/auth/auth.middleware.js';
 import { requireRoles } from '../../../core/roles/role.middleware.js';
@@ -113,6 +114,10 @@ router.post('/products/reviews', optionalAuth, submitProductReview);
 router.get('/products/:productId', getProductById);
 router.get('/zones/public', listPublicZones);
 router.get('/billing/settings', getPublicBillingSettings);
+
+// Location endpoints
+router.get('/location/geocode', geocodeAddress);
+router.get('/location/reverse-geocode', reverseGeocode);
 
 router.get('/cart', optionalAuth, getCart);
 router.post('/cart/add', optionalAuth, addToCart);

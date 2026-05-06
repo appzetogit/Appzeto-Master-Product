@@ -183,8 +183,10 @@ export function CartProvider({ children }) {
     try {
       // Only save if we have items or user is authenticated to avoid cluttering localStorage for every guest visitor
       const isAuthenticated = localStorage.getItem("user_authenticated") === "true" || !!localStorage.getItem("user_accessToken");
-      if (cart.length > 0 || isAuthenticated) {
+      if (cart.length > 0) {
         localStorage.setItem("cart", JSON.stringify(normalizeCartData(cart)))
+      } else {
+        localStorage.removeItem("cart")
       }
     } catch {
       // ignore storage errors (private mode, quota, etc.)

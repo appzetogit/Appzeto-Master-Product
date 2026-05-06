@@ -11,6 +11,8 @@ import {
   calculateQuickPricing,
   getRiderEarning as getQuickRiderEarning,
 } from '../admin/services/billing.service.js';
+import * as foodTransactionService from '../../food/orders/services/foodTransaction.service.js';
+import { emitQuickCommerceStatusUpdate } from '../services/quickStatusRealtime.service.js';
 
 const approvedProductFilter = {
   $or: [
@@ -101,21 +103,7 @@ const normalizeRequestedItems = (items) => {
 
 const emitQuickOrderStatusUpdate = (order, message = '') => {
   try {
-    if (!order?.userId) return;
-    const io = getIO();
-    if (!io) return;
-
-    const payload = {
-      orderMongoId: order._id?.toString?.() || '',
-      orderId: order.orderId,
-      orderStatus: order.orderStatus,
-      workflowStatus: order.workflowStatus || '',
-      message,
-    };
-
-    io.to(rooms.user(order.userId)).emit('order_status_update', payload);
-    io.to(rooms.tracking(order.orderId)).emit('order_status_update', payload);
-    io.to(rooms.tracking(order.orderId)).emit('order:status:update', payload);
+    void emitQuickCommerceStatusUpdate(order, { message });
   } catch {
     // best-effort realtime update
   }
@@ -309,6 +297,8 @@ export const placeOrder = async (req, res) => {
             const { commissionAmount } = await getSellerCommissionSnapshot(sellerId, sellerSubtotal);
 
             return {
+              orderType: 'quick',
+              parentOrderId: order._id,
               sellerId,
               orderId: order.orderId,
               customer: {

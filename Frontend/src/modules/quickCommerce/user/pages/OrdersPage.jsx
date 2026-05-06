@@ -10,12 +10,20 @@ import {
 import { customerApi } from "../services/customerApi";
 import { getOrderStatusLabel, getLegacyStatusFromOrder } from "@/shared/utils/orderStatus";
 import { getQuickCategoriesPath } from "../utils/routes";
+import { joinOrderRoom, leaveOrderRoom, onOrderStatusUpdate } from "@/core/services/orderSocket";
 
 const OrdersPage = () => {
   const navigate = useNavigate();
   const categoriesPath = getQuickCategoriesPath();
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  const getToken = () =>
+    localStorage.getItem("auth_customer") ||
+    localStorage.getItem("user_accessToken") ||
+    localStorage.getItem("accessToken") ||
+    localStorage.getItem("token") ||
+    "";
 
   useEffect(() => {
     const fetchOrders = async () => {
@@ -33,6 +41,11 @@ const OrdersPage = () => {
         }) : [];
         
         setOrders(list);
+        // Join tracking rooms so status updates work even when userId is missing on the order.
+        list.forEach((order) => {
+          const orderId = String(order?.orderId || order?.orderNumber || order?.id || order?._id || "").trim();
+          if (orderId) joinOrderRoom(orderId, getToken);
+        });
       } catch (error) {
         console.error("Failed to fetch orders:", error);
         setOrders([]);
@@ -43,6 +56,42 @@ const OrdersPage = () => {
 
     fetchOrders();
   }, []);
+
+  useEffect(() => {
+    const off = onOrderStatusUpdate(getToken, (payload) => {
+      const orderId = String(payload?.orderId || "").trim();
+      if (!orderId) return;
+      const nextOrderStatus = payload?.orderStatus ? String(payload.orderStatus).trim() : "";
+      const nextWorkflowStatus = payload?.workflowStatus ? String(payload.workflowStatus).trim() : "";
+      if (!nextOrderStatus && !nextWorkflowStatus) return;
+
+      setOrders((prev) =>
+        (Array.isArray(prev) ? prev : []).map((order) => {
+          const existingId = String(order?.orderId || order?.orderNumber || order?.id || order?._id || "").trim();
+          if (existingId !== orderId) return order;
+          return {
+            ...order,
+            ...(nextOrderStatus ? { orderStatus: nextOrderStatus } : {}),
+            ...(nextWorkflowStatus ? { workflowStatus: nextWorkflowStatus } : {}),
+          };
+        }),
+      );
+    });
+
+    return () => off?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    // Best-effort: leave rooms on unmount to avoid unbounded joins.
+    return () => {
+      (Array.isArray(orders) ? orders : []).forEach((order) => {
+        const orderId = String(order?.orderId || order?.orderNumber || order?.id || order?._id || "").trim();
+        if (orderId) leaveOrderRoom(orderId, getToken);
+      });
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orders]);
 
   if (loading) {
     return (

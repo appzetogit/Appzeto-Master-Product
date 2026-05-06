@@ -35,6 +35,7 @@ import { getLegacyStatusFromOrder } from '@/shared/utils/orderStatus';
 import { Loader2 } from 'lucide-react';
 import Pagination from '@shared/components/ui/Pagination';
 import { DatePicker } from "@/components/ui/date-picker";
+import { onOrderStatusUpdate } from "@/core/services/orderSocket";
 
 
 const Orders = () => {
@@ -52,6 +53,55 @@ const Orders = () => {
     const [pageSize, setPageSize] = useState(20);
     const [total, setTotal] = useState(0);
     const hasMountedRef = useRef(false);
+    const statusHandlerRef = useRef(null);
+
+    const getToken = () =>
+        localStorage.getItem("auth_seller") ||
+        localStorage.getItem("seller_accessToken") ||
+        localStorage.getItem("accessToken") ||
+        "";
+
+    useEffect(() => {
+        // Live updates for seller room + tracking room events.
+        const off = onOrderStatusUpdate(getToken, (payload) => {
+            const orderId = String(payload?.orderId || "").trim();
+            if (!orderId) return;
+            const raw = String(payload?.sellerStatus || payload?.orderStatus || "").trim().toLowerCase();
+            if (!raw) return;
+            const nextStatus =
+                raw === "picked_up" ? "out_for_delivery" :
+                    raw === "placed" || raw === "created" ? "pending" :
+                        raw;
+            const nextWorkflow = String(payload?.sellerWorkflowStatus || "").trim();
+
+            setOrders((prev) =>
+                (Array.isArray(prev) ? prev : []).map((order) =>
+                    String(order?.orderId || order?.id || "") === orderId
+                        ? {
+                            ...order,
+                            status: nextStatus,
+                            ...(nextWorkflow ? { workflowStatus: nextWorkflow } : {}),
+                        }
+                        : order
+                )
+            );
+
+            setSelectedOrder((prev) => {
+                if (!prev || String(prev?.orderId || prev?.id || "") !== orderId) return prev;
+                return {
+                    ...prev,
+                    status: nextStatus,
+                    ...(nextWorkflow ? { workflowStatus: nextWorkflow } : {}),
+                };
+            });
+        });
+        statusHandlerRef.current = off;
+        return () => {
+            if (typeof statusHandlerRef.current === "function") statusHandlerRef.current();
+            statusHandlerRef.current = null;
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     // Initial load: show full-page loader once
     useEffect(() => {
@@ -144,7 +194,7 @@ const Orders = () => {
         }
     };
 
-    const tabs = ['All', 'Pending', 'Confirmed', 'Packed', 'Out for Delivery', 'Delivered', 'Cancelled'];
+    const tabs = ['All', 'Pending', 'Confirmed', 'Packed', 'Ready for Pickup', 'Out for Delivery', 'Delivered', 'Cancelled'];
     const todayStr = new Date().toISOString().split('T')[0];
 
     const safeOrders = useMemo(
@@ -156,7 +206,7 @@ const Orders = () => {
         return safeOrders.filter(order => {
             const matchesSearch = order.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
                 order.customer.name.toLowerCase().includes(searchTerm.toLowerCase());
-            const statusToMatch = activeTab === 'Out for Delivery' ? 'out_for_delivery' : activeTab.toLowerCase();
+            const statusToMatch = activeTab === 'Out for Delivery' ? 'out_for_delivery' : activeTab === 'Ready for Pickup' ? 'ready_for_pickup' : activeTab.toLowerCase();
             const matchesTab = activeTab === 'All' || order.status.toLowerCase() === statusToMatch;
             return matchesSearch && matchesTab;
         });
@@ -199,6 +249,7 @@ const Orders = () => {
             case 'pending': return 'warning';
             case 'confirmed': return 'info';
             case 'packed': return 'primary';
+            case 'ready_for_pickup': return 'info';
             case 'out_for_delivery': return 'secondary';
             case 'delivered': return 'success';
             case 'cancelled': return 'error';
@@ -568,6 +619,7 @@ const Orders = () => {
                                                         <option value="pending">Pending</option>
                                                         <option value="confirmed">Confirmed</option>
                                                         <option value="packed">Packed</option>
+                                                        <option value="ready_for_pickup">Ready for Pickup</option>
                                                         <option value="out_for_delivery">Out</option>
                                                         <option value="delivered">Delivered</option>
                                                         <option value="cancelled">Cancelled</option>
@@ -685,7 +737,8 @@ const Orders = () => {
                                                                     order.status === 'pending' ? "bg-amber-100 text-amber-700 focus:ring-amber-200" :
                                                                         order.status === 'confirmed' ? "bg-blue-100 text-blue-700 focus:ring-blue-200" :
                                                                             order.status === 'packed' ? "bg-indigo-100 text-indigo-700 focus:ring-indigo-200" :
-                                                                                order.status === 'out_for_delivery' ? "bg-purple-100 text-purple-700 focus:ring-purple-200" :
+                                                                                order.status === 'ready_for_pickup' ? "bg-blue-100 text-blue-700 focus:ring-blue-200" :
+                                                                                    order.status === 'out_for_delivery' ? "bg-purple-100 text-purple-700 focus:ring-purple-200" :
                                                                                     order.status === 'delivered' ? "bg-emerald-100 text-emerald-700 focus:ring-emerald-200" :
                                                                                         order.status === 'cancelled' ? "bg-rose-100 text-rose-700 focus:ring-rose-200" :
                                                                                             "bg-slate-100 text-slate-700 focus:ring-slate-200"
@@ -694,6 +747,7 @@ const Orders = () => {
                                                                 <option value="pending">Pending</option>
                                                                 <option value="confirmed">Confirmed</option>
                                                                 <option value="packed">Packed</option>
+                                                                <option value="ready_for_pickup">Ready for Pickup</option>
                                                                 <option value="out_for_delivery">Out for Delivery</option>
                                                                 <option value="delivered">Delivered</option>
                                                                 <option value="cancelled">Cancelled</option>

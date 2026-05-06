@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useToast } from '@shared/components/ui/Toast';
+import { joinOrderRoom, leaveOrderRoom, onOrderStatusUpdate } from "@/core/services/orderSocket";
 
 const AUTO_REFRESH_INTERVAL_MS = 30000;
 
@@ -52,6 +53,7 @@ const getStatusStyles = (status) => {
         case 'pending': return 'bg-amber-100 text-amber-700 border-amber-200';
         case 'confirmed': return 'bg-blue-100 text-blue-700 border-blue-200';
         case 'packed': return 'bg-indigo-100 text-indigo-700 border-indigo-200';
+        case 'ready_for_pickup': return 'bg-blue-100 text-blue-700 border-blue-200';
         case 'out_for_delivery': return 'bg-purple-100 text-purple-700 border-purple-200';
         case 'delivered': return 'bg-emerald-100 text-emerald-700 border-emerald-200';
         case 'cancelled': return 'bg-rose-100 text-rose-700 border-rose-200';
@@ -78,6 +80,11 @@ export default function OrderDetail() {
     const [order, setOrder] = useState(null);
     const [isLoading, setIsLoading] = useState(true);
 
+    const getToken = () =>
+        localStorage.getItem("admin_accessToken") ||
+        localStorage.getItem("accessToken") ||
+        "";
+
     const fetchDetail = async () => {
         if (!orderId) return;
         setIsLoading(true);
@@ -99,6 +106,29 @@ export default function OrderDetail() {
 
     useEffect(() => {
         fetchDetail();
+    }, [orderId]);
+
+    useEffect(() => {
+        if (!orderId) return undefined;
+        joinOrderRoom(orderId, getToken);
+        const off = onOrderStatusUpdate(getToken, (payload) => {
+            const id = String(payload?.orderId || "").trim();
+            if (!id || String(orderId) !== id) return;
+            setOrder((prev) => {
+                if (!prev) return prev;
+                return {
+                    ...prev,
+                    orderStatus: payload?.orderStatus ?? prev.orderStatus,
+                    status: payload?.sellerStatus ?? prev.status,
+                };
+            });
+        });
+
+        return () => {
+            off?.();
+            leaveOrderRoom(orderId, getToken);
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [orderId]);
 
     useEffect(() => {

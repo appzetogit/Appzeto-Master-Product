@@ -972,7 +972,7 @@ function buildSellerOrdersFromParent(orderDoc, { customerName = "", customerPhon
 
     return {
       orderType: order.orderType === "mixed" ? "mixed" : "quick",
-      parentOrderId: order._id || null,
+      parentOrderId: orderDoc?._id || order?._id || null,
       sellerId: new mongoose.Types.ObjectId(sellerId),
       orderId: order.orderId,
       customer: {
@@ -3059,7 +3059,7 @@ export async function listOrdersAvailableDelivery(deliveryPartnerId, query) {
     $or: [
       {
         "dispatch.status": "unassigned",
-        orderStatus: { $in: ["preparing", "ready_for_pickup"] },
+        orderStatus: { $in: ["confirmed", "preparing", "ready_for_pickup"] },
       },
       {
         "dispatch.deliveryPartnerId": partnerObjectId,
@@ -3127,7 +3127,7 @@ export async function listOrdersAvailableDelivery(deliveryPartnerId, query) {
     const isMarketplaceOrder = isSplitDispatchOrder(order)
       ? eligibleLegs.length > 0
       : order?.dispatch?.status === "unassigned" &&
-        ["preparing", "ready_for_pickup"].includes(order?.orderStatus);
+        ["confirmed", "preparing", "ready_for_pickup"].includes(order?.orderStatus);
 
     if (assignedLeg) {
       docs.push(
