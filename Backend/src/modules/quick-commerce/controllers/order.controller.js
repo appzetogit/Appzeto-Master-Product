@@ -409,7 +409,44 @@ export const getMyOrders = async (req, res) => {
 
   const orders = await QuickOrder.find({ ...idQuery, orderType: 'quick' }).sort({ createdAt: -1 }).lean();
 
-  const mappedOrders = orders.map(normalizeOrderSummary);
+  const sellerIds = [
+    ...new Set(
+      orders
+        .map((order) =>
+          String(order?.items?.find((item) => item?.type === 'quick')?.sourceId || order?.items?.[0]?.sourceId || '').trim(),
+        )
+        .filter((value) => mongoose.Types.ObjectId.isValid(value)),
+    ),
+  ];
+
+  const sellers = sellerIds.length
+    ? await Seller.find({ _id: { $in: sellerIds } }).select('_id name shopName').lean()
+    : [];
+  const sellerMap = sellers.reduce((acc, seller) => {
+    acc[String(seller._id)] = seller;
+    return acc;
+  }, {});
+
+  const mappedOrders = orders.map((order) => {
+    const normalized = normalizeOrderSummary(order);
+    const sellerId = String(
+      order?.items?.find((item) => item?.type === 'quick')?.sourceId || order?.items?.[0]?.sourceId || '',
+    ).trim();
+    const seller = sellerMap[sellerId] || null;
+
+    return {
+      ...normalized,
+      sellerId: seller?._id || null,
+      storeName: seller?.shopName || seller?.name || '',
+      seller: seller
+        ? {
+            _id: seller._id,
+            name: seller.name || '',
+            shopName: seller.shopName || seller.name || 'Store',
+          }
+        : null,
+    };
+  });
 
   return res.json({
     success: true,

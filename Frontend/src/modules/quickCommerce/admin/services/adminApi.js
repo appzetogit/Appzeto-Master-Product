@@ -346,9 +346,11 @@ export const adminApi = {
   },
   getSellerRequests: (params) => axiosInstance.get('/quick-commerce/admin/seller-requests', { params }),
   rejectSeller: (sellerId, data = {}) => axiosInstance.put(`/quick-commerce/admin/seller-requests/${sellerId}/reject`, data),
-  getTickets: () => emptyResponse({ items: [], total: 0 }),
-  updateTicketStatus: () => emptyResponse({}),
-  replyTicket: () => emptyResponse({}),
+  getTickets: (params = {}) => axiosInstance.get('/quick-commerce/admin/support-tickets', { params }),
+  updateTicketStatus: (id, status) =>
+    axiosInstance.patch(`/quick-commerce/admin/support-tickets/${id}`, { status }),
+  replyTicket: (id, adminResponse) =>
+    axiosInstance.patch(`/quick-commerce/admin/support-tickets/${id}`, { adminResponse }),
   getPendingReviews: () => emptyResponse({ items: [], total: 0 }),
   updateReviewStatus: () => emptyResponse({}),
   getDeliveryPartners: () => emptyResponse({ items: [], total: 0 }),
