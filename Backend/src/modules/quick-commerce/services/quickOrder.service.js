@@ -12,10 +12,13 @@ import {
   buildDeliverySocketPayload,
   enqueueOrderEvent,
   isStatusAdvance,
+  haversineKm,
 } from '../../food/orders/services/order.helpers.js';
+import { tryAutoAssign } from '../../food/orders/services/order-dispatch.service.js';
 import { initiateRazorpayRefund } from '../../food/orders/helpers/razorpay.helper.js';
 import * as foodTransactionService from '../../food/orders/services/foodTransaction.service.js';
 import { ValidationError, NotFoundError } from '../../../core/auth/errors.js';
+import { emitQuickCommerceStatusUpdate } from './quickStatusRealtime.service.js';
 
 /**
  * Status mapping from SellerOrder to Parent QuickOrder (FoodOrder)
@@ -67,7 +70,12 @@ export const updateSellerOrderStatus = async (sellerOrderId, sellerId, nextStatu
   await sellerOrder.save();
 
   // 2. Sync Parent Order
-  const parentOrder = await QuickOrder.findById(sellerOrder.parentOrderId);
+  const parentOrder = sellerOrder.parentOrderId
+    ? await QuickOrder.findById(sellerOrder.parentOrderId)
+    : await QuickOrder.findOne({
+        orderType: { $in: ['quick', 'mixed'] },
+        orderId: sellerOrder.orderId,
+      });
   if (parentOrder) {
     const parentNextStatus = SELLER_TO_PARENT_STATUS_MAP[nextStatus];
     const fromStatus = parentOrder.orderStatus;
@@ -90,10 +98,21 @@ export const updateSellerOrderStatus = async (sellerOrderId, sellerId, nextStatu
           : `Seller updated status to ${nextStatus}`,
       });
 
-      // Handle Side Effects
+      // If cancelled -> handle refund
+      if (nextStatus === 'cancelled') {
+        await handleSellerOrderCancellation(parentOrder);
+      }
+
+      await parentOrder.save();
       
-      // If confirmed -> trigger dispatch
-      if (nextStatus === 'confirmed') {
+      // Handle Side Effects (Post-Save to avoid race conditions)
+      
+      // If confirmed or beyond -> trigger dispatch if not already assigned
+      const isAcceptedStatus = ['confirmed', 'preparing', 'packed', 'ready_for_pickup', 'out_for_delivery'].includes(nextStatus);
+      const isDispatchUnassigned = !parentOrder.dispatch?.status || parentOrder.dispatch.status === 'unassigned';
+      
+      if (isAcceptedStatus && isDispatchUnassigned) {
+        logger.info(`[QuickDispatch] Triggering dispatch for order ${parentOrder.orderId} (Status: ${nextStatus})`);
         void triggerQuickOrderDispatch(parentOrder._id, sellerId).catch(err => 
           logger.error(`[QuickDispatch] Trigger failed: ${err.message}`)
         );
@@ -109,27 +128,13 @@ export const updateSellerOrderStatus = async (sellerOrderId, sellerId, nextStatu
           io.to(rooms.delivery(assignedId)).emit('order_ready', payload);
         }
       }
-
-      // If cancelled -> handle refund
-      if (nextStatus === 'cancelled') {
-        await handleSellerOrderCancellation(parentOrder);
-      }
-
-      await parentOrder.save();
       
       // Emit Socket Updates
-      const io = getIO();
-      if (io) {
-        const payload = {
-          orderMongoId: parentOrder._id.toString(),
-          orderId: parentOrder.orderId,
-          orderStatus: parentOrder.orderStatus,
-        };
-        io.to(rooms.user(parentOrder.userId)).emit('order_status_update', payload);
-        io.to(rooms.tracking(parentOrder.orderId)).emit('order_status_update', payload);
-        // Also notify the seller room for UI consistency
-        io.to(rooms.seller(sellerId)).emit('order_status_update', payload);
-      }
+      void emitQuickCommerceStatusUpdate(parentOrder, {
+        sellerId,
+        sellerStatus: sellerOrder.status,
+        sellerWorkflowStatus: sellerOrder.workflowStatus,
+      });
 
       // FCM Notification to User
       await notifyOwnerSafely(
@@ -197,83 +202,44 @@ export const syncSellerOrderFromDelivery = async (parentOrderId, deliveryStatus)
   const nextSellerStatus = deliveryStatus === 'picked_up' ? 'out_for_delivery' : (deliveryStatus === 'delivered' ? 'delivered' : null);
   if (!nextSellerStatus) return;
 
-  await SellerOrder.updateMany(
-    { parentOrderId },
-    { $set: { status: nextSellerStatus, workflowStatus: SELLER_TO_WORKFLOW_MAP[nextSellerStatus] } }
-  );
+  const parent = await QuickOrder.findById(parentOrderId).select('_id orderId').lean();
+  if (!parent) return;
+
+  // Backward compatibility: older quick seller orders were created without parentOrderId.
+  // Sync by parentOrderId (new) OR by orderId (old), and backfill parentOrderId where missing.
+  await Promise.all([
+    SellerOrder.updateMany(
+      { parentOrderId },
+      {
+        $set: {
+          status: nextSellerStatus,
+          workflowStatus: SELLER_TO_WORKFLOW_MAP[nextSellerStatus],
+        },
+      },
+    ),
+    SellerOrder.updateMany(
+      { orderId: parent.orderId, $or: [{ parentOrderId: null }, { parentOrderId: { $exists: false } }] },
+      {
+        $set: {
+          parentOrderId: parent._id,
+          status: nextSellerStatus,
+          workflowStatus: SELLER_TO_WORKFLOW_MAP[nextSellerStatus],
+        },
+      },
+    ),
+  ]);
 };
 
 export const triggerQuickOrderDispatch = async (parentOrderId, sellerId) => {
   try {
-    const quickOrder = await QuickOrder.findById(parentOrderId);
-    if (!quickOrder) return;
-
-    if (quickOrder.dispatch?.status === "accepted" && quickOrder.dispatch?.deliveryPartnerId) {
-      return;
-    }
-
-    const seller = await Seller.findById(sellerId).select("shopName name phone location").lean();
-    if (!seller) return;
-
-    const origin = getSellerLocation(seller) || getOrderAddressPoint(quickOrder);
-    if (!origin) return;
-
-    const nearbyPartners = await listNearbyOnlineDeliveryPartnersByCoords(origin, {
-      maxKm: 15,
-      limit: 25,
-    });
-
-    if (nearbyPartners.length === 0) {
-      logger.info(`[QuickDispatch] No nearby partners found for order ${quickOrder.orderId}`);
-      return;
-    }
-
-    const io = getIO();
-    const deliveryPayload = {
-      ...buildDeliverySocketPayload(quickOrder, seller),
-      orderId: quickOrder.orderId,
-      orderMongoId: quickOrder._id?.toString?.(),
-      restaurantName: seller?.shopName || seller?.name || "Quick Commerce Seller",
-      restaurantPhone: seller?.phone || "",
-      dispatch: quickOrder.dispatch,
-      sourceType: "quick",
-    };
-
-    for (const partner of nearbyPartners) {
-      const deliveryRoom = rooms.delivery(partner.partnerId);
-      if (io) {
-        io.to(deliveryRoom).emit("new_order_available", {
-          ...deliveryPayload,
-          pickupDistanceKm: partner.distanceKm,
-        });
-        io.to(deliveryRoom).emit("play_notification_sound", {
-          orderId: quickOrder.orderId,
-          orderMongoId: quickOrder._id?.toString?.(),
-        });
-      }
-
-      await notifyOwnerSafely(
-        { ownerType: "DELIVERY_PARTNER", ownerId: partner.partnerId },
-        {
-          title: "New quick commerce order nearby",
-          body: `A new order #${quickOrder.orderId} is available near you.`,
-          data: {
-            type: "new_order",
-            orderId: quickOrder.orderId,
-            orderMongoId: quickOrder._id?.toString?.(),
-            link: "/delivery",
-          },
-        },
-      );
-    }
-
-    logger.info(`[QuickDispatch] Broadcasted order ${quickOrder.orderId} to ${nearbyPartners.length} partners`);
+    logger.info(`[QuickDispatch] Delegating dispatch for order ${parentOrderId} to unified engine`);
+    await tryAutoAssign(parentOrderId, { attempt: 1, quickSellerId: sellerId });
   } catch (error) {
-    logger.error(`[QuickDispatch] Failed for order ${parentOrderId}: ${error.message}`);
+    logger.error(`[QuickDispatch] Delegation failed for order ${parentOrderId}: ${error.message}`);
   }
 };
 
-const getSellerLocation = (seller) => {
+export const getSellerLocation = (seller) => {
   if (Array.isArray(seller?.location?.coordinates) && seller.location.coordinates.length === 2) {
     return { lat: Number(seller.location.coordinates[1]), lng: Number(seller.location.coordinates[0]) };
   }
@@ -283,36 +249,37 @@ const getSellerLocation = (seller) => {
   return null;
 };
 
-const getOrderAddressPoint = (order) => {
-  const lat = Number(order?.address?.location?.lat);
-  const lng = Number(order?.address?.location?.lng);
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
-  return { lat, lng };
+export const getOrderAddressPoint = (order) => {
+  // FoodOrder/QuickOrder schema uses deliveryAddress.location.coordinates [lng, lat]
+  if (order?.deliveryAddress?.location?.coordinates?.length === 2) {
+    const [lng, lat] = order.deliveryAddress.location.coordinates;
+    return { lat, lng };
+  }
+  // Fallback for address.location.lat/lng
+  const lat = Number(order?.address?.location?.lat || order?.location?.lat);
+  const lng = Number(order?.address?.location?.lng || order?.location?.lng);
+  if (Number.isFinite(lat) && Number.isFinite(lng)) {
+    return { lat, lng };
+  }
+  return null;
 };
 
-const listNearbyOnlineDeliveryPartnersByCoords = async (origin, { maxKm = 15, limit = 10 } = {}) => {
+export const listNearbyOnlineDeliveryPartnersByCoords = async (origin, { maxKm = 15, limit = 10 } = {}) => {
+  if (!origin?.lat || !origin?.lng) return [];
+
   const onlinePartners = await FoodDeliveryPartner.find({
     availabilityStatus: "online",
     status: { $in: process.env.NODE_ENV === "production" ? ["approved"] : ["approved", "pending"] },
   })
-    .select("_id name phone lastLat lastLng lastLocationAt")
+    .select("_id name phone status lastLat lastLng")
     .lean();
-
-  if (!origin || !Number.isFinite(origin.lat) || !Number.isFinite(origin.lng)) {
-    return onlinePartners.slice(0, Math.max(1, limit)).map((partner) => ({
-      partnerId: partner._id,
-      distanceKm: null,
-      name: partner.name || "Delivery Partner",
-      phone: partner.phone || "",
-    }));
-  }
-
   const STALE_GPS_MS = 10 * 60 * 1000;
   const scored = onlinePartners
     .map((partner) => {
       const lat = Number(partner.lastLat);
       const lng = Number(partner.lastLng);
-      const isStale = !partner.lastLocationAt || Date.now() - new Date(partner.lastLocationAt).getTime() > STALE_GPS_MS;
+      // Fallback: if lastLocationAt is missing, assume it's fresh if we have coordinates (or check if coordinates exist)
+      const isStale = partner.lastLocationAt && Date.now() - new Date(partner.lastLocationAt).getTime() > STALE_GPS_MS;
 
       if (!Number.isFinite(lat) || !Number.isFinite(lng) || isStale) {
         return {
@@ -333,17 +300,8 @@ const listNearbyOnlineDeliveryPartnersByCoords = async (origin, { maxKm = 15, li
         phone: partner.phone || "",
       };
     })
-    .filter((p) => p.distanceKm === null || p.distanceKm <= maxKm)
+    .filter((p) => p.distanceKm !== null && p.distanceKm <= maxKm)
     .sort((a, b) => a.score - b.score);
 
   return scored.slice(0, limit);
-};
-
-const haversineKm = (lat1, lon1, lat2, lon2) => {
-  const R = 6371;
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLon = (lon2 - lon1) * Math.PI / 180;
-  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
 };

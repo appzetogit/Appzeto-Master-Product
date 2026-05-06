@@ -12,7 +12,7 @@ import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import SellerOrdersContext from '@/modules/seller/context/SellerOrdersContext';
 import SellerEarningsContext, { defaultEarnings } from '@/modules/seller/context/SellerEarningsContext';
-import { getOrderSocket, onSellerOrderNew } from '@/core/services/orderSocket';
+import { getOrderSocket, onSellerOrderNew, onOrderStatusUpdate } from '@/core/services/orderSocket';
 import alertSound from '@/modules/Food/assets/audio/alert.mp3';
 
 const POLL_INTERVAL_MS = 15000;
@@ -126,9 +126,39 @@ const DashboardLayout = ({ children, navItems, title }) => {
         if (role !== 'seller') return undefined;
         const getToken = () => localStorage.getItem('auth_seller');
         getOrderSocket(getToken);
-        return onSellerOrderNew(getToken, () => {
+
+        const offNew = onSellerOrderNew(getToken, () => {
             if (fetchOrdersRef.current) fetchOrdersRef.current();
         });
+
+        const offStatus = onOrderStatusUpdate(getToken, (payload) => {
+            const orderId = String(payload?.orderId || '').trim();
+            if (!orderId) return;
+            const raw = String(payload?.sellerStatus || payload?.orderStatus || '').trim().toLowerCase();
+            if (!raw) return;
+            const nextStatus =
+                raw === 'picked_up' ? 'out_for_delivery' :
+                    raw === 'placed' || raw === 'created' ? 'pending' :
+                        raw;
+            const nextWorkflow = String(payload?.sellerWorkflowStatus || '').trim();
+
+            setSellerOrders((prev) =>
+                (Array.isArray(prev) ? prev : []).map((order) =>
+                    String(order?.orderId || '') === orderId
+                        ? {
+                            ...order,
+                            status: nextStatus,
+                            ...(nextWorkflow ? { workflowStatus: nextWorkflow } : {}),
+                        }
+                        : order
+                )
+            );
+        });
+
+        return () => {
+            offNew?.();
+            offStatus?.();
+        };
     }, [role]);
 
     // Single earnings fetch when seller is on earnings/withdrawals/transactions – no duplicate calls

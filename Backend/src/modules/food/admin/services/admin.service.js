@@ -483,7 +483,7 @@ export async function getDashboardStats(query = {}) {
                     platformFeeTotal: { 
                         $sum: { 
                             $cond: [
-                                { $nin: ['$orderStatus', [...CANCELLED_ORDER_STATUSES, 'refunded']] }, 
+                                { $not: { $in: ['$orderStatus', [...CANCELLED_ORDER_STATUSES, 'refunded']] } }, 
                                 { $ifNull: ['$pricing.platformFee', 0] }, 
                                 0
                             ] 
@@ -492,7 +492,7 @@ export async function getDashboardStats(query = {}) {
                     deliveryFeeTotal: { 
                         $sum: { 
                             $cond: [
-                                { $nin: ['$orderStatus', [...CANCELLED_ORDER_STATUSES, 'refunded']] }, 
+                                { $not: { $in: ['$orderStatus', [...CANCELLED_ORDER_STATUSES, 'refunded']] } }, 
                                 { $ifNull: ['$pricing.deliveryFee', 0] }, 
                                 0
                             ] 

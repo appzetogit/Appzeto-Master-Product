@@ -67,12 +67,8 @@ const optionalBoolean = (value, fallback = false) => {
 const str = (value, fallback = "") =>
   typeof value === "string" ? value.trim() : fallback;
 const arr = (value) => (Array.isArray(value) ? value : []);
-const getOrderAddressPoint = (order) => {
-  const lat = Number(order?.address?.location?.lat);
-  const lng = Number(order?.address?.location?.lng);
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
-  return { lat, lng };
-};
+// Redundant getOrderAddressPoint removed in favor of quickOrderService.getOrderAddressPoint
+
 
 const buildSellerAddressFromParentOrder = (order) => {
   const coords = order?.deliveryAddress?.location?.coordinates;
@@ -1384,25 +1380,11 @@ export const resendSellerOrderDispatchController = async (req, res) => {
     }
 
     const seller = await Seller.findById(sellerId).select("shopName name phone location").lean();
-    const sellerOrigin =
-      Array.isArray(seller?.location?.coordinates) && seller.location.coordinates.length === 2
-        ? {
-          lat: Number(seller.location.coordinates[1]),
-          lng: Number(seller.location.coordinates[0]),
-        }
-        : (Number.isFinite(Number(seller?.location?.latitude)) &&
-          Number.isFinite(Number(seller?.location?.longitude))
-            ? {
-              lat: Number(seller.location.latitude),
-              lng: Number(seller.location.longitude),
-            }
-            : null);
-
-    const origin = sellerOrigin || getOrderAddressPoint(sellerOrder);
+    const origin = quickOrderService.getSellerLocation(seller) || quickOrderService.getOrderAddressPoint(quickOrder);
 
     const nearbyPartners = await listNearbyOnlineDeliveryPartnersByCoords(origin, {
       maxKm: 15,
-      limit: 1,
+      limit: 15,
     });
 
     const closestPartner = nearbyPartners[0];
@@ -1431,38 +1413,44 @@ export const resendSellerOrderDispatchController = async (req, res) => {
 
     const io = getIO();
     const deliveryPayload = {
-      ...buildDeliverySocketPayload(quickOrder),
+      ...buildDeliverySocketPayload(quickOrder, seller),
       orderId: quickOrder.orderId,
       orderMongoId: quickOrder._id?.toString?.(),
       restaurantName: seller?.shopName || seller?.name || "Quick Commerce Seller",
       restaurantPhone: seller?.phone || "",
       dispatch: quickOrder.dispatch,
-      pickupDistanceKm: closestPartner.distanceKm,
       sourceType: "quick",
     };
 
     if (io) {
-      const deliveryRoom = rooms.delivery(closestPartner.partnerId);
-      io.to(deliveryRoom).emit("new_order", deliveryPayload);
-      io.to(deliveryRoom).emit("new_order_available", deliveryPayload);
-      io.to(deliveryRoom).emit("play_notification_sound", {
-        orderId: quickOrder.orderId,
-        orderMongoId: quickOrder._id?.toString?.(),
-      });
-    }
+      for (const partner of (nearbyPartners || [])) {
+        const deliveryRoom = rooms.delivery(partner.partnerId);
+        const payloadWithDistance = {
+          ...deliveryPayload,
+          pickupDistanceKm: partner.distanceKm,
+        };
+        io.to(deliveryRoom).emit("new_order", payloadWithDistance);
+        io.to(deliveryRoom).emit("new_order_available", payloadWithDistance);
+        io.to(deliveryRoom).emit("play_notification_sound", {
+          orderId: quickOrder.orderId,
+          orderMongoId: quickOrder._id?.toString?.(),
+        });
 
-    await notifyOwnerSafely(
-      { ownerType: "DELIVERY_PARTNER", ownerId: closestPartner.partnerId },
-      {
-        title: "New nearby order",
-        body: `Order #${quickOrder.orderId} is ready for pickup.`,
-        data: {
-          type: "new_order",
-          orderId: quickOrder._id?.toString?.() || "",
-          orderMongoId: quickOrder._id?.toString?.() || "",
-        },
-      },
-    );
+        await notifyOwnerSafely(
+          { ownerType: "DELIVERY_PARTNER", ownerId: partner.partnerId },
+          {
+            title: "New nearby order",
+            body: `Order #${quickOrder.orderId} is ready for pickup.`,
+            data: {
+              type: "new_order",
+              orderId: quickOrder.orderId,
+              orderMongoId: quickOrder._id?.toString?.(),
+              link: "/delivery",
+            },
+          },
+        );
+      }
+    }
 
     return sendResponse(res, 200, "Driver notified again", {
       orderId: quickOrder.orderId,

@@ -8,6 +8,7 @@ import { Seller } from '../seller/models/seller.model.js';
 import { SellerOrder } from '../seller/models/sellerOrder.model.js';
 import { getSellerCommissionSnapshot } from '../admin/services/commission.service.js';
 import * as foodTransactionService from '../../food/orders/services/foodTransaction.service.js';
+import { emitQuickCommerceStatusUpdate } from '../services/quickStatusRealtime.service.js';
 
 const approvedProductFilter = {
   $or: [
@@ -98,21 +99,7 @@ const normalizeRequestedItems = (items) => {
 
 const emitQuickOrderStatusUpdate = (order, message = '') => {
   try {
-    if (!order?.userId) return;
-    const io = getIO();
-    if (!io) return;
-
-    const payload = {
-      orderMongoId: order._id?.toString?.() || '',
-      orderId: order.orderId,
-      orderStatus: order.orderStatus,
-      workflowStatus: order.workflowStatus || '',
-      message,
-    };
-
-    io.to(rooms.user(order.userId)).emit('order_status_update', payload);
-    io.to(rooms.tracking(order.orderId)).emit('order_status_update', payload);
-    io.to(rooms.tracking(order.orderId)).emit('order:status:update', payload);
+    void emitQuickCommerceStatusUpdate(order, { message });
   } catch {
     // best-effort realtime update
   }
@@ -303,6 +290,8 @@ export const placeOrder = async (req, res) => {
             const { commissionAmount } = await getSellerCommissionSnapshot(sellerId, sellerSubtotal);
 
             return {
+              orderType: 'quick',
+              parentOrderId: order._id,
               sellerId,
               orderId: order.orderId,
               customer: {
@@ -409,7 +398,44 @@ export const getMyOrders = async (req, res) => {
 
   const orders = await QuickOrder.find({ ...idQuery, orderType: 'quick' }).sort({ createdAt: -1 }).lean();
 
-  const mappedOrders = orders.map(normalizeOrderSummary);
+  const sellerIds = [
+    ...new Set(
+      orders
+        .map((order) =>
+          String(order?.items?.find((item) => item?.type === 'quick')?.sourceId || order?.items?.[0]?.sourceId || '').trim(),
+        )
+        .filter((value) => mongoose.Types.ObjectId.isValid(value)),
+    ),
+  ];
+
+  const sellers = sellerIds.length
+    ? await Seller.find({ _id: { $in: sellerIds } }).select('_id name shopName').lean()
+    : [];
+  const sellerMap = sellers.reduce((acc, seller) => {
+    acc[String(seller._id)] = seller;
+    return acc;
+  }, {});
+
+  const mappedOrders = orders.map((order) => {
+    const normalized = normalizeOrderSummary(order);
+    const sellerId = String(
+      order?.items?.find((item) => item?.type === 'quick')?.sourceId || order?.items?.[0]?.sourceId || '',
+    ).trim();
+    const seller = sellerMap[sellerId] || null;
+
+    return {
+      ...normalized,
+      sellerId: seller?._id || null,
+      storeName: seller?.shopName || seller?.name || '',
+      seller: seller
+        ? {
+            _id: seller._id,
+            name: seller.name || '',
+            shopName: seller.shopName || seller.name || 'Store',
+          }
+        : null,
+    };
+  });
 
   return res.json({
     success: true,

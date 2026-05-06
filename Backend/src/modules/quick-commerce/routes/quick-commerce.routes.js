@@ -15,6 +15,12 @@ import { addToCart, clearCart, getCart, removeCartItem, updateCartItem } from '.
 import { cancelOrder, getMyOrders, getOrderById, placeOrder } from '../controllers/order.controller.js';
 import { addToWishlist, getWishlist, removeFromWishlist, toggleWishlist } from '../controllers/wishlist.controller.js';
 import {
+  createSupportTicketController,
+  listMySupportTicketsController,
+  getAdminSupportTicketsController,
+  updateAdminSupportTicketController,
+} from '../controllers/support.controller.js';
+import {
   approveAdminSellerRequest,
   getAdminSellerRequests,
   createCategory,
@@ -112,6 +118,8 @@ router.post('/orders', optionalAuth, placeOrder);
 router.get('/orders', optionalAuth, getMyOrders);
 router.get('/orders/:orderId', optionalAuth, getOrderById);
 router.post('/orders/:orderId/cancel', optionalAuth, cancelOrder);
+router.post('/support/ticket', optionalAuth, createSupportTicketController);
+router.get('/support/my-tickets', optionalAuth, listMySupportTicketsController);
 
 router.get('/wishlist', optionalAuth, getWishlist);
 router.post('/wishlist/add', optionalAuth, addToWishlist);
@@ -138,6 +146,8 @@ router.get('/admin/orders', ...adminOnly, getAdminOrders);
 router.get('/admin/orders/:orderId', ...adminOnly, getAdminOrderById);
 router.delete('/admin/orders/:orderId', ...adminOnly, deleteAdminOrder);
 router.get('/admin/customers', ...adminOnly, getAdminCustomers);
+router.get('/admin/support-tickets', ...adminOnly, getAdminSupportTicketsController);
+router.patch('/admin/support-tickets/:id', ...adminOnly, updateAdminSupportTicketController);
 router.get('/admin/seller-requests', ...adminOnly, getAdminSellerRequests);
 router.put('/admin/seller-requests/:sellerId/approve', ...adminOnly, approveAdminSellerRequest);
 router.put('/admin/seller-requests/:sellerId/reject', ...adminOnly, rejectAdminSellerRequest);
