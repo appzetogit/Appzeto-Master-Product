@@ -35,7 +35,9 @@ import { getLegacyStatusFromOrder } from '@/shared/utils/orderStatus';
 import { Loader2 } from 'lucide-react';
 import Pagination from '@shared/components/ui/Pagination';
 import { DatePicker } from "@/components/ui/date-picker";
-import { onOrderStatusUpdate } from "@/core/services/orderSocket";
+import { joinOrderRoom, onOrderStatusUpdate } from "@/core/services/orderSocket";
+
+const AUTO_REFRESH_INTERVAL_MS = 30000;
 
 
 const Orders = () => {
@@ -68,11 +70,18 @@ const Orders = () => {
             if (!orderId) return;
             const raw = String(payload?.sellerStatus || payload?.orderStatus || "").trim().toLowerCase();
             if (!raw) return;
-            const nextStatus =
-                raw === "picked_up" ? "out_for_delivery" :
-                    raw === "placed" || raw === "created" ? "pending" :
-                        raw;
-            const nextWorkflow = String(payload?.sellerWorkflowStatus || "").trim();
+
+            // Robust mapping: if we have workflowStatus, use the utility logic
+            let nextStatus = raw;
+            if (raw === "picked_up") {
+                nextStatus = "out_for_delivery";
+            } else if (raw === "placed" || raw === "created") {
+                nextStatus = "pending";
+            } else if (raw === "confirmed" || raw === "accepted") {
+                nextStatus = "confirmed";
+            }
+
+            const nextWorkflow = String(payload?.sellerWorkflowStatus || payload?.workflowStatus || "").trim();
 
             setOrders((prev) =>
                 (Array.isArray(prev) ? prev : []).map((order) =>
@@ -102,6 +111,18 @@ const Orders = () => {
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
+
+    // Auto-refresh fallback (like Admin)
+    useEffect(() => {
+        const interval = window.setInterval(() => {
+            if (hasMountedRef.current) {
+                fetchOrders(page, false);
+            }
+        }, AUTO_REFRESH_INTERVAL_MS);
+
+        return () => window.clearInterval(interval);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [page, startDate, endDate]);
 
     // Initial load: show full-page loader once
     useEffect(() => {
@@ -179,6 +200,11 @@ const Orders = () => {
             }));
 
             setOrders(formattedOrders);
+
+            // Join tracking rooms for real-time updates
+            formattedOrders.forEach((o) => {
+                if (o.id) joinOrderRoom(o.id, getToken);
+            });
             if (typeof payload.total === 'number') {
                 setTotal(payload.total);
             } else {
@@ -603,27 +629,8 @@ const Orders = () => {
                                                 </div>
                                                 <div className="flex flex-col items-end gap-2 shrink-0">
                                                     <Badge variant={getStatusColor(order.status)} className="text-[10px] font-black uppercase px-2 py-0">
-                                                        {order.status}
+                                                        {order.status.replace(/_/g, ' ')}
                                                     </Badge>
-                                                    <select
-                                                        value={order.status}
-                                                        onChange={(e) => handleStatusUpdate(order.id, e.target.value)}
-                                                        onClick={(e) => e.stopPropagation()}
-                                                        className={cn(
-                                                            "w-full min-w-[100px] text-[10px] pl-2 pr-6 py-1.5 rounded-lg font-black uppercase cursor-pointer appearance-none border outline-none",
-                                                            order.status === 'pending' ? "bg-amber-100 text-amber-700" :
-                                                                order.status === 'delivered' ? "bg-emerald-100 text-emerald-700" :
-                                                                    order.status === 'cancelled' ? "bg-rose-100 text-rose-700" : "bg-slate-100 text-slate-700"
-                                                        )}
-                                                    >
-                                                        <option value="pending">Pending</option>
-                                                        <option value="confirmed">Confirmed</option>
-                                                        <option value="packed">Packed</option>
-                                                        <option value="ready_for_pickup">Ready for Pickup</option>
-                                                        <option value="out_for_delivery">Out</option>
-                                                        <option value="delivered">Delivered</option>
-                                                        <option value="cancelled">Cancelled</option>
-                                                    </select>
                                                     <button
                                                         onClick={() => handleViewDetails(order)}
                                                         className="p-2 hover:bg-slate-100 rounded-lg text-slate-600"
@@ -728,32 +735,12 @@ const Orders = () => {
                                                         </div>
                                                     </td>
                                                     <td className="px-4 lg:px-6 py-3 lg:py-4">
-                                                        <div className="relative inline-block w-36">
-                                                            <select
-                                                                value={order.status}
-                                                                onChange={(e) => handleStatusUpdate(order.id, e.target.value)}
-                                                                className={cn(
-                                                                    "w-full text-[10px] pl-2.5 pr-8 py-1.5 rounded-full font-black uppercase tracking-widest cursor-pointer appearance-none focus:ring-2 focus:ring-offset-1 transition-all border-none outline-none shadow-sm",
-                                                                    order.status === 'pending' ? "bg-amber-100 text-amber-700 focus:ring-amber-200" :
-                                                                        order.status === 'confirmed' ? "bg-blue-100 text-blue-700 focus:ring-blue-200" :
-                                                                            order.status === 'packed' ? "bg-indigo-100 text-indigo-700 focus:ring-indigo-200" :
-                                                                                order.status === 'ready_for_pickup' ? "bg-blue-100 text-blue-700 focus:ring-blue-200" :
-                                                                                    order.status === 'out_for_delivery' ? "bg-purple-100 text-purple-700 focus:ring-purple-200" :
-                                                                                    order.status === 'delivered' ? "bg-emerald-100 text-emerald-700 focus:ring-emerald-200" :
-                                                                                        order.status === 'cancelled' ? "bg-rose-100 text-rose-700 focus:ring-rose-200" :
-                                                                                            "bg-slate-100 text-slate-700 focus:ring-slate-200"
-                                                                )}
-                                                            >
-                                                                <option value="pending">Pending</option>
-                                                                <option value="confirmed">Confirmed</option>
-                                                                <option value="packed">Packed</option>
-                                                                <option value="ready_for_pickup">Ready for Pickup</option>
-                                                                <option value="out_for_delivery">Out for Delivery</option>
-                                                                <option value="delivered">Delivered</option>
-                                                                <option value="cancelled">Cancelled</option>
-                                                            </select>
-                                                            <HiOutlineChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 pointer-events-none opacity-60" />
-                                                        </div>
+                                                        <Badge 
+                                                            variant={getStatusColor(order.status)} 
+                                                            className="w-full text-[10px] py-1.5 font-black uppercase tracking-widest justify-center border-none shadow-sm"
+                                                        >
+                                                            {order.status.replace(/_/g, ' ')}
+                                                        </Badge>
                                                     </td>
                                                     <td className="px-4 lg:px-6 py-3 lg:py-4 text-right">
                                                         <div className="flex items-center justify-end space-x-1.5 flex-wrap">
