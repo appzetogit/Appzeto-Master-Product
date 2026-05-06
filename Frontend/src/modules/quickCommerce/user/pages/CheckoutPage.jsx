@@ -81,6 +81,99 @@ const DEFAULT_RECIPIENT_DATA = {
   phone: "",
 };
 
+const DEFAULT_QUICK_BILLING_SETTINGS = {
+  deliveryFee: 25,
+  deliveryFeeRanges: [],
+  freeDeliveryThreshold: 0,
+  platformFee: 0,
+  gstRate: 0,
+};
+
+const calculateQuickCheckoutPricing = ({
+  subtotal = 0,
+  discountAmount = 0,
+  selectedTip = 0,
+  feeSettings = DEFAULT_QUICK_BILLING_SETTINGS,
+  cartItems = [],
+  categoryFeeMap = {},
+}) => {
+  const safeSubtotal = Number(subtotal || 0);
+  const safeDiscount = Math.max(0, Number(discountAmount || 0));
+  const safeTip = Math.max(0, Number(selectedTip || 0));
+  const freeThreshold = Number(feeSettings?.freeDeliveryThreshold || 0);
+  const ranges = Array.isArray(feeSettings?.deliveryFeeRanges)
+    ? [...feeSettings.deliveryFeeRanges].sort((a, b) => Number(a.min) - Number(b.min))
+    : [];
+
+  let deliveryFeeCharged = 0;
+  if (Number.isFinite(freeThreshold) && freeThreshold > 0 && safeSubtotal >= freeThreshold) {
+    deliveryFeeCharged = 0;
+  } else if (ranges.length) {
+    let matchedFee = null;
+    for (let i = 0; i < ranges.length; i += 1) {
+      const range = ranges[i] || {};
+      const min = Number(range.min);
+      const max = Number(range.max);
+      const fee = Number(range.fee);
+      if (!Number.isFinite(min) || !Number.isFinite(max) || !Number.isFinite(fee)) continue;
+      const isLast = i === ranges.length - 1;
+      const inRange = isLast
+        ? safeSubtotal >= min && safeSubtotal <= max
+        : safeSubtotal >= min && safeSubtotal < max;
+      if (inRange) {
+        matchedFee = fee;
+        break;
+      }
+    }
+    deliveryFeeCharged = Number.isFinite(matchedFee)
+      ? matchedFee
+      : Number(feeSettings?.deliveryFee || 0);
+  } else {
+    deliveryFeeCharged = Number(feeSettings?.deliveryFee || 0);
+  }
+
+  const handlingFeeCharged = cartItems.reduce((maxFee, item) => {
+    const candidateIds = [item?.headerId, item?.categoryId, item?.subcategoryId];
+    const itemFee = candidateIds.reduce((currentMax, rawId) => {
+      const normalizedId =
+        rawId && typeof rawId === "object" && rawId._id
+          ? String(rawId._id)
+          : String(rawId || "").trim();
+      return Math.max(currentMax, Number(categoryFeeMap[normalizedId] || 0));
+    }, 0);
+    return Math.max(maxFee, itemFee);
+  }, 0);
+  const platformFeeCharged = Number(feeSettings?.platformFee || 0);
+  const gstRate = Number(feeSettings?.gstRate || 0);
+  const gstAmount =
+    Number.isFinite(gstRate) && gstRate > 0
+      ? Math.round(safeSubtotal * (gstRate / 100))
+      : 0;
+
+  return {
+    deliveryFeeCharged,
+    handlingFeeCharged,
+    platformFeeCharged,
+    gstAmount,
+    grandTotal: Math.max(
+      0,
+      safeSubtotal +
+        deliveryFeeCharged +
+        handlingFeeCharged +
+        platformFeeCharged +
+        gstAmount -
+        safeDiscount +
+        safeTip,
+    ),
+    snapshots: {
+      feeSettings,
+      deliverySettings: {
+        pricingMode: "order_value_range",
+      },
+    },
+  };
+};
+
 const isLegacyStaticCheckoutValue = (value = "") => {
   const normalized = String(value || "").trim().toLowerCase();
   if (!normalized) return false;
@@ -240,6 +333,10 @@ const CheckoutPage = () => {
   const [orderId, setOrderId] = useState(null);
   const [pricingPreview, setPricingPreview] = useState(null);
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
+  const [quickBillingSettings, setQuickBillingSettings] = useState(
+    DEFAULT_QUICK_BILLING_SETTINGS,
+  );
+  const [categoryFeeMap, setCategoryFeeMap] = useState({});
   const postOrderNavigateRef = useRef(null);
   const [currentAddress, setCurrentAddress] = useState(
     storedCheckoutState.currentAddress || DEFAULT_CURRENT_ADDRESS,
@@ -292,6 +389,60 @@ const CheckoutPage = () => {
   );
   const [showShareModal, setShowShareModal] = useState(false);
 
+  useEffect(() => {
+    let mounted = true;
+
+    const loadBillingSettings = async () => {
+      try {
+        const [response, categoriesResponse] = await Promise.all([
+          customerApi.getBillingSettings(),
+          customerApi.getCategories({ tree: true }),
+        ]);
+        const settings =
+          response?.data?.data?.feeSettings ||
+          response?.data?.result ||
+          null;
+        if (!mounted || !settings) return;
+
+        setQuickBillingSettings((prev) => ({
+          ...prev,
+          ...settings,
+          deliveryFeeRanges: Array.isArray(settings.deliveryFeeRanges)
+            ? settings.deliveryFeeRanges
+            : prev.deliveryFeeRanges,
+        }));
+
+        const results =
+          categoriesResponse?.data?.results ||
+          categoriesResponse?.data?.result ||
+          [];
+        const nextFeeMap = {};
+        const visit = (items = []) => {
+          items.forEach((item) => {
+            const id = String(item?._id || item?.id || "").trim();
+            if (id) nextFeeMap[id] = Number(item?.handlingFees || 0);
+            if (Array.isArray(item?.children) && item.children.length > 0) {
+              visit(item.children);
+            }
+          });
+        };
+        if (Array.isArray(results)) {
+          visit(results);
+        }
+        if (mounted) {
+          setCategoryFeeMap(nextFeeMap);
+        }
+      } catch (error) {
+        console.error("Failed to load quick billing settings:", error);
+      }
+    };
+
+    void loadBillingSettings();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   const timeSlots = [
     { id: "now", label: "Now", sublabel: "10-15 min" },
     { id: "30min", label: "30 min", sublabel: "Standard" },
@@ -332,7 +483,8 @@ const CheckoutPage = () => {
 
   const deliveryFee = pricingPreview?.deliveryFeeCharged || 0;
   const handlingFee = pricingPreview?.handlingFeeCharged || 0;
-  const taxAmount = pricingPreview?.taxTotal || 0;
+  const platformFee = pricingPreview?.platformFeeCharged || 0;
+  const gstAmount = pricingPreview?.gstAmount || 0;
   const discountAmount = selectedCoupon
     ? selectedCoupon.discountAmount || selectedCoupon.discount || 0
     : 0;
@@ -1038,23 +1190,33 @@ const CheckoutPage = () => {
           Number(item.quantity || 0),
       0,
     );
-    const deliveryFeeCharged = 25;
-    const handlingFeeCharged = 0;
-    const taxTotal = 0;
-    const grandTotal = Math.max(
-      0,
-      subtotal + deliveryFeeCharged + handlingFeeCharged + taxTotal - discountAmount + selectedTip,
-    );
+    const {
+      deliveryFeeCharged,
+      handlingFeeCharged,
+      taxTotal,
+      gstAmount,
+      grandTotal,
+      snapshots,
+    } = calculateQuickCheckoutPricing({
+      subtotal,
+      discountAmount,
+      selectedTip,
+      feeSettings: quickBillingSettings,
+      cartItems: cart,
+      categoryFeeMap,
+    });
 
     setPricingPreview({
       subtotal,
       deliveryFeeCharged,
       handlingFeeCharged,
       taxTotal,
+      gstAmount,
       grandTotal,
+      snapshots,
     });
     setIsPreviewLoading(false);
-  }, [cart, discountAmount, selectedTip]);
+  }, [cart, categoryFeeMap, discountAmount, quickBillingSettings, selectedTip]);
 
   const handlePlaceOrder = async () => {
     setIsPlacingOrder(true);
@@ -1069,7 +1231,8 @@ const CheckoutPage = () => {
         address: buildAddressForOrder(),
         paymentMode: selectedPayment === "online" ? "ONLINE" : "COD",
         discountTotal: discountAmount,
-        taxTotal: taxAmount,
+        taxTotal: gstAmount,
+        platformFee: platformFee,
         timeSlot: selectedTimeSlot,
       };
 
@@ -1919,9 +2082,15 @@ const CheckoutPage = () => {
                 </div>
                 <div className="flex justify-between items-center px-2">
                   <span className="text-slate-500 font-bold text-[13px] uppercase tracking-wider">
-                    Tax
+                    Platform fee
                   </span>
-                  <span className="font-black text-slate-800">₹{taxAmount}</span>
+                  <span className="font-black text-slate-800">₹{platformFee}</span>
+                </div>
+                <div className="flex justify-between items-center px-2">
+                  <span className="text-slate-500 font-bold text-[13px] uppercase tracking-wider">
+                    GST
+                  </span>
+                  <span className="font-black text-slate-800">₹{gstAmount}</span>
                 </div>
 
                 {selectedCoupon && (

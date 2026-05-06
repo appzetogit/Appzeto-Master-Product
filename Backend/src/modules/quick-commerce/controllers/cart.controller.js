@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import { QuickCart } from '../models/cart.model.js';
 import { QuickProduct } from '../models/product.model.js';
 import { ensureQuickCommerceSeedData } from '../services/seed.service.js';
+import { calculateQuickPricing } from '../admin/services/billing.service.js';
 
 const approvedProductFilter = {
   $or: [
@@ -69,6 +70,9 @@ const mapCart = async (idQuery) => {
       return {
         id: String(product._id),
         productId: String(product._id),
+        categoryId: product.categoryId ? String(product.categoryId) : null,
+        subcategoryId: product.subcategoryId ? String(product.subcategoryId) : null,
+        headerId: product.headerId ? String(product.headerId) : null,
         name: product.name,
         image: product.mainImage || product.image || '',
         mainImage: product.mainImage || product.image || '',
@@ -84,13 +88,19 @@ const mapCart = async (idQuery) => {
     .filter(Boolean);
 
   const subtotal = items.reduce((acc, item) => acc + item.lineTotal, 0);
-  const deliveryFee = items.length > 0 ? 25 : 0;
+  const { pricing } = await calculateQuickPricing({
+    subtotal,
+    products,
+  });
 
   return {
     items,
     subtotal,
-    deliveryFee,
-    total: subtotal + deliveryFee,
+    deliveryFee: Number(pricing?.deliveryFee || 0),
+    handlingFee: Number(pricing?.platformFee || 0),
+    tax: Number(pricing?.tax || 0),
+    gst: Number(pricing?.gst || 0),
+    total: Number(pricing?.total || subtotal),
   };
 };
 
@@ -212,6 +222,17 @@ export const clearCart = async (req, res) => {
     },
     { upsert: true, new: true }
   );
-  return res.json({ success: true, result: { items: [], subtotal: 0, deliveryFee: 0, total: 0 } });
+  return res.json({
+    success: true,
+    result: {
+      items: [],
+      subtotal: 0,
+      deliveryFee: 0,
+      handlingFee: 0,
+      tax: 0,
+      gst: 0,
+      total: 0,
+    },
+  });
 };
 

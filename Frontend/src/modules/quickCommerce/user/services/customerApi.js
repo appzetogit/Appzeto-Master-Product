@@ -103,6 +103,7 @@ export const customerApi = {
   applyCoupon: (data) => axiosInstance.post("/quick-commerce/coupons/apply", data, withQuickSession()),
   validateCoupon: (data) => axiosInstance.post("/quick-commerce/coupons/apply", data, withQuickSession()),
   getOffers: () => quickGetWithDedupe("/quick-commerce/offers", {}),
+  getBillingSettings: () => quickGetWithDedupe("/quick-commerce/billing/settings", {}),
 
   getWalletBalance: () => axiosInstance.get("/quick-commerce/wallet/balance", withQuickSession()),
   getWalletTransactions: (params) => quickGetWithDedupe("/quick-commerce/wallet/transactions", params),

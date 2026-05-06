@@ -7,7 +7,10 @@ import { QuickProduct } from '../models/product.model.js';
 import { Seller } from '../seller/models/seller.model.js';
 import { SellerOrder } from '../seller/models/sellerOrder.model.js';
 import { getSellerCommissionSnapshot } from '../admin/services/commission.service.js';
-import * as foodTransactionService from '../../food/orders/services/foodTransaction.service.js';
+import {
+  calculateQuickPricing,
+  getRiderEarning as getQuickRiderEarning,
+} from '../admin/services/billing.service.js';
 
 const approvedProductFilter = {
   $or: [
@@ -223,8 +226,14 @@ export const placeOrder = async (req, res) => {
     }
 
     const subtotal = items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-    const deliveryFee = 25;
-    const total = subtotal + deliveryFee;
+    const discount = Math.max(0, Number(req.body?.discountTotal || 0));
+    const { pricing } = await calculateQuickPricing({
+      subtotal,
+      discount,
+      products,
+    });
+    const deliveryFee = Number(pricing.deliveryFee || 0);
+    const total = Number(pricing.total || 0);
     const orderNumber = `QC${Date.now().toString().slice(-8)}`;
     const isOnlinePayment = String(req.body?.paymentMode || 'COD').toUpperCase() === 'ONLINE';
     const paymentMode = isOnlinePayment ? 'razorpay' : 'cash';
@@ -233,7 +242,7 @@ export const placeOrder = async (req, res) => {
     const deliveryAddress = normalizeDeliveryAddress(req.body?.address);
 
     // Calculate rider earning (using base payout if distance is unknown/short)
-    const riderEarning = await foodTransactionService.getRiderEarning(0.1); 
+    const riderEarning = await getQuickRiderEarning(0.1);
 
     const order = await QuickOrder.create({
       orderType: 'quick',
@@ -251,15 +260,9 @@ export const placeOrder = async (req, res) => {
         sourceName: '',
       })),
       pricing: {
+        ...pricing,
         subtotal,
-        tax: 0,
-        packagingFee: 0,
-        deliveryFee,
-        platformFee: 0,
-        restaurantCommission: 0,
-        discount: 0,
         total,
-        currency: 'INR',
       },
       deliveryAddress,
       timeSlot: req.body?.timeSlot || 'now',
@@ -270,7 +273,10 @@ export const placeOrder = async (req, res) => {
       },
       orderStatus: 'placed',
       riderEarning: riderEarning || 0,
-      platformProfit: Math.max(0, deliveryFee - (riderEarning || 0)), // Initial guess, will be updated with commission
+      platformProfit: Math.max(
+        0,
+        deliveryFee + Number(pricing.platformFee || 0) - (riderEarning || 0),
+      ), // Initial guess, will be updated with commission
       statusHistory: [
         {
           byRole: 'SYSTEM',
@@ -347,7 +353,13 @@ export const placeOrder = async (req, res) => {
     
     // Update the main order with the total commission
     if (totalSellerCommission > 0) {
-      const platformProfit = Math.max(0, deliveryFee + totalSellerCommission - (riderEarning || 0));
+      const platformProfit = Math.max(
+        0,
+        deliveryFee +
+          Number(pricing.platformFee || 0) +
+          totalSellerCommission -
+          (riderEarning || 0),
+      );
       await QuickOrder.updateOne(
         { _id: order._id },
         { 

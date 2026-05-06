@@ -329,10 +329,28 @@ export const adminApi = {
   approveSeller: (sellerId, data = {}) => axiosInstance.put(`/quick-commerce/admin/seller-requests/${sellerId}/approve`, data),
   getAdminWalletData: () => emptyResponse({}),
   getReports: () => emptyResponse([]),
-  getPlatformSettings: () => emptyResponse({}),
-  updatePlatformSettings: () => emptyResponse({}),
-  getDeliveryFinanceSettings: () => emptyResponse({}),
-  updateDeliveryFinanceSettings: () => emptyResponse({}),
+  getFeeSettings: () => axiosInstance.get('/quick-commerce/admin/fee-settings'),
+  createOrUpdateFeeSettings: (body) =>
+    axiosInstance.put('/quick-commerce/admin/fee-settings', body ?? {}),
+  getDeliveryCommissionRules: () =>
+    axiosInstance.get('/quick-commerce/admin/delivery/commission-rules'),
+  createDeliveryCommissionRule: (body) =>
+    axiosInstance.post('/quick-commerce/admin/delivery/commission-rules', body ?? {}),
+  updateDeliveryCommissionRule: (id, body) =>
+    axiosInstance.patch(`/quick-commerce/admin/delivery/commission-rules/${String(id)}`, body ?? {}),
+  deleteDeliveryCommissionRule: (id) =>
+    axiosInstance.delete(`/quick-commerce/admin/delivery/commission-rules/${String(id)}`),
+  toggleDeliveryCommissionRuleStatus: (id, status) =>
+    axiosInstance.patch(
+      `/quick-commerce/admin/delivery/commission-rules/${String(id)}/status`,
+      { status: Boolean(status) },
+    ),
+  getPlatformSettings: () => axiosInstance.get('/quick-commerce/admin/fee-settings'),
+  updatePlatformSettings: (body) =>
+    axiosInstance.put('/quick-commerce/admin/fee-settings', body ?? {}),
+  getDeliveryFinanceSettings: () => axiosInstance.get('/quick-commerce/admin/fee-settings'),
+  updateDeliveryFinanceSettings: (body) =>
+    axiosInstance.put('/quick-commerce/admin/fee-settings', body ?? {}),
   getFinanceSummary: () => emptyResponse({}),
   getFinanceLedger: () => emptyResponse({ items: [], total: 0 }),
   getFinancePayouts: () => emptyResponse({ items: [], total: 0 }),

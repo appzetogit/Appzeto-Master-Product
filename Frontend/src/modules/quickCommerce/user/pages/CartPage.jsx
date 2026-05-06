@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { useSettings } from "@core/context/SettingsContext";
 import { useToast } from "@shared/components/ui/Toast";
 import { useCart } from "../context/CartContext";
+import { customerApi } from "../services/customerApi";
 import emptyBoxAnimation from "../assets/lottie/Empty box.json";
 import {
   getQuickCategoriesPath,
@@ -24,12 +25,148 @@ import {
 } from "../utils/routes";
 import { resolveQuickImageUrl } from "../utils/image";
 
+const DEFAULT_QUICK_BILLING_SETTINGS = {
+  deliveryFee: 25,
+  deliveryFeeRanges: [],
+  freeDeliveryThreshold: 0,
+  platformFee: 0,
+  gstRate: 0,
+};
+
+const calculateQuickCartPricing = ({
+  subtotal = 0,
+  cartItems = [],
+  feeSettings = DEFAULT_QUICK_BILLING_SETTINGS,
+  categoryFeeMap = {},
+}) => {
+  const safeSubtotal = Number(subtotal || 0);
+  const freeThreshold = Number(feeSettings?.freeDeliveryThreshold || 0);
+  const ranges = Array.isArray(feeSettings?.deliveryFeeRanges)
+    ? [...feeSettings.deliveryFeeRanges].sort((a, b) => Number(a.min) - Number(b.min))
+    : [];
+
+  let deliveryFee = 0;
+  if (safeSubtotal <= 0) {
+    deliveryFee = 0;
+  } else if (Number.isFinite(freeThreshold) && freeThreshold > 0 && safeSubtotal >= freeThreshold) {
+    deliveryFee = 0;
+  } else if (ranges.length) {
+    let matchedFee = null;
+    for (let i = 0; i < ranges.length; i += 1) {
+      const range = ranges[i] || {};
+      const min = Number(range.min);
+      const max = Number(range.max);
+      const fee = Number(range.fee);
+      if (!Number.isFinite(min) || !Number.isFinite(max) || !Number.isFinite(fee)) continue;
+      const isLast = i === ranges.length - 1;
+      const inRange = isLast
+        ? safeSubtotal >= min && safeSubtotal <= max
+        : safeSubtotal >= min && safeSubtotal < max;
+      if (inRange) {
+        matchedFee = fee;
+        break;
+      }
+    }
+    deliveryFee = Number.isFinite(matchedFee)
+      ? matchedFee
+      : Number(feeSettings?.deliveryFee || 0);
+  } else {
+    deliveryFee = Number(feeSettings?.deliveryFee || 0);
+  }
+
+  const handlingFee = cartItems.reduce((maxFee, item) => {
+    const candidateIds = [item?.headerId, item?.categoryId, item?.subcategoryId];
+    const itemFee = candidateIds.reduce((currentMax, rawId) => {
+      const normalizedId =
+        rawId && typeof rawId === "object" && rawId._id
+          ? String(rawId._id)
+          : String(rawId || "").trim();
+      return Math.max(currentMax, Number(categoryFeeMap[normalizedId] || 0));
+    }, 0);
+    return Math.max(maxFee, itemFee);
+  }, 0);
+  const platformFee = Number(feeSettings?.platformFee || 0);
+  const gstRate = Number(feeSettings?.gstRate || 0);
+  const gstAmount =
+    Number.isFinite(gstRate) && gstRate > 0
+      ? Math.round(safeSubtotal * (gstRate / 100))
+      : 0;
+
+  return {
+    deliveryFee,
+    handlingFee,
+    platformFee,
+    gstAmount,
+    grandTotal: Math.max(
+      0,
+      safeSubtotal + deliveryFee + handlingFee + platformFee + gstAmount,
+    ),
+  };
+};
+
 const CartPage = () => {
   const navigate = useNavigate();
   const { cart, removeFromCart, updateQuantity, cartTotal, clearCart, loading } = useCart();
   const { showToast } = useToast();
   const { settings } = useSettings();
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [quickBillingSettings, setQuickBillingSettings] = useState(
+    DEFAULT_QUICK_BILLING_SETTINGS,
+  );
+  const [categoryFeeMap, setCategoryFeeMap] = useState({});
+
+  useEffect(() => {
+    let mounted = true;
+
+    const loadBillingSettings = async () => {
+      try {
+        const [billingResponse, categoriesResponse] = await Promise.all([
+          customerApi.getBillingSettings(),
+          customerApi.getCategories({ tree: true }),
+        ]);
+        const feeSettings =
+          billingResponse?.data?.data?.feeSettings ||
+          billingResponse?.data?.result ||
+          null;
+        if (!mounted || !feeSettings) return;
+        setQuickBillingSettings((prev) => ({
+          ...prev,
+          ...feeSettings,
+          deliveryFeeRanges: Array.isArray(feeSettings.deliveryFeeRanges)
+            ? feeSettings.deliveryFeeRanges
+            : prev.deliveryFeeRanges,
+        }));
+
+        const results =
+          categoriesResponse?.data?.results ||
+          categoriesResponse?.data?.result ||
+          [];
+        const nextFeeMap = {};
+        const visit = (items = []) => {
+          items.forEach((item) => {
+            const id = String(item?._id || item?.id || "").trim();
+            if (id) nextFeeMap[id] = Number(item?.handlingFees || 0);
+            if (Array.isArray(item?.children) && item.children.length > 0) {
+              visit(item.children);
+            }
+          });
+        };
+        if (Array.isArray(results)) {
+          visit(results);
+        }
+        if (mounted) {
+          setCategoryFeeMap(nextFeeMap);
+        }
+      } catch (error) {
+        console.error("Failed to load quick cart billing settings:", error);
+      }
+    };
+
+    void loadBillingSettings();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const handleClearAll = async () => {
     setShowClearConfirm(false);
@@ -40,9 +177,13 @@ const CartPage = () => {
   const categoriesPath = getQuickCategoriesPath();
   const checkoutPath = getQuickCheckoutPath();
   const itemCount = cart.reduce((count, item) => count + Number(item.quantity || 0), 0);
-  const deliveryFee = cart.length > 0 ? 25 : 0;
-  const handlingFee = 0;
-  const grandTotal = cartTotal + deliveryFee + handlingFee;
+  const { deliveryFee, handlingFee, platformFee, gstAmount, grandTotal } =
+    calculateQuickCartPricing({
+      subtotal: cartTotal,
+      cartItems: cart,
+      feeSettings: quickBillingSettings,
+      categoryFeeMap,
+    });
   const paymentMethods = [
     ...(settings?.onlineEnabled === false
       ? []
@@ -328,6 +469,14 @@ const CartPage = () => {
             <div className="flex items-center justify-between">
               <span>Handling charge</span>
               <span className="font-semibold text-slate-900">{"\u20B9"}{handlingFee}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span>Platform fee</span>
+              <span className="font-semibold text-slate-900">{"\u20B9"}{platformFee}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span>GST</span>
+              <span className="font-semibold text-slate-900">{"\u20B9"}{gstAmount}</span>
             </div>
             <div className="border-t border-dashed border-slate-200 pt-3">
               <div className="flex items-center justify-between text-base font-bold text-slate-900">

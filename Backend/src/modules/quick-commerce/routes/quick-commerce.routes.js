@@ -65,6 +65,16 @@ import {
   deleteSellerCommission,
   toggleSellerCommissionStatus,
 } from '../controllers/adminCommission.controller.js';
+import {
+  createDeliveryCommissionRule,
+  createOrUpdateFeeSettings,
+  deleteDeliveryCommissionRule,
+  getDeliveryCommissionRules,
+  getFeeSettings,
+  getPublicBillingSettings,
+  toggleDeliveryCommissionRuleStatus,
+  updateDeliveryCommissionRule,
+} from '../controllers/billing.controller.js';
 
 import { authMiddleware } from '../../../core/auth/auth.middleware.js';
 import { requireRoles } from '../../../core/roles/role.middleware.js';
@@ -102,6 +112,7 @@ router.get('/products/:productId/reviews', getProductReviews);
 router.post('/products/reviews', optionalAuth, submitProductReview);
 router.get('/products/:productId', getProductById);
 router.get('/zones/public', listPublicZones);
+router.get('/billing/settings', getPublicBillingSettings);
 
 router.get('/cart', optionalAuth, getCart);
 router.post('/cart/add', optionalAuth, addToCart);
@@ -177,5 +188,12 @@ router.post('/admin/seller-commissions', ...adminOnly, createSellerCommission);
 router.put('/admin/seller-commissions/:id', ...adminOnly, updateSellerCommission);
 router.delete('/admin/seller-commissions/:id', ...adminOnly, deleteSellerCommission);
 router.patch('/admin/seller-commissions/:id/toggle-status', ...adminOnly, toggleSellerCommissionStatus);
+router.get('/admin/fee-settings', ...adminOnly, getFeeSettings);
+router.put('/admin/fee-settings', ...adminOnly, createOrUpdateFeeSettings);
+router.get('/admin/delivery/commission-rules', ...adminOnly, getDeliveryCommissionRules);
+router.post('/admin/delivery/commission-rules', ...adminOnly, createDeliveryCommissionRule);
+router.patch('/admin/delivery/commission-rules/:id', ...adminOnly, updateDeliveryCommissionRule);
+router.delete('/admin/delivery/commission-rules/:id', ...adminOnly, deleteDeliveryCommissionRule);
+router.patch('/admin/delivery/commission-rules/:id/status', ...adminOnly, toggleDeliveryCommissionRuleStatus);
 
 export default router;
