@@ -114,7 +114,7 @@ export const getAddressFromCoordinates = async (req, res) => {
     if (typeof lat !== 'number' || typeof lng !== 'number') {
       return res.status(400).json({ message: 'lat and lng must be numbers' });
     }
-    const key = process.env.GOOGLE_MAP_API_KEY;
+    const key = process.env.GOOGLE_MAPS_API_KEY || process.env.GOOGLE_MAP_API_KEY;
     if (!key) {
       return res.status(500).json({ message: 'Maps API key not configured' });
     }
@@ -145,7 +145,7 @@ export const searchLocation = async (req, res) => {
     if (!query || !String(query).trim()) {
       return res.status(400).json({ message: 'query is required' });
     }
-    const key = process.env.GOOGLE_MAP_API_KEY;
+    const key = process.env.GOOGLE_MAPS_API_KEY || process.env.GOOGLE_MAP_API_KEY;
     if (!key) {
       return res.status(500).json({ message: 'Maps API key not configured' });
     }

@@ -171,6 +171,26 @@ const persistQuickCartSnapshot = (items) => {
     }
     console.error("Failed to persist quick cart snapshot", error);
   }
+
+  // Also sync with legacy 'cart' key to ensure Food module sees these changes
+  // This prevents items from reappearing when navigating back to Food-bridged pages
+  try {
+    const legacyCart = localStorage.getItem("cart");
+    if (legacyCart) {
+      const parsed = JSON.parse(legacyCart);
+      if (Array.isArray(parsed)) {
+        const otherItems = parsed.filter((item) => !isQuickCartItem(item));
+        const nextLegacyCart = [...otherItems, ...items];
+        if (nextLegacyCart.length > 0) {
+          localStorage.setItem("cart", JSON.stringify(nextLegacyCart));
+        } else {
+          localStorage.removeItem("cart");
+        }
+      }
+    }
+  } catch (e) {
+    // ignore legacy sync errors
+  }
 };
 
 const useStandaloneQuickCart = (isBridged = false) => {
@@ -365,6 +385,26 @@ const useStandaloneQuickCart = (isBridged = false) => {
 
   const clearCart = async () => {
     setCart([]); // optimistic clear immediately
+
+    // Also clear Quick items from legacy cart to prevent them from reappearing
+    // when switching back to Food-bridged pages (like Home)
+    try {
+      const legacyCart = localStorage.getItem("cart");
+      if (legacyCart) {
+        const parsed = JSON.parse(legacyCart);
+        if (Array.isArray(parsed)) {
+          const remaining = parsed.filter((item) => !isQuickCartItem(item));
+          if (remaining.length > 0) {
+            localStorage.setItem("cart", JSON.stringify(remaining));
+          } else {
+            localStorage.removeItem("cart");
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("Failed to clear legacy cart items", e);
+    }
+
     if (isAuthenticated) {
       try {
         await customerApi.clearCart();
