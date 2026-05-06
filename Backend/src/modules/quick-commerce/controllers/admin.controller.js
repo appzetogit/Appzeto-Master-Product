@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { FoodUser } from '../../../core/users/user.model.js';
 import { QuickCategory } from '../models/category.model.js';
 import { QuickProduct } from '../models/product.model.js';
 import { QuickOrder } from '../models/order.model.js';
@@ -842,75 +843,70 @@ export const getAdminCustomers = async (req, res) => {
   const { page = 1, limit = 50, search = '' } = req.query || {};
   const currentPage = Math.max(1, parseInt(page, 10) || 1);
   const perPage = Math.max(1, Math.min(parseInt(limit, 10) || 50, 200));
+  const skip = (currentPage - 1) * perPage;
   const normalizedSearch = String(search || '').trim().toLowerCase();
 
-  const orders = await QuickOrder.find({ orderType: { $in: ['quick', 'mixed'] } })
-    .select('customer deliveryAddress pricing createdAt updatedAt orderId sessionId')
-    .sort({ createdAt: -1 })
-    .lean();
-
-  const customerMap = new Map();
-
-  orders.forEach((order) => {
-    const name = String(order?.customer?.name || order?.deliveryAddress?.name || 'Customer').trim() || 'Customer';
-    const email = String(order?.customer?.email || '').trim();
-    const phone = String(order?.customer?.phone || order?.deliveryAddress?.phone || '').trim();
-    const customerKey = email || phone || String(order?.sessionId || order?._id || '').trim();
-    if (!customerKey) return;
-
-    const existing = customerMap.get(customerKey) || {
-      id: customerKey,
-      name,
-      email,
-      phone,
-      avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(name)}`,
-      status: 'active',
-      totalOrders: 0,
-      totalSpent: 0,
-      joinedDate: order.createdAt || null,
-      lastOrderDate: order.createdAt || null,
-    };
-
-    existing.totalOrders += 1;
-    existing.totalSpent += Number(order?.pricing?.total || 0);
-
-    const createdAtTime = new Date(order.createdAt || 0).getTime();
-    const joinedDateTime = new Date(existing.joinedDate || 0).getTime();
-    const lastOrderDateTime = new Date(existing.lastOrderDate || 0).getTime();
-
-    if (!existing.joinedDate || (createdAtTime && createdAtTime < joinedDateTime)) {
-      existing.joinedDate = order.createdAt || existing.joinedDate;
-    }
-    if (!existing.lastOrderDate || (createdAtTime && createdAtTime > lastOrderDateTime)) {
-      existing.lastOrderDate = order.createdAt || existing.lastOrderDate;
-    }
-
-    customerMap.set(customerKey, existing);
-  });
-
-  let customers = Array.from(customerMap.values());
-
+  const filter = { role: 'USER' };
   if (normalizedSearch) {
-    customers = customers.filter((customer) =>
-      [customer.name, customer.email, customer.phone]
-        .filter(Boolean)
-        .some((value) => String(value).toLowerCase().includes(normalizedSearch))
-    );
+    filter.$or = [
+      { name: { $regex: normalizedSearch, $options: 'i' } },
+      { email: { $regex: normalizedSearch, $options: 'i' } },
+      { phone: { $regex: normalizedSearch, $options: 'i' } }
+    ];
   }
 
-  customers.sort((a, b) => new Date(b.lastOrderDate || 0).getTime() - new Date(a.lastOrderDate || 0).getTime());
+  const [users, total] = await Promise.all([
+    FoodUser.find(filter)
+      .select('_id name email phone profileImage isActive createdAt')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(perPage)
+      .lean(),
+    FoodUser.countDocuments(filter)
+  ]);
 
-  const total = customers.length;
-  const pagedCustomers = customers.slice((currentPage - 1) * perPage, currentPage * perPage);
+  const userIds = users.map(u => u._id);
+  const orders = await QuickOrder.find({ 
+    userId: { $in: userIds },
+    orderType: { $in: ['quick', 'mixed'] } 
+  }).select('userId pricing createdAt').lean();
+
+  const customerMap = new Map();
+  users.forEach(u => {
+    const name = u.name || 'Customer';
+    customerMap.set(String(u._id), {
+      id: String(u._id),
+      name: name,
+      email: u.email || '',
+      phone: u.phone || '',
+      avatar: u.profileImage || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(name)}`,
+      status: u.isActive === false ? 'inactive' : 'active',
+      totalOrders: 0,
+      totalSpent: 0,
+      joinedDate: u.createdAt,
+      lastOrderDate: null
+    });
+  });
+
+  orders.forEach(order => {
+    const customer = customerMap.get(String(order.userId));
+    if (customer) {
+      customer.totalOrders += 1;
+      customer.totalSpent += Number(order.pricing?.total || 0);
+      if (!customer.lastOrderDate || new Date(order.createdAt) > new Date(customer.lastOrderDate)) {
+        customer.lastOrderDate = order.createdAt;
+      }
+    }
+  });
 
   return res.json({
     success: true,
     result: {
-      items: pagedCustomers,
+      items: Array.from(customerMap.values()),
       page: currentPage,
       limit: perPage,
-      total,
-    },
+      total
+    }
   });
 };
 

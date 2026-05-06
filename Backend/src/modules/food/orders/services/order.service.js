@@ -311,7 +311,7 @@ function buildPickupPointsFromItems(items = [], sourceMap = new Map()) {
   return [...grouped.values()];
 }
 
-function evaluateCombinedPickupEligibility(pickupPoints = [], deliveryAddress) {
+async function evaluateCombinedPickupEligibility(pickupPoints = [], deliveryAddress) {
   const foodPickup = pickupPoints.find((point) => point.pickupType === "food");
   const quickPickup = pickupPoints.find((point) => point.pickupType === "quick");
   const foodPoint = getPointLatLng(foodPickup?.location);
@@ -326,19 +326,24 @@ function evaluateCombinedPickupEligibility(pickupPoints = [], deliveryAddress) {
     };
   }
 
+  // Fetch dynamic settings
+  const feeDoc = await FoodFeeSettings.findOne({ isActive: true }).sort({ createdAt: -1 }).lean();
+  const distLimit = feeDoc?.mixedOrderDistanceLimit ?? 2;
+  const angleLimit = feeDoc?.mixedOrderAngleLimit ?? 35;
+
   const pickupDistanceKm = haversineKm(foodPoint.lat, foodPoint.lng, quickPoint.lat, quickPoint.lng);
   const angle = angleBetweenPickupVectors(userPoint, foodPoint, quickPoint);
-  const sameDirection = angle == null ? false : angle <= 35;
-  const eligible = pickupDistanceKm <= 2 && sameDirection;
+  const sameDirection = angle == null ? false : angle <= angleLimit;
+  const eligible = pickupDistanceKm <= distLimit && sameDirection;
   return {
     eligible,
     pickupDistanceKm: Number.isFinite(pickupDistanceKm) ? Number(pickupDistanceKm.toFixed(2)) : null,
     sameDirection,
     reason: eligible
       ? "Pickups are close and aligned for a shared rider"
-      : pickupDistanceKm > 2
-        ? "Pickups are more than 2 km apart"
-        : "Pickups are not in the same direction",
+      : pickupDistanceKm > distLimit
+        ? `Pickups are more than ${distLimit} km apart`
+        : `Pickups are not in the same direction (exceeds ${angleLimit}° deviation)`,
   };
 }
 
@@ -1409,7 +1414,7 @@ export async function calculateOrder(userId, dto) {
   const pickupPoints = buildPickupPointsFromItems(items, sourceMap);
   const eligibility =
     orderType === "mixed"
-      ? evaluateCombinedPickupEligibility(pickupPoints, dto.address)
+      ? await evaluateCombinedPickupEligibility(pickupPoints, dto.address)
       : {
           eligible: false,
           pickupDistanceKm: null,
@@ -1721,7 +1726,7 @@ export async function createOrder(userId, dto) {
   const isCash = paymentMethod === "cash";
   const isWallet = paymentMethod === "wallet";
   const pickupPoints = buildPickupPointsFromItems(items, sourceMap);
-  const combinedPickup = evaluateCombinedPickupEligibility(
+  const combinedPickup = await evaluateCombinedPickupEligibility(
     pickupPoints,
     deliveryAddress,
   );
