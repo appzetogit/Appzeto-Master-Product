@@ -39,7 +39,6 @@ const ActiveDeliveryBoys = () => {
     const [statusFilter, setStatusFilter] = useState('all');
     const [selectedRider, setSelectedRider] = useState(null);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-    const [isOnboardModalOpen, setIsOnboardModalOpen] = useState(false);
     const [viewingRider, setViewingRider] = useState(null);
 
     // Form states
@@ -111,23 +110,6 @@ const ActiveDeliveryBoys = () => {
         }
     };
 
-    const handleOnboardSubmit = (e) => {
-        e.preventDefault();
-        const newRider = {
-            ...formState,
-            id: 'r' + (riders.length + 1),
-            status: 'offline',
-            rating: 5.0,
-            totalOrders: 0,
-            todayEarnings: 0,
-            lastSync: 'Just now',
-            joinDate: new Date().toLocaleDateString()
-        };
-        setRiders([newRider, ...riders]);
-        setIsOnboardModalOpen(false);
-        setFormState({ name: '', phone: '', email: '', vehicle: '', vehicleNum: '', location: '' });
-    };
-
     const handleEditSubmit = (e) => {
         e.preventDefault();
         setRiders(riders.map(r => r.id === selectedRider.id ? { ...r, ...formState } : r));
@@ -153,13 +135,6 @@ const ActiveDeliveryBoys = () => {
                     </h1>
                     <p className="ds-description mt-1">Manage all your active delivery partners here.</p>
                 </div>
-                <button
-                    onClick={() => setIsOnboardModalOpen(true)}
-                    className="flex items-center space-x-2 bg-slate-900 text-white px-6 py-3.5 rounded-2xl text-xs font-bold hover:bg-slate-800 transition-all shadow-xl hover:shadow-slate-200 active:scale-95 group"
-                >
-                    <Plus className="h-4 w-4 group-hover:rotate-90 transition-transform" />
-                    <span>ADD NEW RIDER</span>
-                </button>
             </div>
 
             {/* Quick Stats Grid */}
@@ -453,9 +428,9 @@ const ActiveDeliveryBoys = () => {
                 )}
             </AnimatePresence>
 
-            {/* Onboard / Edit Modal */}
+            {/* Edit Modal */}
             <AnimatePresence>
-                {(isOnboardModalOpen || isEditModalOpen) && (
+                {isEditModalOpen && (
                     <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
                         <motion.div
                             initial={{ opacity: 0 }}
@@ -463,7 +438,6 @@ const ActiveDeliveryBoys = () => {
                             exit={{ opacity: 0 }}
                             className="absolute inset-0 bg-slate-900/60 backdrop-blur-lg"
                             onClick={() => {
-                                setIsOnboardModalOpen(false);
                                 setIsEditModalOpen(false);
                             }}
                         />
@@ -474,13 +448,13 @@ const ActiveDeliveryBoys = () => {
                             className="w-full max-w-lg relative z-[120] bg-white rounded-2xl p-5 shadow-3xl"
                         >
                             <h3 className="ds-h2 mb-2">
-                                {isEditModalOpen ? 'Edit Rider' : 'Add New Rider'}
+                                Edit Rider
                             </h3>
                             <p className="ds-label mt-1 text-slate-500">
-                                {isEditModalOpen ? 'Update rider details below.' : 'Enter details to register a new delivery partner.'}
+                                Update rider details below.
                             </p>
 
-                            <form onSubmit={isEditModalOpen ? handleEditSubmit : handleOnboardSubmit} className="space-y-5">
+                            <form onSubmit={handleEditSubmit} className="space-y-5">
                                 <div className="grid grid-cols-1 gap-5">
                                     <div className="space-y-2">
                                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Full Identity Name</label>
@@ -546,7 +520,7 @@ const ActiveDeliveryBoys = () => {
                                 </div>
 
                                 <button type="submit" className="w-full py-4.5 bg-slate-900 text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-2xl hover:bg-slate-800 transition-all transform active:scale-[0.98] mt-4">
-                                    {isEditModalOpen ? 'SAVE CHANGES' : 'ADD RIDER'}
+                                    SAVE CHANGES
                                 </button>
                             </form>
                         </motion.div>

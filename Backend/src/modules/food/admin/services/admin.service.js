@@ -189,7 +189,7 @@ export async function getRestaurantComplaints(query = {}) {
         const searchRegex = { $regex: query.search, $options: 'i' };
         const restaurantIds = await FoodRestaurant.find({ restaurantName: searchRegex }).select('_id').lean();
         const userIds = await FoodUser.find({ name: searchRegex }).select('_id').lean();
-        const orderIds = await FoodOrder.find({ orderId: searchRegex }).select('_id').lean();
+        const orderIds = await FoodOrder.find({ orderId: searchRegex, orderType: 'food' }).select('_id').lean();
 
         filter.$or = [
             { restaurantId: { $in: restaurantIds.map(r => r._id) } },
@@ -228,6 +228,7 @@ export async function globalSearch(query = '') {
 
     const [orders, users, restaurants, items, categories, addons] = await Promise.all([
         FoodOrder.find({
+            orderType: 'food',
             $or: [{ orderId: regex }, { orderStatus: regex }]
         })
             .limit(5)
@@ -407,6 +408,7 @@ export async function getDashboardStats(query = {}) {
         : null;
 
     const orderMatch = {
+        orderType: 'food',
         $or: [
             { "payment.method": { $in: ["cash", "wallet"] } },
             { "payment.status": { $in: ["paid", "authorized", "captured", "settled", "refunded"] } },
@@ -746,7 +748,7 @@ function formatTimeAgo(date) {
 
 export async function getTransactionReport(query = {}) {
     const { fromDate, toDate, zone, restaurant, search } = query;
-    const match = {};
+    const match = { orderType: 'food' };
 
     if (fromDate && toDate) {
         match.createdAt = { $gte: new Date(fromDate), $lte: new Date(toDate) };
@@ -978,6 +980,7 @@ export async function getRestaurantReport(query = {}) {
 
     const orderCreatedAtFilter = parseTimeRange(query.time);
     const orderMatch = {
+        orderType: 'food',
         restaurantId: { $in: restaurantIds },
         $or: [
             { "payment.method": { $in: ["cash", "wallet"] } },
@@ -1070,6 +1073,7 @@ export async function getRestaurantReport(query = {}) {
 export async function getTaxReport(query = {}) {
     const { fromDate, toDate, search } = query;
     const match = {
+        orderType: 'food',
         orderStatus: 'delivered' // Typically tax is reported on delivered/completed orders
     };
 
@@ -1148,6 +1152,7 @@ export async function getTaxReportDetail(restaurantId, query = {}) {
 
     const { fromDate, toDate } = query;
     const match = {
+        orderType: 'food',
         restaurantId: new mongoose.Types.ObjectId(restaurantId),
         orderStatus: 'delivered'
     };

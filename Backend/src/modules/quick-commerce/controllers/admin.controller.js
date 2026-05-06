@@ -315,12 +315,14 @@ const toSellerRequest = (seller) => ({
 export const getAdminStats = async (_req, res) => {
   await ensureQuickCommerceSeedData();
 
-  const [categories, products, orders, revenueAgg] = await Promise.all([
+  const [categories, products, orders, sellers, users, revenueAgg] = await Promise.all([
     QuickCategory.countDocuments({ isActive: true }),
     QuickProduct.countDocuments({ isActive: true }),
-    QuickOrder.countDocuments({ orderType: 'quick' }),
+    QuickOrder.countDocuments({ orderType: { $in: ['quick', 'mixed'] } }),
+    Seller.countDocuments({ approvalStatus: 'approved' }),
+    FoodUser.countDocuments({ role: 'USER' }),
     QuickOrder.aggregate([
-      { $match: { orderType: 'quick' } },
+      { $match: { orderType: { $in: ['quick', 'mixed'] } } },
       { $group: { _id: null, total: { $sum: '$pricing.total' } } },
     ]),
   ]);
@@ -331,6 +333,8 @@ export const getAdminStats = async (_req, res) => {
       categories,
       products,
       orders,
+      sellers,
+      users,
       revenue: Number(revenueAgg?.[0]?.total || 0),
     },
   });
@@ -349,8 +353,6 @@ export const getAdminCategories = async (_req, res) => {
   } = _req.query || {};
 
   const query = {};
-  // If tree is requested, we fetch all (or by search) and filter roots by type in JS
-  // to ensure children (which might be of different type) are included.
   if (type && String(tree) !== 'true') query.type = String(type);
   if (search) query.name = { $regex: String(search).trim(), $options: 'i' };
   if (approvalStatus && approvalStatus !== 'all') query.approvalStatus = String(approvalStatus);
@@ -370,16 +372,12 @@ export const getAdminCategories = async (_req, res) => {
   const mapped = categories.map(toCategory);
   if (String(tree) === 'true') {
     let fullTree = buildCategoryTree(categories);
-    console.log(`[getAdminCategories] Built tree with ${fullTree.length} roots from ${categories.length} raw categories`);
     if (type) {
       const originalCount = fullTree.length;
-      // When filtering for headers in the tree, we allow any root category that is either explicitly marked as the type
-      // OR has no type (which defaults to 'header' in the mapper).
       fullTree = fullTree.filter(root => 
         !root.parentId && 
         (String(root.type).toLowerCase() === String(type).toLowerCase() || !root.type || root.type === 'default')
       );
-      console.log(`[getAdminCategories] Filtered roots by type ${type}: ${originalCount} -> ${fullTree.length}`);
     }
     return res.json({ success: true, results: fullTree });
   }
