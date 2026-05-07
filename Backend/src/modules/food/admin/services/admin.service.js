@@ -2592,6 +2592,7 @@ export async function getCategories(query) {
 
     const [list, total] = await Promise.all([
         FoodCategory.find(filter)
+            .populate('zoneId', 'name zoneName')
             .sort({ sortOrder: 1, createdAt: -1 })
             .skip(skip)
             .limit(limit)
@@ -4520,41 +4521,52 @@ export async function approveDeliveryPartner(id) {
         console.error('Failed to send delivery partner approval notification:', e);
     }
 
-    // Referral crediting: on approval, credit the referrer partner's pocket balance via DeliveryBonusTransaction.
+    // Referral crediting: on approval, credit the referrer and referee partners' pocket balances via DeliveryBonusTransaction.
     try {
         const referrerId = partner.referredBy ? String(partner.referredBy) : '';
         if (referrerId && mongoose.Types.ObjectId.isValid(referrerId)) {
             const already = await FoodReferralLog.findOne({ refereeId: partner._id, role: 'DELIVERY_PARTNER' }).lean();
             if (!already) {
                 const settingsDoc = await FoodReferralSettings.findOne({ isActive: true }).sort({ createdAt: -1 }).lean();
-                const reward = Math.max(0, Number(settingsDoc?.referralRewardDelivery) || 0);
-                const limit = Math.max(0, Number(settingsDoc?.referralLimitDelivery) || 0);
+                
+                const referrerReward = Math.max(0, Number(settingsDoc?.delivery?.referrerReward) || 0);
+                const refereeReward = Math.max(0, Number(settingsDoc?.delivery?.refereeReward) || 0);
+                const limit = Math.max(0, Number(settingsDoc?.delivery?.limit) || 0);
+                
                 const referrer = await FoodDeliveryPartner.findById(referrerId).select('_id referralCount status').lean();
 
-                if (referrer && referrer.status === 'approved' && reward > 0 && limit > 0 && Number(referrer.referralCount || 0) < limit) {
+                if (referrer && referrer.status === 'approved' && (referrerReward > 0 || refereeReward > 0) && limit > 0 && Number(referrer.referralCount || 0) < limit) {
                     const log = await FoodReferralLog.create({
                         referrerId: referrer._id,
                         refereeId: partner._id,
                         role: 'DELIVERY_PARTNER',
-                        rewardAmount: reward,
+                        rewardAmount: referrerReward,
+                        referrerRewardAmount: referrerReward,
+                        refereeRewardAmount: refereeReward,
                         status: 'credited'
                     });
 
                     await Promise.all([
                         FoodDeliveryPartner.updateOne({ _id: referrer._id }, { $inc: { referralCount: 1 } }),
-                        addDeliveryPartnerBonus(
-                            { deliveryPartnerId: String(referrer._id), amount: reward, reference: 'Referral bonus' },
+                        // Credit Referrer
+                        referrerReward > 0 ? addDeliveryPartnerBonus(
+                            { deliveryPartnerId: String(referrer._id), amount: referrerReward, reference: `Referral bonus for referring ${partner.name || 'new partner'}` },
                             null
-                        )
+                        ) : Promise.resolve(),
+                        // Credit Referee (The approved partner)
+                        refereeReward > 0 ? addDeliveryPartnerBonus(
+                            { deliveryPartnerId: String(partner._id), amount: refereeReward, reference: `Sign-up referral bonus via ${referrer.name || 'existing partner'}` },
+                            null
+                        ) : Promise.resolve()
                     ]);
                 } else {
                     await FoodReferralLog.create({
                         referrerId: new mongoose.Types.ObjectId(referrerId),
                         refereeId: partner._id,
                         role: 'DELIVERY_PARTNER',
-                        rewardAmount: reward,
+                        rewardAmount: referrerReward,
                         status: 'rejected',
-                        reason: !referrer ? 'referrer_not_found' : reward <= 0 ? 'reward_disabled' : limit <= 0 ? 'limit_disabled' : 'limit_reached'
+                        reason: !referrer ? 'referrer_not_found' : (referrerReward <= 0 && refereeReward <= 0) ? 'reward_disabled' : limit <= 0 ? 'limit_disabled' : 'limit_reached'
                     });
                 }
             }
