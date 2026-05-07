@@ -189,7 +189,7 @@ export async function getRestaurantComplaints(query = {}) {
         const searchRegex = { $regex: query.search, $options: 'i' };
         const restaurantIds = await FoodRestaurant.find({ restaurantName: searchRegex }).select('_id').lean();
         const userIds = await FoodUser.find({ name: searchRegex }).select('_id').lean();
-        const orderIds = await FoodOrder.find({ orderId: searchRegex }).select('_id').lean();
+        const orderIds = await FoodOrder.find({ orderId: searchRegex, orderType: 'food' }).select('_id').lean();
 
         filter.$or = [
             { restaurantId: { $in: restaurantIds.map(r => r._id) } },
@@ -228,6 +228,7 @@ export async function globalSearch(query = '') {
 
     const [orders, users, restaurants, items, categories, addons] = await Promise.all([
         FoodOrder.find({
+            orderType: 'food',
             $or: [{ orderId: regex }, { orderStatus: regex }]
         })
             .limit(5)
@@ -407,6 +408,7 @@ export async function getDashboardStats(query = {}) {
         : null;
 
     const orderMatch = {
+        orderType: 'food',
         $or: [
             { "payment.method": { $in: ["cash", "wallet"] } },
             { "payment.status": { $in: ["paid", "authorized", "captured", "settled", "refunded"] } },
@@ -746,7 +748,7 @@ function formatTimeAgo(date) {
 
 export async function getTransactionReport(query = {}) {
     const { fromDate, toDate, zone, restaurant, search } = query;
-    const match = {};
+    const match = { orderType: 'food' };
 
     if (fromDate && toDate) {
         match.createdAt = { $gte: new Date(fromDate), $lte: new Date(toDate) };
@@ -754,7 +756,7 @@ export async function getTransactionReport(query = {}) {
 
     if (search) {
         const searchRegex = new RegExp(String(search).trim(), "i");
-        const matchingOrders = await FoodOrder.find({ orderId: { $regex: searchRegex } })
+        const matchingOrders = await FoodOrder.find({ orderId: { $regex: searchRegex }, orderType: 'food' })
             .select('_id')
             .lean();
 
@@ -978,6 +980,7 @@ export async function getRestaurantReport(query = {}) {
 
     const orderCreatedAtFilter = parseTimeRange(query.time);
     const orderMatch = {
+        orderType: 'food',
         restaurantId: { $in: restaurantIds },
         $or: [
             { "payment.method": { $in: ["cash", "wallet"] } },
@@ -1070,6 +1073,7 @@ export async function getRestaurantReport(query = {}) {
 export async function getTaxReport(query = {}) {
     const { fromDate, toDate, search } = query;
     const match = {
+        orderType: 'food',
         orderStatus: 'delivered' // Typically tax is reported on delivered/completed orders
     };
 
@@ -1148,6 +1152,7 @@ export async function getTaxReportDetail(restaurantId, query = {}) {
 
     const { fromDate, toDate } = query;
     const match = {
+        orderType: 'food',
         restaurantId: new mongoose.Types.ObjectId(restaurantId),
         orderStatus: 'delivered'
     };
@@ -1247,7 +1252,12 @@ export async function getCustomers(query = {}) {
     const userIds = docs.map((u) => u._id).filter(Boolean);
     const orderStats = userIds.length > 0
         ? await FoodOrder.aggregate([
-            { $match: { userId: { $in: userIds } } },
+            {
+                $match: {
+                    userId: { $in: userIds },
+                    orderType: { $in: FOOD_CUSTOMER_ORDER_TYPES }
+                }
+            },
             {
                 $group: {
                     _id: '$userId',
@@ -1402,7 +1412,7 @@ export async function getSupportTickets(query = {}) {
         const [restaurantIds, userIds, orderIds] = await Promise.all([
             FoodRestaurant.find({ restaurantName: searchRegex }).select('_id').lean(),
             FoodUser.find({ name: searchRegex }).select('_id').lean(),
-            FoodOrder.find({ orderId: searchRegex }).select('_id').lean()
+            FoodOrder.find({ orderId: searchRegex, orderType: 'food' }).select('_id').lean()
         ]);
         if (restaurantIds.length) {
             const ids = restaurantIds.map((r) => r._id);
@@ -2115,7 +2125,8 @@ export async function getRestaurantReviews(query = {}) {
     const skip = (page - 1) * limit;
 
     const filter = {
-        'ratings.restaurant.rating': { $exists: true, $ne: null }
+        'ratings.restaurant.rating': { $exists: true, $ne: null },
+        orderType: 'food'
     };
 
     if (query.search && String(query.search).trim()) {
@@ -2180,7 +2191,7 @@ export async function getRestaurantAnalytics(restaurantId) {
     const [restaurant, commissionDoc, orders, txRows] = await Promise.all([
         FoodRestaurant.findById(rId).lean(),
         FoodRestaurantCommission.findOne({ restaurantId: rId, status: { $ne: false } }).lean(),
-        FoodOrder.find({ restaurantId: rId }).lean(),
+        FoodOrder.find({ restaurantId: rId, orderType: 'food' }).lean(),
         FoodTransaction.find({ restaurantId: rId })
             .populate('orderId', 'orderStatus createdAt pricing')
             .sort({ createdAt: -1 })
@@ -3737,7 +3748,8 @@ export async function getDeliveryPartners(query) {
         { 
             $match: { 
                 'dispatch.deliveryPartnerId': { $in: partnerIds },
-                orderStatus: 'delivered'
+                orderStatus: 'delivered',
+                orderType: 'food'
             } 
         },
         { $group: { _id: '$dispatch.deliveryPartnerId', totalOrders: { $sum: 1 } } }
@@ -3912,7 +3924,8 @@ export async function getDeliveryEarnings(query = {}) {
     const skip = (page - 1) * limit;
 
     const filter = {
-        'dispatch.deliveryPartnerId': { $ne: null }
+        'dispatch.deliveryPartnerId': { $ne: null },
+        orderType: 'food'
     };
 
     // Date range filters
@@ -4418,7 +4431,8 @@ export async function getDeliverymanReviews(query = {}) {
     const skip = (page - 1) * limit;
 
     const filter = {
-        'ratings.deliveryPartner.rating': { $exists: true, $ne: null }
+        'ratings.deliveryPartner.rating': { $exists: true, $ne: null },
+        orderType: 'food'
     };
 
     if (query.search && String(query.search).trim()) {
