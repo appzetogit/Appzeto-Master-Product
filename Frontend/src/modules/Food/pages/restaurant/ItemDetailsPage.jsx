@@ -100,8 +100,8 @@ export default function ItemDetailsPage() {
   const [isTagsPopupOpen, setIsTagsPopupOpen] = useState(false)
   const [categories, setCategories] = useState([])
   const [loadingCategories, setLoadingCategories] = useState(true)
-  const [loadingItem, setLoadingItem] = useState(false)
   const [keyboardInset, setKeyboardInset] = useState(0)
+  const [isPureVegRestaurant, setIsPureVegRestaurant] = useState(false)
 
   const maxNameLength = 70
   const maxDescriptionLength = 1000
@@ -296,6 +296,34 @@ export default function ItemDetailsPage() {
     document.addEventListener("focusin", handleFocusIn, true)
     return () => {
       document.removeEventListener("focusin", handleFocusIn, true)
+    }
+  }, [])
+
+  // Fetch restaurant profile to check for Pure Veg status
+  useEffect(() => {
+    let isMounted = true
+    const fetchRestaurantProfile = async () => {
+      try {
+        const response = await restaurantAPI.getCurrentRestaurant()
+        const profile =
+          response?.data?.data?.restaurant ||
+          response?.data?.restaurant ||
+          response?.data?.data ||
+          null
+        if (!isMounted) return
+        const pureVeg = profile?.pureVegRestaurant === true
+        setIsPureVegRestaurant(pureVeg)
+        if (pureVeg) {
+          setFoodType("Veg")
+        }
+      } catch (error) {
+        debugWarn("Failed to load restaurant profile:", error)
+      }
+    }
+
+    fetchRestaurantProfile()
+    return () => {
+      isMounted = false
     }
   }, [])
 
