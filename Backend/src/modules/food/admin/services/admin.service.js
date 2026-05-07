@@ -1874,27 +1874,31 @@ export async function getReferralSettings() {
 
 export async function upsertReferralSettings(body = {}) {
     const existing = await FoodReferralSettings.findOne({ isActive: true }).sort({ createdAt: -1 });
+    
+    const formattedData = {
+        user: {
+            referrerReward: Math.max(0, Number(body.user?.referrerReward) || 0),
+            refereeReward: Math.max(0, Number(body.user?.refereeReward) || 0),
+            limit: Math.max(0, Number(body.user?.limit) || 0)
+        },
+        delivery: {
+            referrerReward: Math.max(0, Number(body.delivery?.referrerReward) || 0),
+            refereeReward: Math.max(0, Number(body.delivery?.refereeReward) || 0),
+            limit: Math.max(0, Number(body.delivery?.limit) || 0)
+        },
+        isActive: body.isActive !== false
+    };
+
     if (existing) {
-        const $set = {};
-
-        if (body.referralRewardUser !== undefined) $set.referralRewardUser = Math.max(0, Number(body.referralRewardUser) || 0);
-        if (body.referralRewardDelivery !== undefined) $set.referralRewardDelivery = Math.max(0, Number(body.referralRewardDelivery) || 0);
-        if (body.referralLimitUser !== undefined) $set.referralLimitUser = Math.max(0, Number(body.referralLimitUser) || 0);
-        if (body.referralLimitDelivery !== undefined) $set.referralLimitDelivery = Math.max(0, Number(body.referralLimitDelivery) || 0);
-        if (body.isActive !== undefined) $set.isActive = Boolean(body.isActive);
-
-        if (!Object.keys($set).length) return existing.toObject();
-        const updated = await FoodReferralSettings.findByIdAndUpdate(existing._id, { $set }, { new: true }).lean();
+        const updated = await FoodReferralSettings.findByIdAndUpdate(
+            existing._id, 
+            { $set: formattedData }, 
+            { new: true }
+        ).lean();
         return updated;
     }
 
-    const created = await FoodReferralSettings.create({
-        referralRewardUser: Math.max(0, Number(body.referralRewardUser) || 0),
-        referralRewardDelivery: Math.max(0, Number(body.referralRewardDelivery) || 0),
-        referralLimitUser: Math.max(0, Number(body.referralLimitUser) || 0),
-        referralLimitDelivery: Math.max(0, Number(body.referralLimitDelivery) || 0),
-        isActive: body.isActive !== false
-    });
+    const created = await FoodReferralSettings.create(formattedData);
     return created.toObject();
 }
 
