@@ -1613,6 +1613,17 @@ export const updateSellerOrderStatusController = async (req, res) => {
       return sendError(res, 400, "Status is required");
     }
 
+    // Sellers can only manually change status to 'confirmed', 'packed', or 'cancelled'
+    // 'out_for_delivery' and 'delivered' are managed automatically by the delivery partner app
+    const restrictedStatuses = ["out_for_delivery", "delivered"];
+    if (restrictedStatuses.includes(nextStatus)) {
+      return sendError(
+        res,
+        403,
+        `Sellers cannot manually change order status to ${nextStatus.replace(/_/g, " ")}. This status is updated automatically by the delivery partner.`,
+      );
+    }
+
     const result = await quickOrderService.updateSellerOrderStatus(
       orderId,
       sellerId,
