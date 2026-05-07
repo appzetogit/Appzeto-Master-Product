@@ -36,29 +36,57 @@ const resolveId = (req) => {
   return sessionId ? { sessionId } : null;
 };
 
-const normalizeOrderSummary = (order) => ({
-  id: order._id,
-  _id: order._id,
-  orderId: order.orderId,
-  orderNumber: order.orderId,
-  total: order.pricing?.total || 0,
-  status: order.orderStatus,
-  workflowStatus: order.workflowStatus || '',
-  itemCount: Array.isArray(order.items)
-    ? order.items.reduce((sum, item) => sum + Number(item.quantity || 0), 0)
-    : 0,
-  createdAt: order.createdAt,
-  items: Array.isArray(order.items)
-    ? order.items.map((item) => ({
-        itemId: item.itemId || item.productId || '',
-        name: item.name,
-        image: item.image,
-        price: item.price,
-        quantity: item.quantity,
-      }))
-    : [],
-  pricing: order.pricing || {},
-});
+const getOrderPayableAmount = (order) => {
+  const pricing = order?.pricing || {};
+  const pricingTotal = Number(pricing.total ?? order?.total ?? 0);
+  const platformFee = Number(pricing.platformFee ?? 0);
+
+  // In quick-commerce, `pricing.total` is subtotal + fees (delivery/handling/gst...) minus discounts.
+  // Platform fee is stored separately and is part of what the customer pays.
+  const computed =
+    Number.isFinite(platformFee) && platformFee > 0
+      ? pricingTotal + platformFee
+      : pricingTotal;
+
+  return Number.isFinite(computed) ? Math.max(0, computed) : 0;
+};
+
+const normalizeOrderSummary = (order) => {
+  const amount = getOrderPayableAmount(order);
+  const paymentMethod = order?.payment?.method || order?.paymentMethod || 'cash';
+  const paymentStatus = order?.payment?.status || order?.paymentStatus || '';
+
+  return {
+    id: order._id,
+    _id: order._id,
+    orderId: order.orderId,
+    orderNumber: order.orderId,
+    total: amount,
+    totalAmount: amount,
+    payableAmount: amount,
+    amount,
+    status: order.orderStatus,
+    orderStatus: order.orderStatus,
+    workflowStatus: order.workflowStatus || '',
+    paymentMethod,
+    paymentStatus,
+    payment: order.payment || {},
+    itemCount: Array.isArray(order.items)
+      ? order.items.reduce((sum, item) => sum + Number(item.quantity || 0), 0)
+      : 0,
+    createdAt: order.createdAt,
+    items: Array.isArray(order.items)
+      ? order.items.map((item) => ({
+          itemId: item.itemId || item.productId || '',
+          name: item.name,
+          image: item.image,
+          price: item.price,
+          quantity: item.quantity,
+        }))
+      : [],
+    pricing: order.pricing || {},
+  };
+};
 
 const normalizeDeliveryAddress = (address) => {
   if (!address || typeof address !== 'object') return null;
@@ -226,7 +254,9 @@ export const placeOrder = async (req, res) => {
     const isOnlinePayment = String(req.body?.paymentMode || 'COD').toUpperCase() === 'ONLINE';
     const paymentMode = isOnlinePayment ? 'razorpay' : 'cash';
     const sellerPaymentMode = isOnlinePayment ? 'online' : 'cash';
-    const shouldFanOutSellerOrders = !isOnlinePayment;
+    // Seller must receive/track every order regardless of payment mode (COD/online).
+    // Earnings are based on delivered SellerOrders, so we always create these legs.
+    const shouldFanOutSellerOrders = true;
     const deliveryAddress = normalizeDeliveryAddress(req.body?.address);
 
     // Calculate rider earning (using base payout if distance is unknown/short)
@@ -257,7 +287,7 @@ export const placeOrder = async (req, res) => {
       payment: {
         method: paymentMode,
         status: paymentMode === 'razorpay' ? 'created' : 'cod_pending',
-        amountDue: total,
+        amountDue: Math.max(0, total + Number(pricing.platformFee || 0)),
       },
       orderStatus: 'placed',
       riderEarning: riderEarning || 0,
@@ -295,6 +325,10 @@ export const placeOrder = async (req, res) => {
 
             // Calculate commission for this specific seller
             const { commissionAmount } = await getSellerCommissionSnapshot(sellerId, sellerSubtotal);
+            const sellerReceivable = Math.max(
+              0,
+              Number((sellerSubtotal - commissionAmount).toFixed(2)),
+            );
 
             return {
               orderType: 'quick',
@@ -316,6 +350,7 @@ export const placeOrder = async (req, res) => {
                 subtotal: sellerSubtotal,
                 commission: commissionAmount,
                 total: sellerSubtotal + allocatedDeliveryFee,
+                receivable: sellerReceivable,
               },
               status: 'pending',
               workflowStatus: 'SELLER_PENDING',
@@ -373,8 +408,17 @@ export const placeOrder = async (req, res) => {
       void (async () => {
         try {
           if (!sellerOrders.length) return;
-          const insertedSellerOrders = await SellerOrder.insertMany(sellerOrders, { ordered: false });
-          emitQuickSellerOrders(insertedSellerOrders);
+          // Idempotent upsert: protects against retries / duplicate placeOrder submissions.
+          const upserts = await Promise.all(
+            sellerOrders.map((doc) =>
+              SellerOrder.findOneAndUpdate(
+                { sellerId: doc.sellerId, orderId: doc.orderId },
+                { $set: doc },
+                { upsert: true, new: true, setDefaultsOnInsert: true },
+              ),
+            ),
+          );
+          emitQuickSellerOrders(upserts.filter(Boolean));
         } catch (error) {
           logger.error(`Quick seller order fanout failed for ${order.orderId}: ${error?.message || error}`);
         }
@@ -388,8 +432,15 @@ export const placeOrder = async (req, res) => {
         _id: order._id,
         orderId: order.orderId,
         orderNumber: order.orderId,
-        total: order.pricing?.total || 0,
+        total: getOrderPayableAmount(order),
+        totalAmount: getOrderPayableAmount(order),
+        payableAmount: getOrderPayableAmount(order),
+        amount: getOrderPayableAmount(order),
         status: order.orderStatus,
+        orderStatus: order.orderStatus,
+        paymentMethod: order.payment?.method || paymentMode,
+        paymentStatus: order.payment?.status || '',
+        pricing: order.pricing || {},
         createdAt: order.createdAt,
       },
     });
@@ -596,6 +647,7 @@ export const cancelOrder = async (req, res) => {
     }
 
     order.orderStatus = 'cancelled_by_user';
+    order.workflowStatus = 'CANCELLED';
     order.statusHistory = Array.isArray(order.statusHistory) ? order.statusHistory : [];
     order.statusHistory.push({
       byRole: 'USER',
@@ -618,7 +670,7 @@ export const cancelOrder = async (req, res) => {
       {
         $set: {
           status: 'cancelled',
-          workflowStatus: 'CANCELLED_BY_USER',
+          workflowStatus: 'CANCELLED',
         },
       },
     );

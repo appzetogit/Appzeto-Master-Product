@@ -3,6 +3,7 @@ import { logger } from '../../../utils/logger.js';
 import { getIO, rooms } from '../../../config/socket.js';
 import { Seller } from '../seller/models/seller.model.js';
 import { SellerOrder } from '../seller/models/sellerOrder.model.js';
+import { SellerTransaction } from '../seller/models/sellerTransaction.model.js';
 import { QuickOrder } from '../models/order.model.js';
 import { FoodDeliveryPartner } from '../../food/delivery/models/deliveryPartner.model.js';
 import {
@@ -69,6 +70,45 @@ export const updateSellerOrderStatus = async (sellerOrderId, sellerId, nextStatu
   if (nextStatus === 'delivered') sellerOrder.deliveredAt = new Date();
   await sellerOrder.save();
 
+  // 1b. Earnings credit: create/upsert an "Order Payment" transaction once delivered.
+  // This is idempotent (unique by sellerId + orderId + type).
+  if (nextStatus === 'delivered') {
+    const receivableRaw =
+      Number(sellerOrder?.pricing?.receivable) ||
+      Math.max(
+        0,
+        Number(sellerOrder?.pricing?.subtotal || 0) - Number(sellerOrder?.pricing?.commission || 0),
+      );
+    const receivable = Number.isFinite(receivableRaw) ? Math.max(0, receivableRaw) : 0;
+
+    if (receivable > 0) {
+      try {
+        await SellerTransaction.findOneAndUpdate(
+          { sellerId, type: 'Order Payment', orderId: sellerOrder.orderId },
+          {
+            $set: {
+              amount: receivable,
+              status: 'Settled',
+              reference: sellerOrder.orderId,
+              customer: sellerOrder?.customer?.name || 'Customer',
+            },
+            $setOnInsert: {
+              sellerId,
+              type: 'Order Payment',
+              orderId: sellerOrder.orderId,
+              reason: '',
+            },
+          },
+          { upsert: true, new: true, setDefaultsOnInsert: true },
+        );
+      } catch (err) {
+        logger.error(
+          `[QuickEarnings] Failed to upsert seller transaction for ${sellerOrder.orderId}: ${err?.message || err}`,
+        );
+      }
+    }
+  }
+
   // 2. Sync Parent Order
   const parentOrder = sellerOrder.parentOrderId
     ? await QuickOrder.findById(sellerOrder.parentOrderId)
@@ -87,6 +127,8 @@ export const updateSellerOrderStatus = async (sellerOrderId, sellerId, nextStatu
       if (shouldUpdateParentStatus) {
         parentOrder.orderStatus = parentNextStatus;
       }
+      parentOrder.workflowStatus =
+        SELLER_TO_WORKFLOW_MAP[nextStatus] || parentOrder.workflowStatus;
 
       pushStatusHistory(parentOrder, {
         byRole: 'SELLER',
@@ -202,6 +244,8 @@ export const syncSellerOrderFromDelivery = async (parentOrderId, deliveryStatus)
   const nextSellerStatus = deliveryStatus === 'picked_up' ? 'out_for_delivery' : (deliveryStatus === 'delivered' ? 'delivered' : null);
   if (!nextSellerStatus) return;
 
+  const deliveredStamp = nextSellerStatus === 'delivered' ? new Date() : null;
+
   const parent = await QuickOrder.findById(parentOrderId).select('_id orderId').lean();
   if (!parent) return;
 
@@ -214,6 +258,7 @@ export const syncSellerOrderFromDelivery = async (parentOrderId, deliveryStatus)
         $set: {
           status: nextSellerStatus,
           workflowStatus: SELLER_TO_WORKFLOW_MAP[nextSellerStatus],
+          ...(deliveredStamp ? { deliveredAt: deliveredStamp } : {}),
         },
       },
     ),
@@ -224,6 +269,7 @@ export const syncSellerOrderFromDelivery = async (parentOrderId, deliveryStatus)
           parentOrderId: parent._id,
           status: nextSellerStatus,
           workflowStatus: SELLER_TO_WORKFLOW_MAP[nextSellerStatus],
+          ...(deliveredStamp ? { deliveredAt: deliveredStamp } : {}),
         },
       },
     ),

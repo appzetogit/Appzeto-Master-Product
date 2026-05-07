@@ -39,6 +39,25 @@ import { joinOrderRoom, onOrderStatusUpdate } from "@/core/services/orderSocket"
 
 const AUTO_REFRESH_INTERVAL_MS = 30000;
 
+const resolveSellerReceivable = (order) => {
+    const receivable = Number(order?.pricing?.receivable);
+    if (Number.isFinite(receivable)) return receivable;
+
+    const subtotal = Number(order?.pricing?.subtotal);
+    const commission = Number(order?.pricing?.commission);
+    if (Number.isFinite(subtotal) && Number.isFinite(commission)) {
+        return Math.max(0, subtotal - commission);
+    }
+
+    const fallback = Number(order?.pricing?.total ?? order?.total);
+    return Number.isFinite(fallback) ? fallback : 0;
+};
+
+const formatMoney = (value) => `Rs ${Number(value || 0).toLocaleString('en-IN', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+})}`;
+
 
 const Orders = () => {
     const [orders, setOrders] = useState([]);
@@ -159,6 +178,7 @@ const Orders = () => {
             const formattedOrders = (rawOrders || []).map(order => ({
                 id: order.orderId,
                 _id: order._id,
+                orderId: order.orderId,
                 customer: {
                     name: order.customer?.name || 'Unknown',
                     phone: order.customer?.phone || '',
@@ -170,7 +190,13 @@ const Orders = () => {
                     qty: item.quantity,
                     image: item.image
                 })),
-                total: order.pricing?.total || 0,
+                total: resolveSellerReceivable(order),
+                pricing: {
+                    subtotal: Number(order.pricing?.subtotal || 0),
+                    commission: Number(order.pricing?.commission || 0),
+                    total: Number(order.pricing?.total || 0),
+                    receivable: resolveSellerReceivable(order),
+                },
                 orderType: String(order.orderType || "quick").toLowerCase(),
                 status: getLegacyStatusFromOrder(order),
                 workflowStatus: order.workflowStatus,
@@ -375,7 +401,7 @@ const Orders = () => {
             const s = String(v ?? "").replace(/"/g, '""');
             return /[",\n\r]/.test(s) ? `"${s}"` : s;
         };
-        const headers = ["Order ID", "Customer", "Phone", "Date", "Time", "Total (₹)", "Status", "Address", "Payment"];
+        const headers = ["Order ID", "Customer", "Phone", "Date", "Time", "Receivable", "Status", "Address", "Payment"];
         const rows = data.map((o) => [
             o.id,
             o.customer?.name ?? "",
@@ -625,7 +651,7 @@ const Orders = () => {
                                                                 ? 'Closest rider notified, waiting for acceptance'
                                                                 : 'No rider accepted yet'}
                                                     </p>
-                                                    <p className="text-sm font-black text-slate-900 mt-2">₹{order.total.toLocaleString()}</p>
+                                                    <p className="text-sm font-black text-slate-900 mt-2">{formatMoney(order.total)}</p>
                                                 </div>
                                                 <div className="flex flex-col items-end gap-2 shrink-0">
                                                     <Badge variant={getStatusColor(order.status)} className="text-[10px] font-black uppercase px-2 py-0">
@@ -661,7 +687,7 @@ const Orders = () => {
                                             <th className="px-4 lg:px-6 py-3 lg:py-4 text-xs font-bold text-slate-600 uppercase tracking-widest">Order Details</th>
                                             <th className="px-4 lg:px-6 py-3 lg:py-4 text-xs font-bold text-slate-600 uppercase tracking-widest">Customer</th>
                                             <th className="px-4 lg:px-6 py-3 lg:py-4 text-xs font-bold text-slate-600 uppercase tracking-widest">Driver</th>
-                                            <th className="px-4 lg:px-6 py-3 lg:py-4 text-xs font-bold text-slate-600 uppercase tracking-widest">Total</th>
+                                            <th className="px-4 lg:px-6 py-3 lg:py-4 text-xs font-bold text-slate-600 uppercase tracking-widest">Receivable</th>
                                             <th className="px-4 lg:px-6 py-3 lg:py-4 text-xs font-bold text-slate-600 uppercase tracking-widest">Status</th>
                                             <th className="px-4 lg:px-6 py-3 lg:py-4 text-xs font-bold text-slate-600 uppercase tracking-widest text-right">Actions</th>
                                         </tr>
@@ -730,7 +756,7 @@ const Orders = () => {
                                                     </td>
                                                     <td className="px-4 lg:px-6 py-3 lg:py-4">
                                                         <div className="flex flex-col">
-                                                            <span className="text-xs font-bold text-slate-900">₹{order.total.toLocaleString()}</span>
+                                                            <span className="text-xs font-bold text-slate-900">{formatMoney(order.total)}</span>
                                                             <span className="text-xs font-semibold text-slate-600">{order.items.length} items</span>
                                                         </div>
                                                     </td>
@@ -1008,17 +1034,17 @@ const Orders = () => {
                                                     <h4 className="text-xs font-black text-primary uppercase tracking-widest mb-3">Order Summary</h4>
                                                     <div className="space-y-2">
                                                         <div className="flex justify-between text-xs">
-                                                            <span className="font-bold text-slate-600">Subtotal</span>
-                                                            <span className="font-black text-slate-900">₹{(selectedOrder.total - 10).toFixed(2)}</span>
+                                                            <span className="font-bold text-slate-600">Items subtotal</span>
+                                                            <span className="font-black text-slate-900">{formatMoney(selectedOrder.pricing?.subtotal)}</span>
                                                         </div>
                                                         <div className="flex justify-between text-xs">
-                                                            <span className="font-bold text-slate-600">Delivery Fee</span>
-                                                            <span className="font-black text-emerald-600">₹10.00</span>
+                                                            <span className="font-bold text-slate-600">Commission</span>
+                                                            <span className="font-black text-rose-600">{formatMoney(selectedOrder.pricing?.commission)}</span>
                                                         </div>
                                                         <div className="h-px bg-primary/10 my-2" />
                                                         <div className="flex justify-between text-sm">
-                                                            <span className="font-black text-slate-900">Total</span>
-                                                            <span className="font-black text-primary">₹{selectedOrder.total.toFixed(2)}</span>
+                                                            <span className="font-black text-slate-900">Receivable</span>
+                                                            <span className="font-black text-primary">{formatMoney(selectedOrder.total)}</span>
                                                         </div>
                                                     </div>
                                                 </div>

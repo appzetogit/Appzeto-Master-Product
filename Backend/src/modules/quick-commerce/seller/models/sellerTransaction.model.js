@@ -37,6 +37,27 @@ const sellerTransactionSchema = new mongoose.Schema(
       trim: true,
       default: "",
     },
+    paymentMethod: {
+      type: String,
+      enum: ["bank_transfer", "upi", ""],
+      default: "",
+    },
+    bankDetails: {
+      bankName: { type: String, trim: true, default: "" },
+      accountHolderName: { type: String, trim: true, default: "" },
+      accountNumberLast4: { type: String, trim: true, default: "" },
+      ifscCode: { type: String, trim: true, uppercase: true, default: "" },
+      upiId: { type: String, trim: true, default: "" },
+    },
+    adminNote: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    processedAt: {
+      type: Date,
+      default: null,
+    },
     reason: {
       type: String,
       trim: true,

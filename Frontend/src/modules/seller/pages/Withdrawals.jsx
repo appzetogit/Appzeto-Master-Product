@@ -93,8 +93,7 @@ const Withdrawals = () => {
     const handleSubmitRequest = async (e) => {
         e.preventDefault();
         const settled = Number(data?.balances?.settledBalance ?? 0);
-        const pending = Math.abs(Number(data?.balances?.pendingPayouts ?? 0));
-        const available = Math.max(0, settled - pending);
+        const available = Math.max(0, settled);
 
         if (!amount || parseFloat(amount) <= 0 || parseFloat(amount) > available) {
             toast.error(`Please enter a valid amount within your available balance (₹${available}).`);
@@ -122,9 +121,9 @@ const Withdrawals = () => {
     }
 
     const balances = {
-        available: Math.max(0, Number(data.balances?.settledBalance ?? 0) - Math.abs(Number(data.balances?.pendingPayouts ?? 0))),
+        available: Math.max(0, Number(data.balances?.settledBalance ?? 0)),
         pending: Math.abs(Number(data.balances?.pendingPayouts ?? 0)),
-        lastWithdrawal: Math.abs(withdrawalHistory[0]?.amount ?? 0),
+        lastWithdrawal: Math.abs(withdrawalHistory.find((item) => item.status === 'Settled')?.amount ?? 0),
     };
 
     return (
