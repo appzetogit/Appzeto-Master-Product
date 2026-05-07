@@ -114,13 +114,22 @@ const OrdersList = () => {
                 const payload = response.data.result || {};
                 const dbOrders = Array.isArray(payload.items) ? payload.items : (response.data.results || []);
                 const formatted = dbOrders.map(o => ({
+                    // Payable amount = pricing.total (subtotal+delivery+handling+gst...) + platformFee
+                    // Older backend payloads may still send amount as pricing.total only.
                     id: String(o.orderId || o._id || ''),
                     _id: o._id,
                     orderType: String(o.orderType || 'quick').toLowerCase(),
                     customer: String(o.customer?.name || o.sellerOrder?.customer?.name || 'Unknown'),
                     seller: String(o.seller?.shopName || o.storeName || 'Unknown'),
                     items: o.itemCount || o.items?.length || 0,
-                    amount: Number(o.amount ?? o.pricing?.total ?? 0),
+                    amount: (() => {
+                        const pricingTotal = Number(o.pricing?.total ?? 0);
+                        const platformFee = Number(o.pricing?.platformFee ?? 0);
+                        const computedPayable = Math.max(0, pricingTotal + platformFee);
+                        const provided = Number(o.amount);
+                        if (Number.isFinite(platformFee) && platformFee > 0) return computedPayable;
+                        return Number.isFinite(provided) ? provided : pricingTotal;
+                    })(),
                     status: String(getLegacyStatusFromOrder(o) || 'pending'),
                     rawStatus: String(o.orderStatus || ''),
                     workflowStatus: o.workflowStatus,

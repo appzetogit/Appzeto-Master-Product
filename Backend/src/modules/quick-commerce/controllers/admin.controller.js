@@ -23,6 +23,18 @@ import {
   deleteQuickOfferSection,
   reorderQuickOfferSections,
 } from '../services/content.service.js';
+import {
+  getQuickCommerceDeliveryWithdrawals,
+  getQuickCommerceFinanceLedger,
+  getQuickCommerceFinancePayouts,
+  getQuickCommerceFinanceSummary,
+  getQuickCommerceDeliveryCashBalances,
+  getQuickCommerceCashSettlementHistory,
+  getQuickCommerceRiderCashDetails,
+  settleQuickCommerceRiderCash,
+  getQuickCommerceSellerWithdrawals,
+  updateQuickCommerceWithdrawalStatus,
+} from "../services/finance.service.js";
 
 const toCategory = (category) => ({
   id: category._id,
@@ -174,6 +186,23 @@ const legacyQuickStatusFromOrder = (order = {}) => {
 };
 
 const buildQuickAdminOrderResponse = (order, sellerMap = {}, sellerOrderMap = {}) => {
+  const paymentAmountDue = Number(order?.payment?.amountDue || 0);
+  const payableAmount = Number(order?.payableAmount || 0);
+  const totalAmount = Number(order?.totalAmount || 0);
+  const amount = Number(order?.amount || 0);
+  const total = Number(order?.total || 0);
+  const pricingTotal = Number(order?.pricing?.total || 0);
+  const platformFee = Number(order?.pricing?.platformFee || 0);
+  const payableTotal = Math.max(
+    0,
+    paymentAmountDue,
+    payableAmount,
+    totalAmount,
+    amount,
+    total,
+    pricingTotal + platformFee,
+  );
+
   const quickItems = Array.isArray(order?.items) ? order.items.filter((item) => item?.type === 'quick') : [];
   const firstSellerId = String(quickItems[0]?.sourceId || '');
   const seller = sellerMap[firstSellerId] || null;
@@ -188,8 +217,8 @@ const buildQuickAdminOrderResponse = (order, sellerMap = {}, sellerOrderMap = {}
     orderId: order.orderId,
     orderNumber: order.orderId,
     orderType: order.orderType || 'quick',
-    total: order.pricing?.total || 0,
-    amount: order.pricing?.total || 0,
+    total: payableTotal,
+    amount: payableTotal,
     status: legacyQuickStatusFromOrder(order),
     orderStatus: order.orderStatus || '',
     workflowStatus: order.workflowStatus || '',
@@ -891,8 +920,20 @@ export const getAdminCustomers = async (req, res) => {
   orders.forEach(order => {
     const customer = customerMap.get(String(order.userId));
     if (customer) {
+      const pricingTotal = Number(order.pricing?.total || 0);
+      const platformFee = Number(order.pricing?.platformFee || 0);
+      const payableTotal = Math.max(
+        0,
+        Number(order.payment?.amountDue || 0),
+        Number(order.payableAmount || 0),
+        Number(order.totalAmount || 0),
+        Number(order.amount || 0),
+        Number(order.total || 0),
+        pricingTotal + platformFee,
+      );
+
       customer.totalOrders += 1;
-      customer.totalSpent += Number(order.pricing?.total || 0);
+      customer.totalSpent += payableTotal;
       if (!customer.lastOrderDate || new Date(order.createdAt) > new Date(customer.lastOrderDate)) {
         customer.lastOrderDate = order.createdAt;
       }
@@ -907,6 +948,92 @@ export const getAdminCustomers = async (req, res) => {
       limit: perPage,
       total
     }
+  });
+};
+
+export const getAdminCustomerById = async (req, res) => {
+  const { id } = req.params;
+  if (!mongoose.isValidObjectId(id)) {
+    return res.status(400).json({ success: false, message: 'Invalid customer ID' });
+  }
+
+  const user = await FoodUser.findById(id).lean();
+  if (!user) {
+    return res.status(404).json({ success: false, message: 'Customer not found' });
+  }
+
+  const orders = await QuickOrder.find({
+    userId: user._id,
+    orderType: { $in: ['quick', 'mixed'] }
+  })
+    .sort({ createdAt: -1 })
+    .limit(50)
+    .lean();
+
+  const totalSpent = orders
+    .filter(o => o.orderStatus === 'delivered')
+    .reduce((sum, o) => {
+      const pricingTotal = Number(o.pricing?.total || 0);
+      const platformFee = Number(o.pricing?.platformFee || 0);
+      const payableTotal = Math.max(
+        0,
+        Number(o.payment?.amountDue || 0),
+        Number(o.payableAmount || 0),
+        Number(o.totalAmount || 0),
+        Number(o.amount || 0),
+        Number(o.total || 0),
+        pricingTotal + platformFee,
+      );
+      return sum + payableTotal;
+    }, 0);
+
+  const name = user.name || 'Customer';
+  const result = {
+    id: String(user._id),
+    name: name,
+    email: user.email || '',
+    phone: user.phone || '',
+    avatar: user.profileImage || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(name)}`,
+    status: user.isActive === false ? 'inactive' : 'active',
+    joinedDate: user.createdAt,
+    totalOrders: orders.length,
+    totalSpent,
+    lastOrderDate: orders[0]?.createdAt || null,
+    addresses: (user.addresses || []).map(addr => ({
+      id: addr._id,
+      label: addr.label,
+      fullAddress: `${addr.street}, ${addr.city}, ${addr.state} - ${addr.zipCode}`,
+      city: addr.city,
+      state: addr.state,
+      pincode: addr.zipCode,
+      isDefault: addr.isDefault
+    })),
+    recentOrders: orders.slice(0, 10).map(o => {
+      const pricingTotal = Number(o.pricing?.total || 0);
+      const platformFee = Number(o.pricing?.platformFee || 0);
+      const payableTotal = Math.max(
+        0,
+        Number(o.payment?.amountDue || 0),
+        Number(o.payableAmount || 0),
+        Number(o.totalAmount || 0),
+        Number(o.amount || 0),
+        Number(o.total || 0),
+        pricingTotal + platformFee,
+      );
+
+      return {
+        id: `#${o.orderId || o._id}`,
+        date: o.createdAt,
+        status: legacyQuickStatusFromOrder(o),
+        amount: payableTotal,
+        itemsCount: o.items?.length || 0
+      };
+    })
+  };
+
+  return res.json({
+    success: true,
+    result
   });
 };
 
@@ -1244,4 +1371,112 @@ export const deleteAdminOfferSection = async (req, res) => {
 export const reorderAdminOfferSections = async (req, res) => {
   await reorderQuickOfferSections(req.body);
   return res.json({ success: true, result: { reordered: true } });
+};
+
+export const getAdminFinanceSummary = async (_req, res) => {
+  const result = await getQuickCommerceFinanceSummary();
+  return res.json({ success: true, result });
+};
+
+export const getAdminFinanceLedger = async (req, res) => {
+  const page = Math.max(1, Number(req.query?.page || 1) || 1);
+  const limit = Math.max(1, Math.min(100, Number(req.query?.limit || 25) || 25));
+  const result = await getQuickCommerceFinanceLedger({ page, limit });
+  return res.json({ success: true, result });
+};
+
+export const getAdminFinancePayouts = async (req, res) => {
+  const page = Math.max(1, Number(req.query?.page || 1) || 1);
+  const limit = Math.max(1, Math.min(200, Number(req.query?.limit || 100) || 100));
+  const status = req.query?.status || "PENDING";
+  const seller = String(req.query?.seller || "").toLowerCase() === "true";
+  const result = await getQuickCommerceFinancePayouts({ seller, status, page, limit });
+  return res.json({ success: true, result });
+};
+
+export const getAdminSellerWithdrawals = async (req, res) => {
+  try {
+    const result = await getQuickCommerceSellerWithdrawals({
+      page: req.query?.page,
+      limit: req.query?.limit,
+      status: req.query?.status,
+      search: req.query?.search,
+    });
+    return res.json({ success: true, result });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to load seller withdrawals",
+    });
+  }
+};
+
+export const getAdminDeliveryWithdrawals = async (req, res) => {
+  try {
+    const result = await getQuickCommerceDeliveryWithdrawals({
+      page: req.query?.page,
+      limit: req.query?.limit,
+      status: req.query?.status,
+      search: req.query?.search,
+    });
+    return res.json({ success: true, result });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to load delivery withdrawals",
+    });
+  }
+};
+
+export const updateAdminWithdrawalStatus = async (req, res) => {
+  try {
+    const result = await updateQuickCommerceWithdrawalStatus(
+      req.params.withdrawalId,
+      req.body,
+    );
+    return res.json({ success: true, result });
+  } catch (error) {
+    const message = error.message || "Failed to update withdrawal";
+    const statusCode = message.includes("not found") ? 404 : 400;
+    return res.status(statusCode).json({ success: false, message });
+  }
+};
+
+export const getAdminDeliveryCashBalances = async (req, res) => {
+  const page = Math.max(1, Number(req.query?.page || 1) || 1);
+  const limit = Math.max(1, Math.min(100, Number(req.query?.limit || 25) || 25));
+  const search = String(req.query?.search || "").trim();
+  const result = await getQuickCommerceDeliveryCashBalances({ page, limit, search });
+  return res.json({ success: true, result });
+};
+
+export const getAdminCashSettlementHistory = async (req, res) => {
+  const page = Math.max(1, Number(req.query?.page || 1) || 1);
+  const limit = Math.max(1, Math.min(100, Number(req.query?.limit || 25) || 25));
+  const search = String(req.query?.search || "").trim();
+  const result = await getQuickCommerceCashSettlementHistory({ page, limit, search });
+  return res.json({ success: true, result });
+};
+
+export const getAdminRiderCashDetails = async (req, res) => {
+  const limit = Math.max(1, Math.min(200, Number(req.query?.limit || 50) || 50));
+  const result = await getQuickCommerceRiderCashDetails(req.params.riderId, { limit });
+  return res.json({ success: true, result, results: result });
+};
+
+export const settleAdminRiderCash = async (req, res) => {
+  try {
+    const result = await settleQuickCommerceRiderCash({
+      riderId: req.body?.riderId,
+      amount: req.body?.amount,
+      method: req.body?.method,
+      adminId: req.user?.userId || null,
+    });
+    return res.json({ success: true, result });
+  } catch (error) {
+    return res.status(400).json({
+      success: false,
+      message: error.message || "Failed to settle rider cash",
+    });
+  }
 };

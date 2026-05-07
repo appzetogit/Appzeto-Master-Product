@@ -64,7 +64,13 @@ const OrderTransactionsPage = () => {
                         <div className="divide-y divide-slate-100">
                             {orders.map((order) => {
                                 const isRefund = order.paymentStatus === 'refunded';
-                                const amount = order.totalAmount || order.payableAmount || 0;
+                                const pricingTotal = Number(order?.pricing?.total ?? order?.total ?? 0);
+                                const platformFee = Number(order?.pricing?.platformFee ?? 0);
+                                const computedPayable =
+                                    Number.isFinite(platformFee) && platformFee > 0
+                                        ? Math.max(0, pricingTotal + platformFee)
+                                        : Math.max(0, pricingTotal);
+                                const amount = Number(order.totalAmount || order.payableAmount || computedPayable || 0);
                                 const createdAt = order.createdAt ? new Date(order.createdAt) : null;
 
                                 return (

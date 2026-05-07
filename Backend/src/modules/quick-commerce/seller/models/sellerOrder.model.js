@@ -52,6 +52,8 @@ const sellerOrderSchema = new mongoose.Schema(
       subtotal: { type: Number, min: 0, default: 0 },
       commission: { type: Number, min: 0, default: 0 },
       total: { type: Number, min: 0, default: 0 },
+      /** Net amount payable to seller for this order leg (subtotal - commission). */
+      receivable: { type: Number, min: 0, default: 0 },
     },
     status: {
       type: String,
@@ -69,6 +71,11 @@ const sellerOrderSchema = new mongoose.Schema(
     workflowStatus: {
       type: String,
       default: "SELLER_PENDING",
+    },
+    deliveredAt: {
+      type: Date,
+      default: null,
+      index: true,
     },
     workflowVersion: {
       type: Number,

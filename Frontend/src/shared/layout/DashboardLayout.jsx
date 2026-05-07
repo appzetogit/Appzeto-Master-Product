@@ -24,6 +24,20 @@ const resolveAudioSource = (source, cacheKey = 'seller-alert') => {
     return `${source}${separator}devcache=${cacheKey}`;
 };
 
+const resolveSellerReceivable = (order) => {
+    const receivable = Number(order?.pricing?.receivable);
+    if (Number.isFinite(receivable)) return receivable;
+
+    const subtotal = Number(order?.pricing?.subtotal);
+    const commission = Number(order?.pricing?.commission);
+    if (Number.isFinite(subtotal) && Number.isFinite(commission)) {
+        return Math.max(0, subtotal - commission);
+    }
+
+    const fallback = Number(order?.total ?? order?.pricing?.total);
+    return Number.isFinite(fallback) ? fallback : 0;
+};
+
 /** Match server `sellerPendingExpiresAt` — never reset to a full 60s when the modal opens late. */
 function secondsLeftUntilSellerExpiry(order) {
     if (!order) return 0;
@@ -57,6 +71,7 @@ const DashboardLayout = ({ children, navItems, title }) => {
     const newOrderAlertRef = useRef(null);
     const fetchOrdersRef = useRef(null);
     const earningsFetchedRef = useRef(false);
+    const lastEarningsErrorToastAtRef = useRef(0);
 
     useEffect(() => {
         shownOrderIdsRef.current = shownOrderIds;
@@ -187,6 +202,19 @@ const DashboardLayout = ({ children, navItems, title }) => {
             .finally(() => setEarningsLoading(false));
     }, [role, location.pathname]);
 
+    // Keep earnings fresh while seller is on earnings-related pages (delivery updates can land after initial load).
+    useEffect(() => {
+        if (role !== 'seller') return undefined;
+        if (!isEarningsRoute(location.pathname)) return undefined;
+
+        const timer = setInterval(() => {
+            refreshEarnings();
+        }, POLL_INTERVAL_MS);
+
+        return () => clearInterval(timer);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [role, location.pathname]);
+
     const refreshOrders = () => {
         if (fetchOrdersRef.current) fetchOrdersRef.current();
     };
@@ -205,7 +233,16 @@ const DashboardLayout = ({ children, navItems, title }) => {
                     });
                 }
             })
-            .catch((err) => console.error("Earnings Fetch Error:", err))
+            .catch((err) => {
+                console.error("Earnings Fetch Error:", err);
+                const msg = err?.response?.data?.message || "Failed to refresh earnings";
+                // Avoid toast spam if the tab stays open and backend is down.
+                const now = Date.now();
+                if (now - lastEarningsErrorToastAtRef.current > 30000) {
+                    lastEarningsErrorToastAtRef.current = now;
+                    toast.error(msg, { duration: 2500 });
+                }
+            })
             .finally(() => {
                 setEarningsLoading(false);
                 earningsFetchedRef.current = true;
@@ -321,7 +358,7 @@ const DashboardLayout = ({ children, navItems, title }) => {
 
                                 <h2 className="text-2xl font-black text-slate-900 mb-2">New Order Received!</h2>
                                 <p className="text-slate-600 font-medium mb-6">
-                                    You have a new order <span className="text-primary font-bold">#{newOrderAlert.orderId}</span> for <span className="text-slate-900 font-bold">₹{newOrderAlert.pricing?.total || newOrderAlert.total}</span>
+                                    You have a new order <span className="text-primary font-bold">#{newOrderAlert.orderId}</span> for <span className="text-slate-900 font-bold">Rs {resolveSellerReceivable(newOrderAlert).toFixed(2)}</span>
                                 </p>
 
                                 {/* Timer Bar — width from real server deadline */}

@@ -43,13 +43,15 @@ const WithdrawalRequests = () => {
     const [pageSize, setPageSize] = useState(25);
     const [sellerTotal, setSellerTotal] = useState(0);
     const [deliveryTotal, setDeliveryTotal] = useState(0);
+    const [financeSummary, setFinanceSummary] = useState({});
 
     const fetchData = async (sellerPageNum = 1, deliveryPageNum = 1) => {
         try {
             setLoading(true);
-            const [sellerRes, deliveryRes] = await Promise.all([
+            const [sellerRes, deliveryRes, financeSummaryRes] = await Promise.all([
                 adminApi.getSellerWithdrawals({ page: sellerPageNum, limit: pageSize }).catch(err => ({ data: { success: false, result: {} } })),
-                adminApi.getDeliveryWithdrawals({ page: deliveryPageNum, limit: pageSize }).catch(err => ({ data: { success: false, result: {} } }))
+                adminApi.getDeliveryWithdrawals({ page: deliveryPageNum, limit: pageSize }).catch(err => ({ data: { success: false, result: {} } })),
+                adminApi.getFinanceSummary().catch(() => ({ data: { success: false, result: {} } })),
             ]);
 
             if (sellerRes.data.success) {
@@ -65,6 +67,9 @@ const WithdrawalRequests = () => {
                 setDeliveryRequests(items);
                 setDeliveryTotal(typeof payload.total === 'number' ? payload.total : items.length);
                 setDeliveryPage(typeof payload.page === 'number' ? payload.page : deliveryPageNum);
+            }
+            if (financeSummaryRes.data.success) {
+                setFinanceSummary(financeSummaryRes.data.result || {});
             }
         } catch (error) {
             console.error("Fetch error:", error);
@@ -102,9 +107,14 @@ const WithdrawalRequests = () => {
                 pending: dData.filter(r => r.status === 'Pending' || r.status === 'Processing').length,
                 amount: Math.abs(dData.filter(r => r.status === 'Pending' || r.status === 'Processing').reduce((acc, r) => acc + (Number(r.amount) || 0), 0)),
                 processed: dData.filter(r => r.status === 'Settled').length
-            }
+            },
+            sellerPendingToDistribute: Math.max(0, Number(financeSummary?.sellerPendingPayouts) || 0),
+            unpaidWithdrawalPayout: Math.abs(
+                (Number(sData.filter(r => r.status === 'Pending' || r.status === 'Processing').reduce((acc, r) => acc + (Number(r.amount) || 0), 0)) || 0) +
+                (Number(dData.filter(r => r.status === 'Pending' || r.status === 'Processing').reduce((acc, r) => acc + (Number(r.amount) || 0), 0)) || 0)
+            )
         };
-    }, [sellerRequests, deliveryRequests]);
+    }, [sellerRequests, deliveryRequests, financeSummary]);
 
     const currentData = useMemo(() => {
         const data = activeTab === 'sellers' ? (sellerRequests || []) : (deliveryRequests || []);
@@ -124,7 +134,7 @@ const WithdrawalRequests = () => {
     const confirmAction = async () => {
         try {
             setLoading(true);
-            const status = actionModal.type === 'approve' ? 'Settled' : 'Failed';
+            const status = actionModal.type === 'approve' ? 'Settled' : 'Rejected';
             const res = await adminApi.updateWithdrawalStatus(actionModal.request._id, { status });
             if (res.data.success) {
                 toast.success(`Request ${status} successfully`);
@@ -166,8 +176,8 @@ const WithdrawalRequests = () => {
             {/* Quick Stats Grid */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 {[
-                    { label: 'Total Pending', value: stats.sellers.pending + stats.delivery.pending, icon: Clock, color: 'amber', bg: 'bg-amber-50', iconColor: 'text-amber-500' },
-                    { label: 'Pending Volume', value: `₹${(stats.sellers.amount + stats.delivery.amount).toLocaleString()}`, icon: Banknote, color: 'blue', bg: 'bg-blue-50', iconColor: 'text-blue-500' },
+                    { label: 'Total Pending', value: `₹${(stats.sellerPendingToDistribute || 0).toLocaleString()}`, icon: Clock, color: 'amber', bg: 'bg-amber-50', iconColor: 'text-amber-500' },
+                    { label: 'Pending Payout', value: `₹${(stats.unpaidWithdrawalPayout || 0).toLocaleString()}`, icon: Banknote, color: 'blue', bg: 'bg-blue-50', iconColor: 'text-blue-500' },
                     { label: 'Settled Today', value: stats.sellers.processed + stats.delivery.processed, icon: CheckCircle2, color: 'emerald', bg: 'bg-emerald-50', iconColor: 'text-emerald-500' },
                 ].map((stat, i) => (
                     <Card key={i} className="p-6 border-none shadow-sm ring-1 ring-slate-100 bg-white">
