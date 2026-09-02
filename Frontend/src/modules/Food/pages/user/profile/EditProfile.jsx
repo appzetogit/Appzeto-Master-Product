@@ -123,6 +123,7 @@ export default function EditProfile() {
     dateOfBirth: "",
   })
   const fileInputRef = useRef(null)
+<<<<<<< HEAD
   const hydratedFromDraftRef = useRef(false)
   const [isDarkMode, setIsDarkMode] = useState(false)
 
@@ -139,6 +140,9 @@ export default function EditProfile() {
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
     return () => observer.disconnect()
   }, [])
+=======
+  const hydratedFromDraftRef = useRef(Boolean(draftProfile))
+>>>>>>> parent of abc806a (fix)
 
   // Update form data when profile changes
   useEffect(() => {
@@ -559,7 +563,30 @@ export default function EditProfile() {
                   slotProps={{
                     textField: {
                       className: "w-full",
+<<<<<<< HEAD
                       sx: datePickerTextFieldSx,
+=======
+                      sx: {
+                        '& .MuiOutlinedInput-root': {
+                          height: '48px',
+                          borderRadius: '8px',
+                          '& fieldset': {
+                            borderColor: '#d1d5db',
+                          },
+                          '&:hover fieldset': {
+                            borderColor: '#9ca3af',
+                          },
+                          '&.Mui-focused fieldset': {
+                            borderColor: '#EB590E',
+                            borderWidth: '1px',
+                          },
+                        },
+                        '& .MuiInputBase-input': {
+                          padding: '12px 14px',
+                          fontSize: '16px',
+                        },
+                      },
+>>>>>>> parent of abc806a (fix)
                     },
                   }}
                 />
@@ -581,7 +608,30 @@ export default function EditProfile() {
                   slotProps={{
                     textField: {
                       className: "w-full",
+<<<<<<< HEAD
                       sx: datePickerTextFieldSx,
+=======
+                      sx: {
+                        '& .MuiOutlinedInput-root': {
+                          height: '48px',
+                          borderRadius: '8px',
+                          '& fieldset': {
+                            borderColor: '#d1d5db',
+                          },
+                          '&:hover fieldset': {
+                            borderColor: '#9ca3af',
+                          },
+                          '&.Mui-focused fieldset': {
+                            borderColor: '#EB590E',
+                            borderWidth: '1px',
+                          },
+                        },
+                        '& .MuiInputBase-input': {
+                          padding: '12px 14px',
+                          fontSize: '16px',
+                        },
+                      },
+>>>>>>> parent of abc806a (fix)
                     },
                   }}
                 />
