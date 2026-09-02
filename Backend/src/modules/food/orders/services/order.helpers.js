@@ -201,6 +201,7 @@ export function buildDeliverySocketPayload(orderDoc, restaurantDoc = null) {
     payment: order?.payment,
     paymentMethod: order?.payment?.method,
     restaurantId:
+      restaurant?._id?.toString?.() ||
       order?.restaurantId?._id?.toString?.() ||
       order?.restaurantId?.toString?.() ||
       order?.restaurantId,
