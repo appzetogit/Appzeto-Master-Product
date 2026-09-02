@@ -41,8 +41,11 @@ import { useSellerOrders } from "../context/SellerOrdersContext";
 
 const Dashboard = () => {
   const navigate = useNavigate();
-  const { orders: ordersFromContext, ordersLoading, refreshOrders } =
-    useSellerOrders();
+  const {
+    orders: ordersFromContext,
+    ordersLoading,
+    refreshOrders,
+  } = useSellerOrders();
   const [loading, setLoading] = useState(true);
   const [statsData, setStatsData] = useState(null);
   const [selectedOrder, setSelectedOrder] = useState(null);
@@ -66,7 +69,9 @@ const Dashboard = () => {
       }
     };
     fetchStats();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const safeOrders = Array.isArray(ordersFromContext) ? ordersFromContext : [];
@@ -123,7 +128,7 @@ const Dashboard = () => {
     },
     {
       label: "Pending Orders",
-      value: safeOrders.filter(o => o.status === 'pending').length.toString(),
+      value: safeOrders.filter((o) => o.status === "pending").length.toString(),
       change: "-3",
       changeType: "decrease",
       icon: Clock,
@@ -225,7 +230,7 @@ const Dashboard = () => {
       });
       toast.success(`Order status updated to ${newStatus}`);
       setSelectedOrder((prev) =>
-        prev && prev.id === orderId ? { ...prev, status: newStatus } : prev
+        prev && prev.id === orderId ? { ...prev, status: newStatus } : prev,
       );
       if (typeof refreshOrders === "function") refreshOrders();
     } catch (error) {
@@ -235,7 +240,11 @@ const Dashboard = () => {
   };
 
   if (loadingOrStats) {
-    return <div className="flex items-center justify-center h-screen font-bold text-slate-600">Updating Dashboard...</div>;
+    return (
+      <div className="flex items-center justify-center h-screen font-bold text-slate-600">
+        Updating Dashboard...
+      </div>
+    );
   }
 
   return (
@@ -251,19 +260,31 @@ const Dashboard = () => {
           <Card key={stat.label} className="hover:shadow-lg transition-shadow">
             <div className="flex items-start justify-between">
               <div className="flex-1">
-                <p className="text-base font-medium text-slate-600">{stat.label}</p>
-                <p className="text-2xl font-bold text-slate-900 mt-2">{stat.value}</p>
+                <p className="text-base font-medium text-slate-600">
+                  {stat.label}
+                </p>
+                <p className="text-2xl font-bold text-slate-900 mt-2">
+                  {stat.value}
+                </p>
                 <div className="flex items-center gap-2 mt-2">
                   <span
                     className={cn(
                       "text-xs font-semibold flex items-center gap-1",
-                      stat.changeType === "increase" ? "text-emerald-600" : "text-red-600"
-                    )}
-                  >
-                    <TrendingUp className={cn("h-3 w-3", stat.changeType === "decrease" && "rotate-180")} />
+                      stat.changeType === "increase"
+                        ? "text-emerald-600"
+                        : "text-red-600",
+                    )}>
+                    <TrendingUp
+                      className={cn(
+                        "h-3 w-3",
+                        stat.changeType === "decrease" && "rotate-180",
+                      )}
+                    />
                     {stat.change}
                   </span>
-                  <span className="text-sm text-slate-600">{stat.description}</span>
+                  <span className="text-sm text-slate-600">
+                    {stat.description}
+                  </span>
                 </div>
               </div>
               <div className={cn("p-3 rounded-lg", stat.iconBg)}>
@@ -285,39 +306,56 @@ const Dashboard = () => {
               onClick={() => navigate(action.path)}
               className={cn(
                 "p-6 rounded-xl text-left transition-all duration-200 shadow-sm hover:shadow-md border-2",
-                isPrimary && "bg-primary border-primary text-white hover:bg-primary/90 hover:border-primary/90",
-                action.variant === "outline" && "bg-white border-slate-200 text-slate-900 hover:border-primary hover:bg-primary/5",
-                isEmerald && "bg-white border-slate-200 text-slate-900 hover:border-emerald-500 hover:bg-emerald-50"
-              )}
-            >
+                isPrimary &&
+                  "bg-primary border-primary text-white hover:bg-primary/90 hover:border-primary/90",
+                action.variant === "outline" &&
+                  "bg-white border-slate-200 text-slate-900 hover:border-primary hover:bg-primary/5",
+                isEmerald &&
+                  "bg-white border-slate-200 text-slate-900 hover:border-emerald-500 hover:bg-emerald-50",
+              )}>
               <div className="flex items-start gap-4">
-                <div className={cn(
-                  "p-2 rounded-lg",
-                  isPrimary ? "bg-white/20" : isEmerald ? "bg-emerald-50" : "bg-slate-100"
-                )}>
-                  <action.icon className={cn(
-                    "h-5 w-5",
-                    isPrimary ? "text-white" : isEmerald ? "text-emerald-600" : "text-slate-700"
-                  )} />
+                <div
+                  className={cn(
+                    "p-2 rounded-lg",
+                    isPrimary
+                      ? "bg-white/20"
+                      : isEmerald
+                        ? "bg-emerald-50"
+                        : "bg-slate-100",
+                  )}>
+                  <action.icon
+                    className={cn(
+                      "h-5 w-5",
+                      isPrimary
+                        ? "text-white"
+                        : isEmerald
+                          ? "text-emerald-600"
+                          : "text-slate-700",
+                    )}
+                  />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <h3 className={cn(
-                    "font-semibold text-sm",
-                    isPrimary ? "text-white" : "text-slate-900"
-                  )}>
+                  <h3
+                    className={cn(
+                      "font-semibold text-sm",
+                      isPrimary ? "text-white" : "text-slate-900",
+                    )}>
                     {action.title}
                   </h3>
-                  <p className={cn(
-                    "text-xs mt-1",
-                    isPrimary ? "text-white/90" : "text-slate-600"
-                  )}>
+                  <p
+                    className={cn(
+                      "text-xs mt-1",
+                      isPrimary ? "text-white/90" : "text-slate-600",
+                    )}>
                     {action.description}
                   </p>
                 </div>
-                <ArrowUpRight className={cn(
-                  "h-4 w-4 shrink-0",
-                  isPrimary ? "text-white/70" : "text-slate-600"
-                )} />
+                <ArrowUpRight
+                  className={cn(
+                    "h-4 w-4 shrink-0",
+                    isPrimary ? "text-white/70" : "text-slate-600",
+                  )}
+                />
               </div>
             </button>
           );
@@ -326,17 +364,31 @@ const Dashboard = () => {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Revenue Chart */}
-        <Card title="Revenue Overview" subtitle="Last 7 days performance" className="lg:col-span-2">
+        <Card
+          title="Revenue Overview"
+          subtitle="Last 7 days performance"
+          className="lg:col-span-2">
           <div className="h-[300px] min-h-[280px] w-full mt-4">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={revenueChartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+              <AreaChart
+                data={revenueChartData}
+                margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                 <defs>
-                  <linearGradient id="revenueGradient" x1="0" y1="0" x2="0" y2="1">
+                  <linearGradient
+                    id="revenueGradient"
+                    x1="0"
+                    y1="0"
+                    x2="0"
+                    y2="1">
                     <stop offset="5%" stopColor="#4f46e5" stopOpacity={0.4} />
                     <stop offset="95%" stopColor="#4f46e5" stopOpacity={0.05} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                <CartesianGrid
+                  strokeDasharray="3 3"
+                  vertical={false}
+                  stroke="#f1f5f9"
+                />
                 <XAxis
                   dataKey="name"
                   axisLine={false}
@@ -347,7 +399,9 @@ const Dashboard = () => {
                   axisLine={false}
                   tickLine={false}
                   tick={{ fill: "#475569", fontSize: 12, fontWeight: 600 }}
-                  tickFormatter={(value) => `₹${Number(value).toLocaleString()}`}
+                  tickFormatter={(value) =>
+                    `₹${Number(value).toLocaleString()}`
+                  }
                   domain={[0, revenueMax]}
                   allowDataOverflow
                 />
@@ -359,7 +413,10 @@ const Dashboard = () => {
                     boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)",
                     color: "#334155",
                   }}
-                  formatter={(value) => [`₹${Number(value).toLocaleString()}`, "Revenue"]}
+                  formatter={(value) => [
+                    `₹${Number(value).toLocaleString()}`,
+                    "Revenue",
+                  ]}
                   labelFormatter={(label) => `Day: ${label}`}
                 />
                 <Area
@@ -380,8 +437,17 @@ const Dashboard = () => {
           <div className="h-[300px] min-h-[280px] w-full mt-4">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={statsData?.categoryMix || []} layout="vertical">
-                <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
-                <XAxis type="number" axisLine={false} tickLine={false} tick={{ fill: "#475569", fontSize: 12 }} />
+                <CartesianGrid
+                  strokeDasharray="3 3"
+                  horizontal={false}
+                  stroke="#f1f5f9"
+                />
+                <XAxis
+                  type="number"
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fill: "#475569", fontSize: 12 }}
+                />
                 <YAxis
                   type="category"
                   dataKey="subject"
@@ -413,13 +479,11 @@ const Dashboard = () => {
         actions={
           <button
             onClick={() => navigate("/seller/orders")}
-            className="text-sm font-medium text-primary hover:text-primary/80 flex items-center gap-1"
-          >
+            className="text-sm font-medium text-primary hover:text-primary/80 flex items-center gap-1">
             View All
             <ArrowUpRight className="h-4 w-4" />
           </button>
-        }
-      >
+        }>
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
@@ -446,26 +510,41 @@ const Dashboard = () => {
             </thead>
             <tbody className="divide-y divide-slate-50">
               {safeOrders.slice(0, 5).map((order) => (
-                <tr key={order.orderId} className="hover:bg-slate-50/50 transition-colors">
+                <tr
+                  key={order.orderId}
+                  className="hover:bg-slate-50/50 transition-colors">
                   <td className="py-4 px-4 align-middle">
-                    <span className="text-sm font-semibold text-slate-900">{order.orderId}</span>
+                    <span className="text-sm font-semibold text-slate-900">
+                      {order.orderId}
+                    </span>
                   </td>
                   <td className="py-4 px-4 align-middle">
                     <div className="flex items-center gap-3">
                       <div className="h-8 w-8 rounded-full bg-slate-100 flex items-center justify-center text-xs font-semibold text-slate-600">
-                        {order.customer?.name?.split(" ").map(n => n[0]).join("") || "C"}
+                        {order.customer?.name
+                          ?.split(" ")
+                          .map((n) => n[0])
+                          .join("") || "C"}
                       </div>
-                      <span className="text-sm font-medium text-slate-700">{order.customer?.name || "Customer"}</span>
+                      <span className="text-sm font-medium text-slate-700">
+                        {order.customer?.name || "Customer"}
+                      </span>
                     </div>
                   </td>
                   <td className="py-4 px-4 align-middle">
-                    <span className="text-sm text-slate-600">{new Date(order.createdAt).toLocaleDateString()}</span>
+                    <span className="text-sm text-slate-600">
+                      {new Date(order.createdAt).toLocaleDateString()}
+                    </span>
                   </td>
                   <td className="py-4 px-4 align-middle">
-                    <span className="text-sm font-semibold text-slate-900">₹{order.pricing?.total || 0}</span>
+                    <span className="text-sm font-semibold text-slate-900">
+                      ₹{order.pricing?.total || 0}
+                    </span>
                   </td>
                   <td className="py-4 px-4 align-middle">
-                    <Badge variant={getStatusColor(order.status)} className="capitalize">
+                    <Badge
+                      variant={getStatusColor(order.status)}
+                      className="capitalize">
                       {order.status}
                     </Badge>
                   </td>
@@ -475,8 +554,7 @@ const Dashboard = () => {
                         setSelectedOrder(normalizeOrderForModal(order));
                         setIsOrderModalOpen(true);
                       }}
-                      className="text-slate-600 hover:text-primary transition-colors p-1"
-                    >
+                      className="text-slate-600 hover:text-primary transition-colors p-1">
                       <Eye className="h-4 w-4" />
                     </button>
                   </td>
@@ -501,8 +579,7 @@ const Dashboard = () => {
               initial={{ opacity: 0, scale: 0.95, y: 10 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 10 }}
-              className="w-full max-w-lg sm:max-w-2xl relative z-10 bg-white rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
-            >
+              className="w-full max-w-lg sm:max-w-2xl relative z-10 bg-white rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
               {/* Modal Header - same as Orders */}
               <div className="flex items-center justify-between px-4 py-3 sm:px-6 sm:py-4 border-b border-slate-100">
                 <div className="flex items-center space-x-3">
@@ -516,8 +593,7 @@ const Dashboard = () => {
                     <div className="flex items-center space-x-2 mt-0.5">
                       <Badge
                         variant={getStatusColor(selectedOrder.status)}
-                        className="text-[10px] font-black uppercase tracking-widest px-1.5 py-0"
-                      >
+                        className="text-[10px] font-black uppercase tracking-widest px-1.5 py-0">
                         {selectedOrder.status}
                       </Badge>
                       <span className="text-[10px] font-bold text-slate-600 uppercase tracking-widest">
@@ -528,8 +604,7 @@ const Dashboard = () => {
                 </div>
                 <button
                   onClick={() => setIsOrderModalOpen(false)}
-                  className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-600"
-                >
+                  className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-600">
                   <HiOutlineXMark className="h-5 w-5" />
                 </button>
               </div>
@@ -615,8 +690,7 @@ const Dashboard = () => {
                   {selectedOrder.items.map((item, idx) => (
                     <div
                       key={idx}
-                      className="flex items-center justify-between p-3 bg-white ring-1 ring-slate-100 rounded-2xl group hover:shadow-md transition-all"
-                    >
+                      className="flex items-center justify-between p-3 bg-white ring-1 ring-slate-100 rounded-2xl group hover:shadow-md transition-all">
                       <div className="flex items-center gap-4">
                         <div className="h-12 w-12 rounded-xl overflow-hidden bg-slate-50 ring-1 ring-slate-200">
                           {item.image ? (
@@ -655,8 +729,7 @@ const Dashboard = () => {
                 <div className="flex gap-2 items-center">
                   <button
                     onClick={() => setIsOrderModalOpen(false)}
-                    className="px-6 py-2.5 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 transition-all"
-                  >
+                    className="px-6 py-2.5 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 transition-all">
                     CLOSE
                   </button>
                   <div className="relative inline-block w-40">
@@ -665,8 +738,22 @@ const Dashboard = () => {
                       onChange={(e) =>
                         handleStatusUpdate(selectedOrder.id, e.target.value)
                       }
+                      disabled={[
+                        "confirmed",
+                        "packed",
+                        "out_for_delivery",
+                        "delivered",
+                      ].includes(selectedOrder.status.toLowerCase())}
                       className={cn(
-                        "w-full text-[10px] pl-3 pr-8 py-2 rounded-xl font-black uppercase tracking-wider border appearance-none cursor-pointer focus:ring-2 focus:ring-offset-1 transition-all outline-none shadow-sm",
+                        "w-full text-[10px] pl-3 pr-8 py-2 rounded-xl font-black uppercase tracking-wider border appearance-none transition-all outline-none shadow-sm",
+                        [
+                          "confirmed",
+                          "packed",
+                          "out_for_delivery",
+                          "delivered",
+                        ].includes(selectedOrder.status.toLowerCase())
+                          ? "cursor-not-allowed opacity-75"
+                          : "cursor-pointer focus:ring-2 focus:ring-offset-1",
                         getStatusColor(selectedOrder.status) === "warning"
                           ? "bg-amber-100 text-amber-700 focus:ring-amber-200"
                           : getStatusColor(selectedOrder.status) === "info"
@@ -682,9 +769,8 @@ const Dashboard = () => {
                                   : getStatusColor(selectedOrder.status) ===
                                       "error"
                                     ? "bg-rose-100 text-rose-700 focus:ring-rose-200"
-                                    : "bg-slate-100 text-slate-700 focus:ring-slate-200"
-                      )}
-                    >
+                                    : "bg-slate-100 text-slate-700 focus:ring-slate-200",
+                      )}>
                       <option value="pending">Pending</option>
                       <option value="confirmed">Confirmed</option>
                       <option value="packed">Packed</option>
