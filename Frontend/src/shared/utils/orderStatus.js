@@ -52,6 +52,18 @@ function legacyFromWorkflow(workflowStatus) {
  */
 export function getLegacyStatusFromOrder(order) {
   if (!order) return "pending";
+
+  // Explicitly check for delivered status first using multiple indicators
+  if (
+    order.deliveredAt ||
+    order.deliveryState?.deliveredAt ||
+    String(order.deliveryState?.status || order.deliveryState || "").toLowerCase() === "delivered" ||
+    String(order.orderStatus || "").toLowerCase() === "delivered" ||
+    String(order.status || "").toLowerCase() === "delivered"
+  ) {
+    return "delivered";
+  }
+
   const v = Number(order.workflowVersion) || 0;
   if (v >= 2 && order.workflowStatus) {
     const workflowStatus = String(order.workflowStatus).toUpperCase();
