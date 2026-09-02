@@ -251,7 +251,13 @@ export const syncSellerOrderFromDelivery = async (parentOrderId, deliveryStatus)
 
   // Backward compatibility: older quick seller orders were created without parentOrderId.
   // Sync by parentOrderId (new) OR by orderId (old), and backfill parentOrderId where missing.
-  await Promise.all([
+  const syncResults = await Promise.all([
+    SellerOrder.find({
+      $or: [
+        { parentOrderId },
+        { orderId: parent.orderId, $or: [{ parentOrderId: null }, { parentOrderId: { $exists: false } }] }
+      ]
+    }),
     SellerOrder.updateMany(
       { parentOrderId },
       {
@@ -274,6 +280,47 @@ export const syncSellerOrderFromDelivery = async (parentOrderId, deliveryStatus)
       },
     ),
   ]);
+
+  // If delivered -> Ensure earnings are credited for each affected seller leg
+  if (nextSellerStatus === 'delivered') {
+    const affectedSellerOrders = syncResults[0] || [];
+    for (const so of affectedSellerOrders) {
+      const receivableRaw =
+        Number(so?.pricing?.receivable) ||
+        Math.max(
+          0,
+          Number(so?.pricing?.subtotal || 0) - Number(so?.pricing?.commission || 0),
+        );
+      const receivable = Number.isFinite(receivableRaw) ? Math.max(0, receivableRaw) : 0;
+
+      if (receivable > 0) {
+        try {
+          await SellerTransaction.findOneAndUpdate(
+            { sellerId: so.sellerId, type: 'Order Payment', orderId: so.orderId },
+            {
+              $set: {
+                amount: receivable,
+                status: 'Settled',
+                reference: so.orderId,
+                customer: so?.customer?.name || 'Customer',
+              },
+              $setOnInsert: {
+                sellerId: so.sellerId,
+                type: 'Order Payment',
+                orderId: so.orderId,
+                reason: '',
+              },
+            },
+            { upsert: true, new: true, setDefaultsOnInsert: true },
+          );
+        } catch (err) {
+          logger.error(
+            `[QuickEarningsSync] Failed to upsert seller transaction for ${so.orderId}: ${err?.message || err}`,
+          );
+        }
+      }
+    }
+  }
 };
 
 export const triggerQuickOrderDispatch = async (parentOrderId, sellerId) => {
